@@ -80,7 +80,12 @@ class AgentLoop:
             ToolSpec("ui_press", "Pressiona uma tecla", ("key",), {"key": str}),
             ToolSpec("ui_hotkey", "Pressiona combinação de teclas", ("keys",), {"keys": list}),
             ToolSpec("screenshot", "Captura a tela"),
-            ToolSpec("schedule_task", "Agenda uma tarefa serializável", ("description", "delay_seconds", "steps"), {"description": str, "delay_seconds": (int, float), "steps": list}),
+            ToolSpec(
+                "schedule_task",
+                "Agenda uma tarefa serializável",
+                ("description", "delay_seconds", "steps"),
+                {"description": str, "delay_seconds": (int, float), "steps": list, "repeat_seconds": (int, float)},
+            ),
         ]
         for spec in specs:
             self.schemas.register(spec)
