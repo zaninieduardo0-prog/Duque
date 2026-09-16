@@ -113,7 +113,7 @@ class AgentLoop:
             ToolSpec("screenshot", "Captura a tela"),
             ToolSpec("screen_snapshot", "Observa a tela com contexto semântico"),
             ToolSpec("screen_find", "Localiza um elemento visual por texto", ("text",), {"text": str}),
-            ToolSpec("screen_click_text", "Localiza um texto na tela e clica no elemento", ("text",), {"text": str}),
+            ToolSpec("screen_click_text", "Localiza um texto na tela e clica no elemento; pode confirmar texto esperado", ("text",), {"text": str, "expected_text": str, "expected_not_text": str}),
             ToolSpec("screen_contains_text", "Verifica se um texto está visível via OCR", ("text",), {"text": str}),
             ToolSpec("schedule_task", "Agenda uma tarefa serializável", ("description", "delay_seconds", "steps"), {"description": str, "delay_seconds": (int, float), "steps": list, "repeat_seconds": (int, float)}),
         ]
