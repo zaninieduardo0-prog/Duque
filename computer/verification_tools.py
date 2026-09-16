@@ -33,13 +33,19 @@ class VerificationTools:
         normalized_text = " ".join(text.casefold().split())
         normalized_detected = " ".join(detected.casefold().split())
         found = bool(normalized_text) and normalized_text in normalized_detected
+        status = str(ocr.get("status", "unknown"))
 
-        return {
+        result = {
             "found": found,
             "requested_text": text,
             "detected_text": detected,
-            "ocr_status": ocr.get("status", "unknown"),
+            "ocr_status": status,
         }
+        if status != "ok":
+            raise RuntimeError(f"Não foi possível verificar o texto na tela: OCR está {status}")
+        if not found:
+            raise RuntimeError(f"Texto não encontrado na tela: {text}")
+        return result
 
     def register(self, executor: Any) -> None:
         executor.register("screen_snapshot", self.snapshot)
