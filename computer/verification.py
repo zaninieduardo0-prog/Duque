@@ -21,6 +21,7 @@ class Observation:
     height: int
     fingerprint: str
     source: str = "screen"
+    description: dict[str, Any] | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -37,14 +38,14 @@ class VerificationResult:
         return self.status == VerificationStatus.VERIFIED
 
 
-def observe(capture: ScreenCapture) -> Observation:
+def observe(capture: ScreenCapture, description: dict[str, Any] | None = None) -> Observation:
     image = capture.image
     try:
         payload = image.tobytes()
     except AttributeError:
         payload = repr(image).encode("utf-8", errors="replace")
     fingerprint = sha256(payload).hexdigest()
-    return Observation(capture.width, capture.height, fingerprint, capture.source)
+    return Observation(capture.width, capture.height, fingerprint, capture.source, description)
 
 
 def compare(before: Observation, after: Observation) -> VerificationResult:
@@ -55,13 +56,15 @@ def compare(before: Observation, after: Observation) -> VerificationResult:
 
 
 class Verification:
-    """Observa o computador e permite validar o resultado esperado por um predicado."""
+    """Observa o computador e permite validar resultado por mudança ou condição semântica."""
 
     def __init__(self, perception: Any) -> None:
         self.perception = perception
 
     def snapshot(self) -> Observation:
-        return observe(self.perception.screenshot())
+        capture = self.perception.screenshot()
+        description = self.perception.describe(capture)
+        return observe(capture, description)
 
     def verify_change(self, before: Observation) -> VerificationResult:
         return compare(before, self.snapshot())
