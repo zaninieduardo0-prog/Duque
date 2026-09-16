@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import platform
 import time
 from typing import Any
 
@@ -10,7 +11,10 @@ from .ui import UIController
 class WindowsUIController(UIController):
     """Backend Windows sem dependências externas para mouse/teclado básicos."""
 
-    _user32 = ctypes.windll.user32
+    def __init__(self) -> None:
+        if platform.system() != "Windows":
+            raise RuntimeError("WindowsUIController requer Windows")
+        self._user32 = ctypes.windll.user32
 
     def click(self, x: int, y: int, *, button: str = "left") -> None:
         self._user32.SetCursorPos(int(x), int(y))
@@ -24,7 +28,6 @@ class WindowsUIController(UIController):
         self._user32.mouse_event(up, 0, 0, 0, 0)
 
     def type_text(self, text: str, *, interval: float = 0.0) -> None:
-        # Usa clipboard + Ctrl+V para preservar acentos e Unicode.
         import tkinter as tk
         root = tk.Tk()
         root.withdraw()
@@ -49,7 +52,6 @@ class WindowsUIController(UIController):
             self._user32.keybd_event(vk, 0, 0x0002, 0)
 
     def screenshot(self) -> Any:
-        # Captura visual será adicionada no módulo de percepção.
         raise NotImplementedError("Captura de tela pertence ao módulo de percepção")
 
 
