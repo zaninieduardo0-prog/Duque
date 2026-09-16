@@ -39,6 +39,8 @@ class SecurityPolicy:
         "run_tests": RiskLevel.MEDIUM,
         "file_manager": RiskLevel.MEDIUM,
         "scheduler": RiskLevel.MEDIUM,
+        "schedule_task": RiskLevel.MEDIUM,
+        "reminder": RiskLevel.MEDIUM,
         "system_control": RiskLevel.HIGH,
     }
 
