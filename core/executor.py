@@ -4,8 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .security import SecurityPolicy
-from .tasks import TaskManager, Task
-
+from .tasks import Task, TaskManager
 
 Tool = Callable[..., Any]
 
@@ -35,7 +34,7 @@ class ToolRegistry:
 
 
 class Executor:
-    """Executa planos através de ferramentas registradas e política de segurança."""
+    """Executa ferramentas sem deixar cada etapa encerrar a tarefa inteira."""
 
     def __init__(self, tasks: TaskManager | None = None, security: SecurityPolicy | None = None) -> None:
         self.tasks = tasks or TaskManager()
@@ -45,22 +44,54 @@ class Executor:
     def register(self, name: str, tool: Tool) -> None:
         self.tools.register(name, tool)
 
-    def execute(self, task: Task, tool_name: str, arguments: dict[str, Any] | None = None, *, confirmed: bool = False) -> ExecutionResult:
+    def execute_step(
+        self,
+        task: Task,
+        tool_name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        confirmed: bool = False,
+        manage_task: bool = True,
+    ) -> ExecutionResult:
         policy = self.security.assess(tool_name)
         if policy.confirmation_required and not confirmed:
-            return ExecutionResult(False, confirmation_required=True, error=f"Ação '{tool_name}' exige confirmação")
+            return ExecutionResult(
+                False,
+                error=f"Ação '{tool_name}' exige confirmação",
+                confirmation_required=True,
+            )
 
         tool = self.tools.get(tool_name)
         if tool is None:
-            self.tasks.fail(task.id, f"Ferramenta não registrada: {tool_name}")
             return ExecutionResult(False, error=f"Ferramenta não registrada: {tool_name}")
 
-        self.tasks.start(task.id)
+        if manage_task:
+            self.tasks.start(task.id)
         try:
             value = tool(**(arguments or {}))
-            self.tasks.complete(task.id, value)
             return ExecutionResult(True, value=value)
         except Exception as exc:
-            message = f"{type(exc).__name__}: {exc}"
-            self.tasks.fail(task.id, message)
-            return ExecutionResult(False, error=message)
+            return ExecutionResult(False, error=f"{type(exc).__name__}: {exc}")
+
+    def execute_task(
+        self,
+        task: Task,
+        steps: list[tuple[str, dict[str, Any] | None]],
+        *,
+        confirmed: bool = False,
+    ) -> list[ExecutionResult]:
+        self.tasks.start(task.id)
+        results: list[ExecutionResult] = []
+
+        for tool_name, arguments in steps:
+            result = self.execute_step(task, tool_name, arguments, confirmed=confirmed, manage_task=False)
+            results.append(result)
+            if not result.success:
+                if result.confirmation_required:
+                    self.tasks.fail(task.id, result.error or "Confirmação necessária")
+                else:
+                    self.tasks.fail(task.id, result.error or "Falha na execução")
+                return results
+
+        self.tasks.complete(task.id, [result.value for result in results])
+        return results
