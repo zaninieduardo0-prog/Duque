@@ -34,7 +34,7 @@ class ToolRegistry:
 
 
 class Executor:
-    """Executa ferramentas sem deixar cada etapa encerrar a tarefa inteira."""
+    """Executa ferramentas e normaliza falhas declaradas pelo próprio tool."""
 
     def __init__(self, tasks: TaskManager | None = None, security: SecurityPolicy | None = None) -> None:
         self.tasks = tasks or TaskManager()
@@ -55,11 +55,7 @@ class Executor:
     ) -> ExecutionResult:
         policy = self.security.assess(tool_name)
         if policy.confirmation_required and not confirmed:
-            return ExecutionResult(
-                False,
-                error=f"Ação '{tool_name}' exige confirmação",
-                confirmation_required=True,
-            )
+            return ExecutionResult(False, error=f"Ação '{tool_name}' exige confirmação", confirmation_required=True)
 
         tool = self.tools.get(tool_name)
         if tool is None:
@@ -69,6 +65,9 @@ class Executor:
             self.tasks.start(task.id)
         try:
             value = tool(**(arguments or {}))
+            if isinstance(value, dict) and value.get("success") is False:
+                error = value.get("error") or value.get("stderr") or f"Ferramenta '{tool_name}' reportou falha"
+                return ExecutionResult(False, value=value, error=str(error))
             return ExecutionResult(True, value=value)
         except Exception as exc:
             return ExecutionResult(False, error=f"{type(exc).__name__}: {exc}")
@@ -87,10 +86,7 @@ class Executor:
             result = self.execute_step(task, tool_name, arguments, confirmed=confirmed, manage_task=False)
             results.append(result)
             if not result.success:
-                if result.confirmation_required:
-                    self.tasks.fail(task.id, result.error or "Confirmação necessária")
-                else:
-                    self.tasks.fail(task.id, result.error or "Falha na execução")
+                self.tasks.fail(task.id, result.error or "Falha na execução")
                 return results
 
         self.tasks.complete(task.id, [result.value for result in results])
