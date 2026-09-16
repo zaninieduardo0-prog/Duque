@@ -30,10 +30,21 @@ class AutonomousLoop:
         '{"action":"tool","tool":"nome","arguments":{},"reason":"..."} ou '
         '{"action":"finish","message":"..."}. '
         "Analise todos os resultados antes da próxima ação. Se algo falhar, corrija ou escolha outra abordagem. "
-        "Nunca invente resultados e nunca declare sucesso sem evidência."
+        "Nunca invente resultados e nunca declare sucesso sem evidência. "
+        "Quando a tarefa envolver interface, prefira observar/localizar antes de clicar ou digitar. "
+        "Só finalize depois que os resultados das ferramentas fornecerem evidência suficiente de conclusão."
     )
 
-    def __init__(self, model: ModelAdapter, executor: Executor, schemas: ToolSchemaRegistry, *, max_steps: int = 12, observer: Callable[[], dict[str, Any]] | None = None, event_sink: Callable[..., Any] | None = None) -> None:
+    def __init__(
+        self,
+        model: ModelAdapter,
+        executor: Executor,
+        schemas: ToolSchemaRegistry,
+        *,
+        max_steps: int = 12,
+        observer: Callable[[], dict[str, Any]] | None = None,
+        event_sink: Callable[..., Any] | None = None,
+    ) -> None:
         self.model = model
         self.executor = executor
         self.schemas = schemas
@@ -55,11 +66,14 @@ class AutonomousLoop:
             {"role": "user", "content": self._initial_prompt(context)},
         ]
         executions: list[ExecutionResult] = []
+        had_successful_tool = False
 
         for step_number in range(1, self.max_steps + 1):
             if self.observer is not None:
                 try:
-                    context.observe(self.observer())
+                    observation = self.observer()
+                    context.observe(observation)
+                    messages.append({"role": "user", "content": "OBSERVAÇÃO ATUAL: " + self._safe_json(observation)})
                 except Exception as exc:
                     context.record_failure(f"Falha de observação: {type(exc).__name__}: {exc}")
 
@@ -69,13 +83,18 @@ class AutonomousLoop:
             except Exception as exc:
                 error = f"Falha ao interpretar decisão do modelo: {type(exc).__name__}: {exc}"
                 context.record_failure(error)
-                messages.append({"role": "user", "content": error + ". Retorne JSON válido e tente novamente."})
+                messages.append({"role": "user", "content": "AÇÃO REJEITADA: " + error + ". Retorne somente um objeto JSON válido no formato solicitado."})
                 continue
 
             if action["action"] == "finish":
-                message = str(action.get("message", "Tarefa finalizada."))
-                if not message.strip():
-                    return AutonomousResult(False, "", step_number - 1, executions, "O modelo tentou finalizar sem mensagem")
+                message = str(action.get("message", "Tarefa finalizada.")).strip()
+                if not message:
+                    messages.append({"role": "user", "content": "AÇÃO REJEITADA: a mensagem de conclusão está vazia. Continue trabalhando."})
+                    continue
+                if not had_successful_tool and context.goal.strip():
+                    messages.append({"role": "user", "content": "AÇÃO REJEITADA: ainda não existe evidência de execução. Execute uma ferramenta ou, se a tarefa realmente não exigir ferramenta, explique o resultado sem alegar uma ação externa."})
+                    continue
+                self._emit(EventType.TASK_FINISHED, task_id=task.id, steps=step_number - 1)
                 return AutonomousResult(True, message, step_number - 1, executions)
 
             tool = str(action.get("tool", "")).strip()
@@ -85,7 +104,7 @@ class AutonomousLoop:
                 error = validation.error or "Ação inválida"
                 context.record_failure(error)
                 messages.append({"role": "assistant", "content": self._safe_json(action)})
-                messages.append({"role": "user", "content": f"AÇÃO REJEITADA: {error}. Escolha uma ferramenta válida."})
+                messages.append({"role": "user", "content": f"AÇÃO REJEITADA: {error}. Escolha uma ferramenta válida e tente novamente."})
                 continue
 
             self._emit(EventType.TASK_STARTED, task_id=task.id, step=step_number, tool=tool)
@@ -95,13 +114,25 @@ class AutonomousLoop:
                 return AutonomousResult(False, "Preciso da sua confirmação antes de executar essa ação.", step_number, executions, result.error)
 
             if result.success:
+                had_successful_tool = True
                 safe_result = self._safe_result(result.value)
                 context.record_step(tool=tool, arguments=arguments, result=safe_result)
-                feedback = {"success": True, "tool": tool, "result": safe_result}
+                feedback = {
+                    "success": True,
+                    "tool": tool,
+                    "result": safe_result,
+                    "verification": self._safe_result(result.verification),
+                }
+                self._emit(EventType.TASK_FINISHED, task_id=task.id, step=step_number, tool=tool)
             else:
                 error = result.error or "Falha desconhecida"
                 context.record_failure(error)
-                feedback = {"success": False, "tool": tool, "error": error, "verification": self._safe_result(result.verification)}
+                feedback = {
+                    "success": False,
+                    "tool": tool,
+                    "error": error,
+                    "verification": self._safe_result(result.verification),
+                }
                 self._emit(EventType.TASK_FAILED, task_id=task.id, step=step_number, tool=tool, error=error)
 
             messages.append({"role": "assistant", "content": self._safe_json(action)})
@@ -134,8 +165,12 @@ class AutonomousLoop:
         action = payload.get("action")
         if action not in {"tool", "finish"}:
             raise ValueError(f"Ação desconhecida: {action}")
-        if action == "tool" and not isinstance(payload.get("arguments", {}), dict):
-            raise ValueError("arguments deve ser um objeto")
+        if action == "tool":
+            tool = payload.get("tool")
+            if not isinstance(tool, str) or not tool.strip():
+                raise ValueError("tool deve ser um nome de ferramenta")
+            if not isinstance(payload.get("arguments", {}), dict):
+                raise ValueError("arguments deve ser um objeto")
         return payload
 
     @staticmethod
