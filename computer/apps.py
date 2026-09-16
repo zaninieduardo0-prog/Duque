@@ -8,6 +8,10 @@ import shutil
 KNOWN_APPS: dict[str, list[str]] = {
     "notepad": ["notepad.exe"],
     "bloco de notas": ["notepad.exe"],
+    # O protocolo whatsapp: permite abrir o aplicativo oficial instalado no
+    # Windows sem depender de um caminho fixo de instalação.
+    "whatsapp": ["cmd.exe", "/c", "start", "", "whatsapp:"],
+    "whatsapp desktop": ["cmd.exe", "/c", "start", "", "whatsapp:"],
 }
 
 
