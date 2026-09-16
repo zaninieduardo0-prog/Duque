@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from threading import RLock
@@ -7,7 +8,7 @@ from typing import Any
 
 
 class MemoryDatabase:
-    """Persistência SQLite local para memória e estado operacional do Duque."""
+    """Persistência SQLite local para memória, tarefas e agendamentos."""
 
     def __init__(self, path: str | Path = "duque_data/memory.db") -> None:
         self.path = Path(path).expanduser()
@@ -34,6 +35,33 @@ class MemoryDatabase:
                     UNIQUE(layer, key)
                 );
                 CREATE INDEX IF NOT EXISTS idx_memories_layer ON memories(layer);
+
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id TEXT PRIMARY KEY,
+                    description TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    result TEXT,
+                    error TEXT,
+                    created_at REAL NOT NULL,
+                    started_at REAL,
+                    finished_at REAL,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    metadata TEXT NOT NULL DEFAULT '{}'
+                );
+                CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+
+                CREATE TABLE IF NOT EXISTS scheduled_jobs (
+                    id TEXT PRIMARY KEY,
+                    description TEXT NOT NULL,
+                    run_at REAL NOT NULL,
+                    repeat_seconds REAL,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    metadata TEXT NOT NULL DEFAULT '{}',
+                    created_at REAL NOT NULL,
+                    last_run_at REAL,
+                    run_count INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_jobs_due ON scheduled_jobs(enabled, run_at);
                 """
             )
 
@@ -75,4 +103,48 @@ class MemoryDatabase:
     def delete(self, layer: str, key: str) -> bool:
         with self._lock, self._connect() as db:
             cursor = db.execute("DELETE FROM memories WHERE layer=? AND key=?", (layer, key))
+            return cursor.rowcount > 0
+
+    def upsert_task(self, task: Any) -> None:
+        payload = json.dumps(task.result, ensure_ascii=False, default=str) if task.result is not None else None
+        metadata = json.dumps(task.metadata, ensure_ascii=False, default=str)
+        with self._lock, self._connect() as db:
+            db.execute(
+                """INSERT INTO tasks(id, description, status, result, error, created_at, started_at, finished_at, attempts, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET description=excluded.description, status=excluded.status,
+                result=excluded.result, error=excluded.error, started_at=excluded.started_at,
+                finished_at=excluded.finished_at, attempts=excluded.attempts, metadata=excluded.metadata""",
+                (task.id, task.description, task.status.value, payload, task.error, task.created_at,
+                 task.started_at, task.finished_at, task.attempts, metadata),
+            )
+
+    def load_tasks(self) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as db:
+            return [dict(row) for row in db.execute("SELECT * FROM tasks ORDER BY created_at ASC").fetchall()]
+
+    def upsert_job(self, job: Any, created_at: float, last_run_at: float | None, run_count: int) -> None:
+        metadata = json.dumps(job.metadata, ensure_ascii=False, default=str)
+        with self._lock, self._connect() as db:
+            db.execute(
+                """INSERT INTO scheduled_jobs(id, description, run_at, repeat_seconds, enabled, metadata, created_at, last_run_at, run_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET description=excluded.description, run_at=excluded.run_at,
+                repeat_seconds=excluded.repeat_seconds, enabled=excluded.enabled, metadata=excluded.metadata,
+                last_run_at=excluded.last_run_at, run_count=excluded.run_count""",
+                (job.id, job.description, job.run_at, job.repeat_seconds, int(job.enabled), metadata,
+                 created_at, last_run_at, run_count),
+            )
+
+    def load_jobs(self, enabled_only: bool = False) -> list[dict[str, Any]]:
+        query = "SELECT * FROM scheduled_jobs"
+        if enabled_only:
+            query += " WHERE enabled=1"
+        query += " ORDER BY run_at ASC"
+        with self._lock, self._connect() as db:
+            return [dict(row) for row in db.execute(query).fetchall()]
+
+    def delete_job(self, job_id: str) -> bool:
+        with self._lock, self._connect() as db:
+            cursor = db.execute("DELETE FROM scheduled_jobs WHERE id=?", (job_id,))
             return cursor.rowcount > 0
