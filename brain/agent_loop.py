@@ -17,6 +17,7 @@ from computer.tools import ComputerTools
 from computer.ui_tools import UITools
 from computer.verification_tools import VerificationTools
 from computer.verified_ui import VerifiedScreenActions
+from computer.visual_workflow import VisualStep, VisualWorkflow
 from computer.workspace import Workspace
 from memory.memory import Memory, MemoryLayer
 from .model import ModelAdapter, NullModel
@@ -54,6 +55,9 @@ class AgentLoop:
             VerificationTools(self.verification).register(self.executor)
             ScreenTools(self.verification).register(self.executor)
             VerifiedScreenActions(active_ui_tools.controller, self.verification).register(self.executor)
+            self.visual_workflow = VisualWorkflow(VerifiedScreenActions(active_ui_tools.controller, self.verification), self.verification)
+        else:
+            self.visual_workflow = None
         self.task_engine = TaskEngine(self.executor, self.tasks, self.engine.emit)
         self.correction = SelfCorrection(self.task_engine)
         self.model = model or NullModel()
@@ -63,14 +67,8 @@ class AgentLoop:
         self.memory = memory or Memory()
 
         self.scheduler = Scheduler(database=self.tasks.database)
-        self.scheduled_runner = ScheduledTaskRunner(
-            self.scheduler,
-            self.task_engine,
-            self.tasks,
-            event_sink=self.engine.emit,
-        )
+        self.scheduled_runner = ScheduledTaskRunner(self.scheduler, self.task_engine, self.tasks, event_sink=self.engine.emit)
         self.scheduled_runner.start()
-
         self.executor.register("schedule_task", self._schedule_task)
 
     def _register_tool_schemas(self) -> None:
