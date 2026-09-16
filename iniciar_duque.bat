@@ -11,7 +11,7 @@ set DUQUE_PITCH=-2.0
 set DUQUE_VOICE_SPEED=0.96
 set DUQUE_VOICE_PROCESSING=1
 
- echo ==========================================
+echo ==========================================
 echo              DUQUE AI
 echo ==========================================
 echo.
@@ -36,15 +36,13 @@ timeout /t 3 /nobreak >nul
 echo Iniciando inteligencia artificial...
 echo.
 
-start "DUQUE - IA" cmd /k "cd /d C:\Duque && "%PYTHON%" duque_wake_v2.py"
-
+start "DUQUE - IA" cmd /k "cd /d C:\Duque && "%PYTHON%" duque_wake_v3.py"
 timeout /t 4 /nobreak >nul
 
 echo Abrindo interface...
 echo.
 
 start "" "http://127.0.0.1:5000"
-
 echo.
 echo ==========================================
 echo       DUQUE INICIADO COM SUCESSO
