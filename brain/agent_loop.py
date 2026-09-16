@@ -10,13 +10,13 @@ from core.events import EventType
 from core.executor import ExecutionResult, Executor
 from core.task_engine import TaskEngine
 from core.tasks import TaskManager
-from computer.action_tools import ComputerActionTools
 from computer.code_tools import CodeTools
 from computer.runtime import create_ui_tools, create_verification
 from computer.screen_tools import ScreenTools
 from computer.tools import ComputerTools
 from computer.ui_tools import UITools
 from computer.verification_tools import VerificationTools
+from computer.verified_ui import VerifiedScreenActions
 from computer.workspace import Workspace
 from memory.memory import Memory, MemoryLayer
 from .model import ModelAdapter, NullModel
@@ -52,11 +52,8 @@ class AgentLoop:
         active_ui_tools.register(self.executor)
         if self.verification is not None:
             VerificationTools(self.verification).register(self.executor)
-            screen_tools = ScreenTools(self.verification)
-            screen_tools.register(self.executor)
-            controller = getattr(active_ui_tools, "controller", None)
-            if controller is not None:
-                ComputerActionTools(screen_tools, controller).register(self.executor)
+            ScreenTools(self.verification).register(self.executor)
+            VerifiedScreenActions(active_ui_tools.controller, self.verification).register(self.executor)
         self.task_engine = TaskEngine(self.executor, self.tasks, self.engine.emit)
         self.correction = SelfCorrection(self.task_engine)
         self.model = model or NullModel()
@@ -87,13 +84,13 @@ class AgentLoop:
             ToolSpec("list_files", "Lista arquivos do workspace"),
             ToolSpec("run_python", "Executa Python no workspace", ("path",), {"path": str}),
             ToolSpec("ui_click", "Clica na tela", ("x", "y"), {"x": int, "y": int}),
-            ToolSpec("screen_click_text", "Localiza visualmente um texto e clica nele", ("text",), {"text": str}),
             ToolSpec("ui_type_text", "Digita texto", ("text",), {"text": str}),
             ToolSpec("ui_press", "Pressiona uma tecla", ("key",), {"key": str}),
             ToolSpec("ui_hotkey", "Pressiona combinação de teclas", ("keys",), {"keys": list}),
             ToolSpec("screenshot", "Captura a tela"),
             ToolSpec("screen_snapshot", "Observa a tela com contexto semântico"),
             ToolSpec("screen_find", "Localiza um elemento visual por texto", ("text",), {"text": str}),
+            ToolSpec("screen_click_text", "Localiza um texto na tela e clica no elemento", ("text",), {"text": str}),
             ToolSpec("screen_contains_text", "Verifica se um texto está visível via OCR", ("text",), {"text": str}),
             ToolSpec("schedule_task", "Agenda uma tarefa serializável", ("description", "delay_seconds", "steps"), {"description": str, "delay_seconds": (int, float), "steps": list, "repeat_seconds": (int, float)}),
         ]
@@ -119,7 +116,6 @@ class AgentLoop:
             if not validation.valid:
                 raise ValueError(validation.error or f"Etapa inválida: {tool}")
             normalized.append({"tool": tool, "arguments": arguments})
-
         task = self.tasks.create(description, source="scheduled", scheduled=True)
         job = self.scheduler.add_task_after(description, max(0, float(delay_seconds)), task_id=task.id, steps=normalized, repeat_seconds=float(repeat_seconds) if repeat_seconds is not None else None)
         return {"job_id": job.id, "task_id": task.id, "description": description, "run_at": job.run_at}
@@ -138,14 +134,12 @@ class AgentLoop:
         plan = self._build_plan(text, route.intent.value)
         task = self.tasks.create(text, intent=route.intent.value, confidence=route.confidence)
         self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "created"})
-
         tool_steps = [(step.tool or "", step.arguments) for step in plan.steps if step.kind == StepKind.TOOL and step.tool]
         if not tool_steps:
             self.tasks.start(task.id)
             self.tasks.complete(task.id, text)
             self.engine.emit(EventType.TASK_FINISHED, task_id=task.id)
             return AgentResult(text, task.id)
-
         report = self.correction.run(task, lambda error, attempt: self._correct_steps(text, route.intent.value, tool_steps, error, attempt), max_attempts=max_attempts, confirmed=confirmed)
         if not report.success:
             failed = next((item.result for item in reversed(report.results) if not item.result.success), None)
@@ -154,7 +148,6 @@ class AgentLoop:
             error = report.last_error or (failed.error if failed else "Falha desconhecida")
             self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "failed", "error": error, "attempts": report.attempts})
             return AgentResult(f"Não consegui executar a tarefa: {error}", task.id, failed, report.attempts)
-
         last = report.results[-1].result if report.results else None
         self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "attempts": report.attempts})
         return AgentResult("Tarefa concluída.", task.id, last, report.attempts)
