@@ -5,7 +5,13 @@ cd /d C:\Duque
 
 set PYTHON=C:\Duque\.venv\Scripts\python.exe
 
-echo ==========================================
+rem Configuracao de voz: altere estas variaveis sem mexer no runtime.
+set DUQUE_VOICE=cedar
+set DUQUE_PITCH=-2.0
+set DUQUE_VOICE_SPEED=0.96
+set DUQUE_VOICE_PROCESSING=1
+
+ echo ==========================================
 echo              DUQUE AI
 echo ==========================================
 echo.
@@ -30,7 +36,7 @@ timeout /t 3 /nobreak >nul
 echo Iniciando inteligencia artificial...
 echo.
 
-start "DUQUE - IA" cmd /k "cd /d C:\Duque && "%PYTHON%" duque_wake.py"
+start "DUQUE - IA" cmd /k "cd /d C:\Duque && "%PYTHON%" duque_wake_v2.py"
 
 timeout /t 4 /nobreak >nul
 
