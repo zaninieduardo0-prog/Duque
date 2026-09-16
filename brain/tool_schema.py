@@ -19,7 +19,7 @@ class ValidationResult:
 
 
 class ToolSchemaRegistry:
-    """Catálogo simples para validar planos antes de executá-los."""
+    """Catálogo simples para validar planos e ações antes de executá-los."""
 
     def __init__(self) -> None:
         self._schemas: dict[str, ToolSpec] = {}
@@ -29,6 +29,20 @@ class ToolSchemaRegistry:
 
     def get(self, name: str) -> ToolSpec | None:
         return self._schemas.get(name)
+
+    def names(self) -> list[str]:
+        return sorted(self._schemas)
+
+    def describe(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "name": spec.name,
+                "description": spec.description,
+                "required": list(spec.required),
+                "arguments": {key: self._type_label(value) for key, value in spec.argument_types.items()},
+            }
+            for spec in self._schemas.values()
+        ]
 
     def validate(self, name: str, arguments: dict[str, Any] | None) -> ValidationResult:
         spec = self.get(name)
