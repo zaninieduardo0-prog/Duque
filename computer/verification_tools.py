@@ -6,7 +6,7 @@ from .verification import Verification
 
 
 class VerificationTools:
-    """Ferramentas para observar e verificar mudanças na interface."""
+    """Ferramentas para observar e consultar semanticamente a interface."""
 
     def __init__(self, verification: Verification) -> None:
         self.verification = verification
@@ -18,7 +18,29 @@ class VerificationTools:
             "height": observation.height,
             "fingerprint": observation.fingerprint,
             "source": observation.source,
+            "description": observation.description,
+        }
+
+    def screen_contains_text(self, text: str) -> dict[str, Any]:
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("text não pode ser vazio")
+
+        observation = self.verification.snapshot()
+        description = observation.description or {}
+        analysis = description.get("visual_analysis", {})
+        ocr = analysis.get("ocr", {}) if isinstance(analysis, dict) else {}
+        detected = str(ocr.get("text", ""))
+        normalized_text = " ".join(text.casefold().split())
+        normalized_detected = " ".join(detected.casefold().split())
+        found = bool(normalized_text) and normalized_text in normalized_detected
+
+        return {
+            "found": found,
+            "requested_text": text,
+            "detected_text": detected,
+            "ocr_status": ocr.get("status", "unknown"),
         }
 
     def register(self, executor: Any) -> None:
         executor.register("screen_snapshot", self.snapshot)
+        executor.register("screen_contains_text", self.screen_contains_text)
