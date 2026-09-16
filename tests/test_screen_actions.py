@@ -18,6 +18,22 @@ class FakeImage:
 class FakeBackend:
     def __init__(self) -> None:
         self.payload = b"before"
+        self.after_description = {
+            "visual_analysis": {
+                "status": "ok",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": "Continuar",
+                        "x": 10,
+                        "y": 20,
+                        "width": 40,
+                        "height": 20,
+                        "confidence": 0.95,
+                    }
+                ],
+            }
+        }
 
     def capture(self) -> ScreenCapture:
         return ScreenCapture(FakeImage(self.payload), 100, 80)
@@ -62,6 +78,32 @@ def test_click_text_uses_visual_center_and_verifies_change() -> None:
     assert controller.calls == [(30, 30)]
     assert result["clicked"] is True
     assert result["verification"]["changed"] is True
+
+
+def test_click_text_can_require_expected_text() -> None:
+    backend = FakeBackend()
+    perception = Perception(backend, analyzer=FakeVision())
+    verification = Verification(perception)
+    controller = FakeController(backend)
+
+    result = VerifiedScreenActions(controller, verification).click_text("Continuar", expected_text="Continuar")
+
+    assert result["verification"]["verified"] is True
+    assert result["verification"]["status"] == "verified"
+
+
+def test_click_text_rejects_missing_expected_text() -> None:
+    backend = FakeBackend()
+    perception = Perception(backend, analyzer=FakeVision())
+    verification = Verification(perception)
+    controller = FakeController(backend)
+
+    try:
+        VerifiedScreenActions(controller, verification).click_text("Continuar", expected_text="Próxima tela")
+    except RuntimeError as exc:
+        assert "texto esperado não apareceu" in str(exc)
+    else:
+        raise AssertionError("A verificação semântica deveria falhar")
 
 
 def test_click_text_fails_when_screen_does_not_change() -> None:
