@@ -4,9 +4,9 @@ import platform
 
 from .perception import Perception
 from .ui import UIController
+from .ui_backend import WindowsUIController
 from .ui_tools import UITools
 from .windows_perception import WindowsScreenBackend
-from .windows_ui import WindowsUIController
 
 
 def create_ui_tools() -> UITools:
