@@ -24,21 +24,26 @@ class DuqueEngine:
 
     def start(self) -> None:
         self.running = True
-        self.state.transition(DuqueState.STANDBY, force=True, activity="Sistema pronto")
+        snapshot = self.state.transition(DuqueState.STANDBY, force=True, activity="Sistema pronto")
+        self.events.emit(Event(EventType.STATE_CHANGED, {"snapshot": snapshot}))
         self.events.emit(Event(EventType.DUQUE_WAKE))
 
     def sleep(self) -> None:
-        self.state.transition(DuqueState.SLEEPING, force=True, activity="Duque em repouso")
+        snapshot = self.state.transition(DuqueState.SLEEPING, force=True, activity="Duque em repouso")
         self.running = False
+        self.events.emit(Event(EventType.STATE_CHANGED, {"snapshot": snapshot}))
         self.events.emit(Event(EventType.DUQUE_SLEEP))
 
     def wake(self) -> None:
         self.running = True
-        self.state.transition(DuqueState.STANDBY, force=True, activity="Sistema pronto")
+        snapshot = self.state.transition(DuqueState.STANDBY, force=True, activity="Sistema pronto")
+        self.events.emit(Event(EventType.STATE_CHANGED, {"snapshot": snapshot}))
         self.events.emit(Event(EventType.DUQUE_WAKE))
 
     def transition(self, state: DuqueState, **kwargs: Any) -> StateSnapshot:
-        return self.state.transition(state, **kwargs)
+        snapshot = self.state.transition(state, **kwargs)
+        self.events.emit(Event(EventType.STATE_CHANGED, {"snapshot": snapshot}))
+        return snapshot
 
     def emit(self, event_type: EventType, **data: Any) -> list[Any]:
         return self.events.emit(Event(event_type, data))
