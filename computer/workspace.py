@@ -19,7 +19,7 @@ class Workspace:
         self.root = Path(root).expanduser().resolve()
         self.root.mkdir(parents=True, exist_ok=True)
 
-    def _resolve(self, relative_path: str | Path) -> Path:
+    def resolve(self, relative_path: str | Path) -> Path:
         candidate = (self.root / relative_path).resolve()
         try:
             candidate.relative_to(self.root)
@@ -27,14 +27,17 @@ class Workspace:
             raise PermissionError("Caminho fora do workspace") from exc
         return candidate
 
+    def _resolve(self, relative_path: str | Path) -> Path:
+        return self.resolve(relative_path)
+
     def read(self, relative_path: str | Path) -> FileResult:
-        path = self._resolve(relative_path)
+        path = self.resolve(relative_path)
         if not path.is_file():
             raise FileNotFoundError(str(path))
         return FileResult(str(path), path.read_text(encoding="utf-8"))
 
     def write(self, relative_path: str | Path, content: str) -> FileResult:
-        path = self._resolve(relative_path)
+        path = self.resolve(relative_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         existed = path.exists()
         old = path.read_text(encoding="utf-8") if existed and path.is_file() else None
