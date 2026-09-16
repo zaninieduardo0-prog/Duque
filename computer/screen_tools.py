@@ -17,7 +17,7 @@ class ScreenTools:
         confidence_floor = max(0.0, min(1.0, float(min_confidence)))
         observation = self.verification.snapshot()
         description = observation.description or {}
-        vision = description.get("ModelVisionAnalyzer", {})
+        vision = self._vision_payload(description)
         if vision.get("status") != "ok":
             raise RuntimeError(f"Visão multimodal indisponível: {vision.get('reason') or vision.get('error') or vision.get('status')}")
 
@@ -36,15 +36,30 @@ class ScreenTools:
             raise RuntimeError(f"Busca ambígua para '{text}': múltiplos elementos têm confiança semelhante")
 
         best = matches[0]
+        try:
+            x, y, width, height = (float(best[key]) for key in ("x", "y", "width", "height"))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError(f"Elemento visual inválido: {best}") from exc
+        if width <= 0 or height <= 0:
+            raise RuntimeError("Elemento visual possui dimensões inválidas")
+
         return {
             "found": True,
             "text": text,
             "element": best,
-            "click_point": {
-                "x": int(best["x"] + best["width"] / 2),
-                "y": int(best["y"] + best["height"] / 2),
-            },
+            "click_point": {"x": int(x + width / 2), "y": int(y + height / 2)},
         }
+
+    @staticmethod
+    def _vision_payload(description: dict[str, Any]) -> dict[str, Any]:
+        # Perception direta usa visual_analysis; o compositor usa o nome do analyzer.
+        direct = description.get("visual_analysis")
+        if isinstance(direct, dict) and "elements" in direct:
+            return direct
+        nested = description.get("ModelVisionAnalyzer")
+        if isinstance(nested, dict):
+            return nested
+        return {"status": "unavailable", "reason": "model_vision_not_found"}
 
     def register(self, executor: Any) -> None:
         executor.register("screen_find", self.find)
