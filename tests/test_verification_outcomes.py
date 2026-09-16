@@ -27,15 +27,17 @@ def test_expected_outcome_is_verified() -> None:
     backend = FakeBackend()
     verification = Verification(Perception(backend))
     pipeline = VerifiedAction(verification)
+    expected_fingerprint = verification.snapshot().fingerprint
 
     def action() -> str:
         backend.payload = b"done"
         return "ok"
 
-    result = pipeline.run(action, expected=lambda observation: observation.fingerprint == verification.snapshot().fingerprint)
+    result = pipeline.run(action, expected=lambda observation: observation.fingerprint != expected_fingerprint)
 
     assert result.verified is True
     assert result.verification.status == VerificationStatus.VERIFIED
+    assert result.verification.confidence == 1.0
 
 
 def test_changed_without_expected_match_is_not_verified() -> None:
@@ -47,7 +49,6 @@ def test_changed_without_expected_match_is_not_verified() -> None:
 
     assert result.changed is True
     assert result.verified is False
-    assert result.verification if False else True
     assert result.status == VerificationStatus.CHANGED_UNCONFIRMED
 
 
