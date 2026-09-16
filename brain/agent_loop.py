@@ -12,6 +12,7 @@ from computer.runtime import create_ui_tools
 from computer.tools import ComputerTools
 from computer.ui_tools import UITools
 from computer.workspace import Workspace
+from memory.memory import Memory, MemoryLayer
 from .model import ModelAdapter, NullModel
 from .model_planner import ModelPlanner
 from .planner import Planner, StepKind
@@ -29,7 +30,7 @@ class AgentResult:
 
 
 class AgentLoop:
-    """Orquestra entendimento, planejamento, execução e correção sem depender da voz."""
+    """Orquestra entendimento, planejamento, execução, correção e memória."""
 
     def __init__(
         self,
@@ -40,6 +41,7 @@ class AgentLoop:
         ui_tools: UITools | None = None,
         model: ModelAdapter | None = None,
         model_planner: ModelPlanner | None = None,
+        memory: Memory | None = None,
     ) -> None:
         self.engine = engine or DuqueEngine()
         self.router = IntentRouter()
@@ -56,6 +58,7 @@ class AgentLoop:
         self.schemas = ToolSchemaRegistry()
         self._register_tool_schemas()
         self.model_planner = model_planner or ModelPlanner(self.model, self.schemas)
+        self.memory = memory or Memory()
 
     def _register_tool_schemas(self) -> None:
         specs = [
@@ -86,8 +89,14 @@ class AgentLoop:
 
     def handle(self, text: str, *, confirmed: bool = False, max_attempts: int = 3) -> AgentResult:
         route = self.router.route(text)
+        self.memory.remember(
+            MemoryLayer.CONVERSATION,
+            f"turn:{self._next_turn_key()}",
+            {"role": "user", "text": text, "intent": route.intent.value},
+        )
         plan = self._build_plan(text, route.intent.value)
         task = self.tasks.create(text, intent=route.intent.value, confidence=route.confidence)
+        self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "created"})
 
         tool_steps = [
             (step.tool or "", step.arguments)
@@ -112,10 +121,15 @@ class AgentLoop:
             if failed and failed.confirmation_required:
                 return AgentResult("Preciso da sua confirmação antes de executar essa ação.", task.id, failed, report.attempts)
             error = report.last_error or (failed.error if failed else "Falha desconhecida")
+            self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "failed", "error": error, "attempts": report.attempts})
             return AgentResult(f"Não consegui executar a tarefa: {error}", task.id, failed, report.attempts)
 
         last = report.results[-1].result if report.results else None
+        self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "attempts": report.attempts})
         return AgentResult("Tarefa concluída.", task.id, last, report.attempts)
+
+    def _next_turn_key(self) -> str:
+        return str(len(self.memory.search(MemoryLayer.CONVERSATION, limit=100000)) + 1)
 
     def _correct_steps(self, goal: str, intent: str, original_steps, error: str | None, attempt: int):
         if not error:
