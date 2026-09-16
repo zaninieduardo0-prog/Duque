@@ -26,11 +26,12 @@ class ScheduledJob:
 
 
 class Scheduler:
-    """Agendador persistente em SQLite, recuperável após reiniciar o Duque."""
+    """Agendador persistente; jobs sobrevivem ao restart e carregam uma intenção serializável."""
 
-    def __init__(self, database: MemoryDatabase | None = None, poll_interval: float = 0.5) -> None:
+    def __init__(self, database: MemoryDatabase | None = None, poll_interval: float = 0.5, executor: Callable[[ScheduledJob], Any] | None = None) -> None:
         self.database = database or MemoryDatabase()
         self.poll_interval = max(0.1, poll_interval)
+        self.executor = executor
         self._jobs: dict[str, ScheduledJob] = {}
         self._lock = threading.RLock()
         self._stop = threading.Event()
@@ -58,8 +59,19 @@ class Scheduler:
             self._save(job)
         return job
 
+    def add_task(self, description: str, run_at: float | datetime, *, task_id: str | None = None, steps: list[dict[str, Any]] | None = None, repeat_seconds: float | None = None, **metadata: Any) -> ScheduledJob:
+        """Cria um job totalmente serializável; não depende de callback para sobreviver ao restart."""
+        payload = dict(metadata)
+        payload["kind"] = "task"
+        payload["task_id"] = task_id
+        payload["steps"] = steps or []
+        return self.add(description, run_at, repeat_seconds=repeat_seconds, **payload)
+
     def add_after(self, description: str, seconds: float, callback: Callable[[], Any] | None = None, *, repeat_seconds: float | None = None, **metadata: Any) -> ScheduledJob:
         return self.add(description, time.time() + max(0, seconds), callback, repeat_seconds=repeat_seconds, **metadata)
+
+    def add_task_after(self, description: str, seconds: float, *, task_id: str | None = None, steps: list[dict[str, Any]] | None = None, repeat_seconds: float | None = None, **metadata: Any) -> ScheduledJob:
+        return self.add_task(description, time.time() + max(0, seconds), task_id=task_id, steps=steps, repeat_seconds=repeat_seconds, **metadata)
 
     def cancel(self, job_id: str) -> bool:
         with self._lock:
@@ -83,13 +95,13 @@ class Scheduler:
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, name="DuqueScheduler", daemon=True)
         self._thread.start()
-        # Jobs vencidos são avaliados imediatamente após o boot.
         self.run_due()
 
     def stop(self) -> None:
         self._stop.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2)
+        self._thread = None
 
     def run_due(self) -> int:
         now = time.time()
@@ -104,7 +116,6 @@ class Scheduler:
             self.run_due()
 
     def _execute(self, job: ScheduledJob) -> None:
-        # Marca a execução antes do callback para evitar disparos duplicados.
         with self._lock:
             if not job.enabled or job.run_at > time.time():
                 return
@@ -117,10 +128,11 @@ class Scheduler:
             self._save(job)
 
         try:
-            if job.callback:
+            if self.executor:
+                self.executor(job)
+            elif job.callback:
                 job.callback()
         except Exception:
-            # O scheduler não pode morrer por causa de uma tarefa individual.
             pass
 
     def _save(self, job: ScheduledJob) -> None:
