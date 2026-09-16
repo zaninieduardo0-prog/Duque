@@ -52,10 +52,10 @@ class TaskManager:
                     started_at=row["started_at"], finished_at=row["finished_at"],
                     attempts=row["attempts"], metadata=metadata,
                 )
-                # Um processo interrompido não deve deixar uma tarefa presa em RUNNING.
                 if task.status == TaskStatus.RUNNING:
                     task.status = TaskStatus.PENDING
                     task.error = "Processo anterior foi encerrado antes da conclusão"
+                    self.database.upsert_task(task)
                 self._tasks[task.id] = task
             except (KeyError, ValueError, TypeError, json.JSONDecodeError):
                 continue
