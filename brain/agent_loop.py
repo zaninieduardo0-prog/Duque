@@ -71,7 +71,7 @@ class AgentLoop:
         self.schemas = ToolSchemaRegistry()
         self._register_tool_schemas()
         self.model_planner = model_planner or ModelPlanner(self.model, self.schemas)
-        self.autonomous = AutonomousLoop(self.model, self.executor, self.schemas)
+        self.autonomous = AutonomousLoop(self.model, self.executor, self.schemas, observer=self._observe_screen, event_sink=self.engine.emit)
         self.memory = memory or Memory()
 
         self.scheduler = Scheduler(database=self.tasks.database)
@@ -79,10 +79,22 @@ class AgentLoop:
         self.scheduled_runner.start()
         self.executor.register("schedule_task", self._schedule_task)
 
+    def _observe_screen(self) -> dict[str, object]:
+        """Fornece percepção leve ao ciclo autônomo sem expor a imagem bruta ao modelo."""
+        if self.verification is None:
+            return {}
+        observation = self.verification.snapshot()
+        return {
+            "width": observation.width,
+            "height": observation.height,
+            "source": observation.source,
+            "description": observation.description or {},
+        }
+
     def _register_tool_schemas(self) -> None:
         specs = [
             ToolSpec("open_app", "Abre um aplicativo", ("name",), {"name": str}),
-            ToolSpec("open_url", "Abre uma URL", ("url",), {"url": str}),
+            ToolSpec("open_url", "Abre uma URL no navegador; pode ser usada para serviços web como WhatsApp Web", ("url",), {"url": str}),
             ToolSpec("open_path", "Abre um caminho existente", ("path",), {"path": str}),
             ToolSpec("web_search", "Pesquisa na web", ("query",), {"query": str}),
             ToolSpec("read_file", "Lê um arquivo do workspace", ("path",), {"path": str}),
