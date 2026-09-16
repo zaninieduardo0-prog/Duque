@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from .events import EventType
 from .security import SecurityPolicy
 from .tasks import Task, TaskManager
 
@@ -50,15 +51,21 @@ class Executor:
         security: SecurityPolicy | None = None,
         verification: Any | None = None,
         verified_tools: set[str] | frozenset[str] | None = None,
+        event_sink: Callable[..., Any] | None = None,
     ) -> None:
         self.tasks = tasks or TaskManager()
         self.security = security or SecurityPolicy()
         self.tools = ToolRegistry()
         self.verification = verification
         self.verified_tools = frozenset(verified_tools or self.DEFAULT_VERIFIED_TOOLS)
+        self.event_sink = event_sink
 
     def register(self, name: str, tool: Tool) -> None:
         self.tools.register(name, tool)
+
+    def _emit(self, event: EventType, **data: Any) -> None:
+        if self.event_sink:
+            self.event_sink(event, **data)
 
     def execute_step(
         self,
@@ -86,7 +93,9 @@ class Executor:
 
         before = None
         if self.verification is not None and tool_name in self.verified_tools:
+            self._emit(EventType.OBSERVATION_STARTED, task_id=task.id, tool=tool_name, phase="before")
             before = self.verification.snapshot()
+            self._emit(EventType.OBSERVATION_FINISHED, task_id=task.id, tool=tool_name, phase="before")
 
         try:
             value = tool(**(arguments or {}))
@@ -95,7 +104,16 @@ class Executor:
 
         verification = None
         if before is not None:
+            self._emit(EventType.VERIFICATION_STARTED, task_id=task.id, tool=tool_name)
             verification = self.verification.verify_change(before)
+            self._emit(
+                EventType.VERIFICATION_FINISHED,
+                task_id=task.id,
+                tool=tool_name,
+                status=verification.status.value,
+                changed=verification.changed,
+                confidence=verification.confidence,
+            )
             if not verification.changed:
                 return ExecutionResult(
                     False,
