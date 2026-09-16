@@ -26,24 +26,25 @@ class Plan:
 
 
 class Planner:
-    """Planejador inicial. O LLM poderá substituir esta heurística depois."""
+    """Planejador heurístico seguro até o planejador orientado por modelo entrar."""
 
     def build(self, goal: str, intent: str = "chat") -> Plan:
         if intent == "open_app":
-            return Plan(goal, [PlanStep(f"Abrir o aplicativo solicitado: {goal}", StepKind.TOOL, "open_app")])
+            return Plan(goal, [PlanStep(f"Abrir o aplicativo solicitado: {goal}", StepKind.TOOL, "open_app", {"name": goal})])
         if intent == "search":
-            return Plan(goal, [PlanStep(f"Pesquisar: {goal}", StepKind.TOOL, "web_search")])
+            return Plan(goal, [PlanStep(f"Pesquisar: {goal}", StepKind.TOOL, "web_search", {"query": goal})])
         if intent == "code":
             return Plan(goal, [
                 PlanStep("Entender o objetivo e os requisitos", StepKind.THINK),
-                PlanStep("Escrever ou modificar o código", StepKind.TOOL, "code_workspace"),
-                PlanStep("Executar testes e verificar o resultado", StepKind.TOOL, "run_tests"),
+                PlanStep("Listar o workspace antes da alteração", StepKind.TOOL, "list_files"),
+                PlanStep("Escrever ou modificar o código", StepKind.THINK),
+                PlanStep("Executar o código ou teste solicitado", StepKind.THINK),
                 PlanStep("Relatar o resultado", StepKind.RESPOND),
             ])
         if intent == "file_operation":
-            return Plan(goal, [PlanStep(f"Executar a operação de arquivo: {goal}", StepKind.TOOL, "file_manager")])
+            return Plan(goal, [PlanStep(f"Executar a operação de arquivo: {goal}", StepKind.TOOL, "file_manager", {"operation": goal})])
         if intent == "reminder":
-            return Plan(goal, [PlanStep(f"Criar lembrete: {goal}", StepKind.TOOL, "scheduler")])
+            return Plan(goal, [PlanStep(f"Criar lembrete: {goal}", StepKind.TOOL, "scheduler", {"description": goal})])
         if intent == "system":
-            return Plan(goal, [PlanStep(f"Executar ação do sistema: {goal}", StepKind.TOOL, "system_control")])
+            return Plan(goal, [PlanStep(f"Executar ação do sistema: {goal}", StepKind.TOOL, "system_control", {"action": goal})])
         return Plan(goal, [PlanStep("Responder à solicitação", StepKind.RESPOND)])
