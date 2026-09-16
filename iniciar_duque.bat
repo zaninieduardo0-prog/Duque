@@ -9,7 +9,8 @@ rem Configuracao de voz: altere estas variaveis sem mexer no runtime.
 set DUQUE_VOICE=cedar
 set DUQUE_PITCH=-2.0
 set DUQUE_VOICE_SPEED=0.96
-set DUQUE_VOICE_PROCESSING=1
+rem Desligado por padrao para preservar a voz natural do Realtime.
+set DUQUE_VOICE_PROCESSING=0
 
 echo ==========================================
 echo              DUQUE AI
