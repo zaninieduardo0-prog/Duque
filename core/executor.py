@@ -15,6 +15,7 @@ class ExecutionResult:
     value: Any = None
     error: str | None = None
     confirmation_required: bool = False
+    verification: Any = None
 
 
 class ToolRegistry:
@@ -34,12 +35,27 @@ class ToolRegistry:
 
 
 class Executor:
-    """Executa ferramentas e normaliza falhas declaradas pelo próprio tool."""
+    """Executa ferramentas e, quando configurado, verifica ações externas."""
 
-    def __init__(self, tasks: TaskManager | None = None, security: SecurityPolicy | None = None) -> None:
+    DEFAULT_VERIFIED_TOOLS = frozenset({
+        "ui_click",
+        "ui_type_text",
+        "ui_press",
+        "ui_hotkey",
+    })
+
+    def __init__(
+        self,
+        tasks: TaskManager | None = None,
+        security: SecurityPolicy | None = None,
+        verification: Any | None = None,
+        verified_tools: set[str] | frozenset[str] | None = None,
+    ) -> None:
         self.tasks = tasks or TaskManager()
         self.security = security or SecurityPolicy()
         self.tools = ToolRegistry()
+        self.verification = verification
+        self.verified_tools = frozenset(verified_tools or self.DEFAULT_VERIFIED_TOOLS)
 
     def register(self, name: str, tool: Tool) -> None:
         self.tools.register(name, tool)
@@ -55,7 +71,11 @@ class Executor:
     ) -> ExecutionResult:
         policy = self.security.assess(tool_name)
         if policy.confirmation_required and not confirmed:
-            return ExecutionResult(False, error=f"Ação '{tool_name}' exige confirmação", confirmation_required=True)
+            return ExecutionResult(
+                False,
+                error=f"Ação '{tool_name}' exige confirmação",
+                confirmation_required=True,
+            )
 
         tool = self.tools.get(tool_name)
         if tool is None:
@@ -63,14 +83,28 @@ class Executor:
 
         if manage_task:
             self.tasks.start(task.id)
+
+        before = None
+        if self.verification is not None and tool_name in self.verified_tools:
+            before = self.verification.snapshot()
+
         try:
             value = tool(**(arguments or {}))
-            if isinstance(value, dict) and value.get("success") is False:
-                error = value.get("error") or value.get("stderr") or f"Ferramenta '{tool_name}' reportou falha"
-                return ExecutionResult(False, value=value, error=str(error))
-            return ExecutionResult(True, value=value)
         except Exception as exc:
             return ExecutionResult(False, error=f"{type(exc).__name__}: {exc}")
+
+        verification = None
+        if before is not None:
+            verification = self.verification.verify_change(before)
+            if not verification.changed:
+                return ExecutionResult(
+                    False,
+                    value=value,
+                    error=f"Ação executada, mas a verificação não detectou mudança: {verification.reason}",
+                    verification=verification,
+                )
+
+        return ExecutionResult(True, value=value, verification=verification)
 
     def execute_task(
         self,
@@ -86,7 +120,10 @@ class Executor:
             result = self.execute_step(task, tool_name, arguments, confirmed=confirmed, manage_task=False)
             results.append(result)
             if not result.success:
-                self.tasks.fail(task.id, result.error or "Falha na execução")
+                if result.confirmation_required:
+                    self.tasks.fail(task.id, result.error or "Confirmação necessária")
+                else:
+                    self.tasks.fail(task.id, result.error or "Falha na execução")
                 return results
 
         self.tasks.complete(task.id, [result.value for result in results])
