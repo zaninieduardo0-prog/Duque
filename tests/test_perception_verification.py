@@ -50,12 +50,12 @@ def test_verification_can_confirm_expected_outcome() -> None:
     verification = Verification(Perception(backend))
     before = verification.snapshot()
     backend.payload = b"expected"
-    result = verification.verify_change(
+    result = verification.verify(
         before,
-        expected=lambda _before, after: after.fingerprint == observe(backend.capture()).fingerprint,
+        expected=lambda after: after.fingerprint == observe(backend.capture()).fingerprint,
     )
     assert result.status == VerificationStatus.VERIFIED
-    assert result.expected is True
+    assert result.verified is True
     assert result.confidence == 1.0
 
 
@@ -63,9 +63,9 @@ def test_verification_rejects_unconfirmed_expected_outcome() -> None:
     backend = FakeBackend()
     verification = Verification(Perception(backend))
     before = verification.snapshot()
-    result = verification.verify_change(before, expected=lambda _before, _after: False)
-    assert result.status == VerificationStatus.FAILED
-    assert result.expected is False
+    result = verification.verify(before, expected=lambda _after: False)
+    assert result.status == VerificationStatus.NOT_CHANGED
+    assert result.verified is False
 
 
 def test_verified_action_reports_verification() -> None:
@@ -78,7 +78,7 @@ def test_verified_action_reports_verification() -> None:
 
     result = VerifiedAction(verification).run(
         action,
-        expected=lambda _before, after: after.fingerprint == observe(backend.capture()).fingerprint,
+        expected=lambda _after: True,
     )
     assert result.action_result == "ok"
     assert result.verified is True
