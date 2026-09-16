@@ -10,6 +10,7 @@ from core.events import EventType
 from core.executor import ExecutionResult, Executor
 from core.task_engine import TaskEngine
 from core.tasks import TaskManager
+from computer.action_tools import ComputerActionTools
 from computer.code_tools import CodeTools
 from computer.runtime import create_ui_tools, create_verification
 from computer.screen_tools import ScreenTools
@@ -51,7 +52,11 @@ class AgentLoop:
         active_ui_tools.register(self.executor)
         if self.verification is not None:
             VerificationTools(self.verification).register(self.executor)
-            ScreenTools(self.verification).register(self.executor)
+            screen_tools = ScreenTools(self.verification)
+            screen_tools.register(self.executor)
+            controller = getattr(active_ui_tools, "controller", None)
+            if controller is not None:
+                ComputerActionTools(screen_tools, controller).register(self.executor)
         self.task_engine = TaskEngine(self.executor, self.tasks, self.engine.emit)
         self.correction = SelfCorrection(self.task_engine)
         self.model = model or NullModel()
@@ -82,6 +87,7 @@ class AgentLoop:
             ToolSpec("list_files", "Lista arquivos do workspace"),
             ToolSpec("run_python", "Executa Python no workspace", ("path",), {"path": str}),
             ToolSpec("ui_click", "Clica na tela", ("x", "y"), {"x": int, "y": int}),
+            ToolSpec("screen_click_text", "Localiza visualmente um texto e clica nele", ("text",), {"text": str}),
             ToolSpec("ui_type_text", "Digita texto", ("text",), {"text": str}),
             ToolSpec("ui_press", "Pressiona uma tecla", ("key",), {"key": str}),
             ToolSpec("ui_hotkey", "Pressiona combinação de teclas", ("keys",), {"keys": list}),
@@ -89,12 +95,7 @@ class AgentLoop:
             ToolSpec("screen_snapshot", "Observa a tela com contexto semântico"),
             ToolSpec("screen_find", "Localiza um elemento visual por texto", ("text",), {"text": str}),
             ToolSpec("screen_contains_text", "Verifica se um texto está visível via OCR", ("text",), {"text": str}),
-            ToolSpec(
-                "schedule_task",
-                "Agenda uma tarefa serializável",
-                ("description", "delay_seconds", "steps"),
-                {"description": str, "delay_seconds": (int, float), "steps": list, "repeat_seconds": (int, float)},
-            ),
+            ToolSpec("schedule_task", "Agenda uma tarefa serializável", ("description", "delay_seconds", "steps"), {"description": str, "delay_seconds": (int, float), "steps": list, "repeat_seconds": (int, float)}),
         ]
         for spec in specs:
             self.schemas.register(spec)
@@ -120,13 +121,7 @@ class AgentLoop:
             normalized.append({"tool": tool, "arguments": arguments})
 
         task = self.tasks.create(description, source="scheduled", scheduled=True)
-        job = self.scheduler.add_task_after(
-            description,
-            max(0, float(delay_seconds)),
-            task_id=task.id,
-            steps=normalized,
-            repeat_seconds=float(repeat_seconds) if repeat_seconds is not None else None,
-        )
+        job = self.scheduler.add_task_after(description, max(0, float(delay_seconds)), task_id=task.id, steps=normalized, repeat_seconds=float(repeat_seconds) if repeat_seconds is not None else None)
         return {"job_id": job.id, "task_id": task.id, "description": description, "run_at": job.run_at}
 
     def _build_plan(self, text: str, intent: str):
