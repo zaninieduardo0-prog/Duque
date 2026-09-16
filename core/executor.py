@@ -36,7 +36,7 @@ class ToolRegistry:
 
 
 class Executor:
-    """Executa ferramentas e, quando configurado, verifica ações externas."""
+    """Executa ferramentas, aplica política de segurança e verifica ações externas."""
 
     DEFAULT_VERIFIED_TOOLS = frozenset({
         "ui_click",
@@ -78,11 +78,7 @@ class Executor:
     ) -> ExecutionResult:
         policy = self.security.assess(tool_name)
         if policy.confirmation_required and not confirmed:
-            return ExecutionResult(
-                False,
-                error=f"Ação '{tool_name}' exige confirmação",
-                confirmation_required=True,
-            )
+            return ExecutionResult(False, error=f"Ação '{tool_name}' exige confirmação", confirmation_required=True)
 
         tool = self.tools.get(tool_name)
         if tool is None:
@@ -102,47 +98,31 @@ class Executor:
         except Exception as exc:
             return ExecutionResult(False, error=f"{type(exc).__name__}: {exc}")
 
+        # A ferramenta pode retornar um relatório estruturado de falha.
+        # Isso é especialmente importante para testes: o agente precisa
+        # receber o erro como erro, e não como uma execução bem-sucedida.
+        if isinstance(value, dict) and value.get("success") is False:
+            error = value.get("error") or value.get("stderr") or value.get("stdout") or f"Ferramenta '{tool_name}' falhou"
+            return ExecutionResult(False, value=value, error=str(error))
+
         verification = None
         if before is not None:
             self._emit(EventType.VERIFICATION_STARTED, task_id=task.id, tool=tool_name)
             verification = self.verification.verify_change(before)
-            self._emit(
-                EventType.VERIFICATION_FINISHED,
-                task_id=task.id,
-                tool=tool_name,
-                status=verification.status.value,
-                changed=verification.changed,
-                confidence=verification.confidence,
-            )
+            self._emit(EventType.VERIFICATION_FINISHED, task_id=task.id, tool=tool_name, status=verification.status.value, changed=verification.changed, confidence=verification.confidence)
             if not verification.changed:
-                return ExecutionResult(
-                    False,
-                    value=value,
-                    error=f"Ação executada, mas a verificação não detectou mudança: {verification.reason}",
-                    verification=verification,
-                )
+                return ExecutionResult(False, value=value, error=f"Ação executada, mas a verificação não detectou mudança: {verification.reason}", verification=verification)
 
         return ExecutionResult(True, value=value, verification=verification)
 
-    def execute_task(
-        self,
-        task: Task,
-        steps: list[tuple[str, dict[str, Any] | None]],
-        *,
-        confirmed: bool = False,
-    ) -> list[ExecutionResult]:
+    def execute_task(self, task: Task, steps: list[tuple[str, dict[str, Any] | None]], *, confirmed: bool = False) -> list[ExecutionResult]:
         self.tasks.start(task.id)
         results: list[ExecutionResult] = []
-
         for tool_name, arguments in steps:
             result = self.execute_step(task, tool_name, arguments, confirmed=confirmed, manage_task=False)
             results.append(result)
             if not result.success:
-                if result.confirmation_required:
-                    self.tasks.fail(task.id, result.error or "Confirmação necessária")
-                else:
-                    self.tasks.fail(task.id, result.error or "Falha na execução")
+                self.tasks.fail(task.id, result.error or "Falha na execução")
                 return results
-
         self.tasks.complete(task.id, [result.value for result in results])
         return results
