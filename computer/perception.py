@@ -41,15 +41,17 @@ class Perception:
     def screenshot(self) -> ScreenCapture:
         return self.backend.capture()
 
-    def describe(self, capture: ScreenCapture) -> dict[str, Any]:
+    def analyze(self, capture: ScreenCapture) -> dict[str, Any]:
         try:
-            analysis = self.analyzer.analyze(capture)
+            return self.analyzer.analyze(capture)
         except Exception as exc:
-            analysis = {
+            return {
                 "status": "failed",
                 "error": f"{type(exc).__name__}: {exc}",
             }
 
+    def describe(self, capture: ScreenCapture) -> dict[str, Any]:
+        analysis = self.analyze(capture)
         return {
             "source": capture.source,
             "width": capture.width,
