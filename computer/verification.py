@@ -25,13 +25,16 @@ class Observation:
 
 @dataclass(slots=True, frozen=True)
 class VerificationResult:
+    status: VerificationStatus
     changed: bool
     before: Observation
     after: Observation
     reason: str
-    status: VerificationStatus = VerificationStatus.CHANGED_UNCONFIRMED
-    expected: bool | None = None
     confidence: float = 0.0
+
+    @property
+    def verified(self) -> bool:
+        return self.status == VerificationStatus.VERIFIED
 
 
 def observe(capture: ScreenCapture) -> Observation:
@@ -44,35 +47,15 @@ def observe(capture: ScreenCapture) -> Observation:
     return Observation(capture.width, capture.height, fingerprint, capture.source)
 
 
-def compare(
-    before: Observation,
-    after: Observation,
-    *,
-    expected: Callable[[Observation, Observation], bool] | None = None,
-) -> VerificationResult:
+def compare(before: Observation, after: Observation) -> VerificationResult:
     changed = before.fingerprint != after.fingerprint
-    expected_result: bool | None = None
-    if expected is not None:
-        try:
-            expected_result = bool(expected(before, after))
-        except Exception as exc:
-            return VerificationResult(
-                changed, before, after,
-                f"Verificador falhou: {type(exc).__name__}: {exc}",
-                VerificationStatus.FAILED, None, 0.0,
-            )
-
-    if expected_result is True:
-        return VerificationResult(changed, before, after, "Resultado esperado confirmado", VerificationStatus.VERIFIED, True, 1.0)
-    if expected_result is False:
-        return VerificationResult(changed, before, after, "Resultado esperado não confirmado", VerificationStatus.FAILED, False, 0.0)
-    if changed:
-        return VerificationResult(True, before, after, "A tela mudou, mas o resultado ainda não foi confirmado", VerificationStatus.CHANGED_UNCONFIRMED, None, 0.5)
-    return VerificationResult(False, before, after, "Nenhuma mudança visual detectada", VerificationStatus.NOT_CHANGED, None, 0.0)
+    status = VerificationStatus.CHANGED_UNCONFIRMED if changed else VerificationStatus.NOT_CHANGED
+    reason = "A tela mudou, mas o resultado esperado não foi confirmado" if changed else "Nenhuma mudança visual detectada"
+    return VerificationResult(status, changed, before, after, reason, 0.0)
 
 
 class Verification:
-    """Compara observações e permite validadores de resultado sem assumir que mudança = sucesso."""
+    """Observa o computador e permite validar o resultado esperado por um predicado."""
 
     def __init__(self, perception: Any) -> None:
         self.perception = perception
@@ -80,11 +63,46 @@ class Verification:
     def snapshot(self) -> Observation:
         return observe(self.perception.screenshot())
 
-    def verify_change(
+    def verify_change(self, before: Observation) -> VerificationResult:
+        return compare(before, self.snapshot())
+
+    def verify(
         self,
         before: Observation,
         *,
-        expected: Callable[[Observation, Observation], bool] | None = None,
+        expected: Callable[[Observation], bool] | None = None,
+        confidence: float = 1.0,
     ) -> VerificationResult:
         after = self.snapshot()
-        return compare(before, after, expected=expected)
+        changed = before.fingerprint != after.fingerprint
+        if expected is None:
+            return compare(before, after)
+        try:
+            matched = bool(expected(after))
+        except Exception as exc:
+            return VerificationResult(
+                VerificationStatus.FAILED,
+                changed,
+                before,
+                after,
+                f"Falha ao avaliar resultado esperado: {type(exc).__name__}: {exc}",
+                0.0,
+            )
+        if matched:
+            return VerificationResult(
+                VerificationStatus.VERIFIED,
+                changed,
+                before,
+                after,
+                "Resultado esperado confirmado",
+                max(0.0, min(1.0, float(confidence))),
+            )
+        status = VerificationStatus.CHANGED_UNCONFIRMED if changed else VerificationStatus.NOT_CHANGED
+        return VerificationResult(
+            status,
+            changed,
+            before,
+            after,
+            "Resultado esperado não confirmado",
+            0.0,
+        )
