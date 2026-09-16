@@ -15,7 +15,7 @@ class Reminder:
 
 
 class AutomationTasks:
-    """API de alto nível para lembretes e automações simples."""
+    """API de alto nível para lembretes e tarefas agendadas."""
 
     def __init__(self, scheduler: Scheduler | None = None) -> None:
         self.scheduler = scheduler or Scheduler()
@@ -26,6 +26,14 @@ class AutomationTasks:
 
     def remind_after(self, description: str, seconds: float, callback: Callable[[], Any] | None = None) -> Reminder:
         job = self.scheduler.add_after(description, seconds, callback, kind="reminder")
+        return self._reminder(job)
+
+    def schedule_task_at(self, description: str, when: datetime, *, task_id: str | None = None, steps: list[dict[str, Any]] | None = None, repeat_seconds: float | None = None, **metadata: Any) -> Reminder:
+        job = self.scheduler.add_task(description, when, task_id=task_id, steps=steps, repeat_seconds=repeat_seconds, **metadata)
+        return self._reminder(job)
+
+    def schedule_task_after(self, description: str, seconds: float, *, task_id: str | None = None, steps: list[dict[str, Any]] | None = None, repeat_seconds: float | None = None, **metadata: Any) -> Reminder:
+        job = self.scheduler.add_task_after(description, seconds, task_id=task_id, steps=steps, repeat_seconds=repeat_seconds, **metadata)
         return self._reminder(job)
 
     def cancel(self, job_id: str) -> bool:
