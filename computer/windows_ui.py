@@ -18,12 +18,10 @@ class WindowsUIController(UIController):
 
     def click(self, x: int, y: int, *, button: str = "left") -> None:
         self._user32.SetCursorPos(int(x), int(y))
-        if button == "left":
-            down, up = 0x0002, 0x0004
-        elif button == "right":
-            down, up = 0x0008, 0x0010
-        else:
+        events = {"left": (0x0002, 0x0004), "right": (0x0008, 0x0010), "middle": (0x0020, 0x0040)}
+        if button not in events:
             raise ValueError(f"Botão não suportado: {button}")
+        down, up = events[button]
         self._user32.mouse_event(down, 0, 0, 0, 0)
         self._user32.mouse_event(up, 0, 0, 0, 0)
 
