@@ -20,6 +20,10 @@ class EventType(str, Enum):
     GOODBYE_DETECTED = "goodbye_detected"
     DUQUE_WAKE = "duque_wake"
     DUQUE_SLEEP = "duque_sleep"
+    OBSERVATION_STARTED = "observation_started"
+    OBSERVATION_FINISHED = "observation_finished"
+    VERIFICATION_STARTED = "verification_started"
+    VERIFICATION_FINISHED = "verification_finished"
     ERROR = "error"
 
 
@@ -50,7 +54,4 @@ class EventBus:
 
     def emit(self, event: Event) -> list[Any]:
         callbacks = [*self._subscribers.get(event.type, []), *self._wildcard]
-        results: list[Any] = []
-        for callback in callbacks:
-            results.append(callback(event))
-        return results
+        return [callback(event) for callback in callbacks]
