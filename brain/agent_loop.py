@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import uuid4
 
 from core.engine import DuqueEngine
 from core.events import EventType
@@ -32,17 +33,7 @@ class AgentResult:
 class AgentLoop:
     """Orquestra entendimento, planejamento, execução, correção e memória."""
 
-    def __init__(
-        self,
-        engine: DuqueEngine | None = None,
-        tasks: TaskManager | None = None,
-        executor: Executor | None = None,
-        workspace: Workspace | None = None,
-        ui_tools: UITools | None = None,
-        model: ModelAdapter | None = None,
-        model_planner: ModelPlanner | None = None,
-        memory: Memory | None = None,
-    ) -> None:
+    def __init__(self, engine: DuqueEngine | None = None, tasks: TaskManager | None = None, executor: Executor | None = None, workspace: Workspace | None = None, ui_tools: UITools | None = None, model: ModelAdapter | None = None, model_planner: ModelPlanner | None = None, memory: Memory | None = None) -> None:
         self.engine = engine or DuqueEngine()
         self.router = IntentRouter()
         self.planner = Planner()
@@ -89,33 +80,19 @@ class AgentLoop:
 
     def handle(self, text: str, *, confirmed: bool = False, max_attempts: int = 3) -> AgentResult:
         route = self.router.route(text)
-        self.memory.remember(
-            MemoryLayer.CONVERSATION,
-            f"turn:{self._next_turn_key()}",
-            {"role": "user", "text": text, "intent": route.intent.value},
-        )
+        self.memory.remember(MemoryLayer.CONVERSATION, f"turn:{uuid4().hex}", {"role": "user", "text": text, "intent": route.intent.value})
         plan = self._build_plan(text, route.intent.value)
         task = self.tasks.create(text, intent=route.intent.value, confidence=route.confidence)
         self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "created"})
 
-        tool_steps = [
-            (step.tool or "", step.arguments)
-            for step in plan.steps
-            if step.kind == StepKind.TOOL and step.tool
-        ]
-
+        tool_steps = [(step.tool or "", step.arguments) for step in plan.steps if step.kind == StepKind.TOOL and step.tool]
         if not tool_steps:
+            self.tasks.start(task.id)
             self.tasks.complete(task.id, text)
             self.engine.emit(EventType.TASK_FINISHED, task_id=task.id)
             return AgentResult(text, task.id)
 
-        report = self.correction.run(
-            task,
-            lambda error, attempt: self._correct_steps(text, route.intent.value, tool_steps, error, attempt),
-            max_attempts=max_attempts,
-            confirmed=confirmed,
-        )
-
+        report = self.correction.run(task, lambda error, attempt: self._correct_steps(text, route.intent.value, tool_steps, error, attempt), max_attempts=max_attempts, confirmed=confirmed)
         if not report.success:
             failed = next((item.result for item in reversed(report.results) if not item.result.success), None)
             if failed and failed.confirmation_required:
@@ -128,17 +105,11 @@ class AgentLoop:
         self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "attempts": report.attempts})
         return AgentResult("Tarefa concluída.", task.id, last, report.attempts)
 
-    def _next_turn_key(self) -> str:
-        return str(len(self.memory.search(MemoryLayer.CONVERSATION, limit=100000)) + 1)
-
     def _correct_steps(self, goal: str, intent: str, original_steps, error: str | None, attempt: int):
         if not error:
             return original_steps
         try:
-            plan = self.model_planner.build(
-                f"Objetivo original: {goal}\nFalha da tentativa {attempt}: {error}\nCrie um novo plano corrigido.",
-                self.executor.tools.names(),
-            )
+            plan = self.model_planner.build(f"Objetivo original: {goal}\nFalha da tentativa {attempt}: {error}\nCrie um novo plano corrigido.", self.executor.tools.names())
             return [(step.tool, step.arguments) for step in plan.steps if step.kind == StepKind.TOOL and step.tool]
         except Exception:
             return original_steps
