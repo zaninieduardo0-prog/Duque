@@ -8,6 +8,7 @@ from core.executor import ExecutionResult, Executor
 from core.task_engine import TaskEngine
 from core.tasks import TaskManager
 from computer.tools import ComputerTools
+from computer.ui_tools import UITools
 from computer.workspace import Workspace
 from computer.code_tools import CodeTools
 from .planner import Planner
@@ -30,6 +31,7 @@ class AgentLoop:
         tasks: TaskManager | None = None,
         executor: Executor | None = None,
         workspace: Workspace | None = None,
+        ui_tools: UITools | None = None,
     ) -> None:
         self.engine = engine or DuqueEngine()
         self.router = IntentRouter()
@@ -39,6 +41,7 @@ class AgentLoop:
         self.workspace = workspace or Workspace("duque_workspace")
         ComputerTools().register(self.executor)
         CodeTools(self.workspace).register(self.executor)
+        (ui_tools or UITools()).register(self.executor)
         self.task_engine = TaskEngine(self.executor, self.tasks, self.engine.emit)
 
     def handle(self, text: str, *, confirmed: bool = False) -> AgentResult:
