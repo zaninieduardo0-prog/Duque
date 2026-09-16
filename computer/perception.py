@@ -18,19 +18,41 @@ class ScreenBackend(Protocol):
     def capture(self) -> ScreenCapture: ...
 
 
-class Perception:
-    """Camada de percepção visual; OCR/visão por modelo entram acima dela."""
+class ScreenAnalyzer(Protocol):
+    """Contrato para OCR, visão por modelo ou analisadores locais."""
 
-    def __init__(self, backend: ScreenBackend) -> None:
+    def analyze(self, capture: ScreenCapture) -> dict[str, Any]: ...
+
+
+class NullScreenAnalyzer:
+    """Analisador seguro que não inventa conteúdo visual."""
+
+    def analyze(self, capture: ScreenCapture) -> dict[str, Any]:
+        return {"status": "not_available"}
+
+
+class Perception:
+    """Camada de percepção visual; o analisador pode ser trocado sem alterar o backend."""
+
+    def __init__(self, backend: ScreenBackend, analyzer: ScreenAnalyzer | None = None) -> None:
         self.backend = backend
+        self.analyzer = analyzer or NullScreenAnalyzer()
 
     def screenshot(self) -> ScreenCapture:
         return self.backend.capture()
 
     def describe(self, capture: ScreenCapture) -> dict[str, Any]:
+        try:
+            analysis = self.analyzer.analyze(capture)
+        except Exception as exc:
+            analysis = {
+                "status": "failed",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+
         return {
             "source": capture.source,
             "width": capture.width,
             "height": capture.height,
-            "visual_analysis": "not_available",
+            "visual_analysis": analysis,
         }
