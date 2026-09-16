@@ -41,7 +41,7 @@ class AgentLoop:
         self.planner = Planner()
         self.tasks = tasks or TaskManager()
         self.verification = create_verification()
-        self.executor = executor or Executor(self.tasks, verification=self.verification)
+        self.executor = executor or Executor(self.tasks, verification=self.verification, event_sink=self.engine.emit)
         self.workspace = workspace or Workspace("duque_workspace")
         ComputerTools().register(self.executor)
         CodeTools(self.workspace).register(self.executor)
