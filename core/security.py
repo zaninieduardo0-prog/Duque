@@ -34,6 +34,7 @@ class SecurityPolicy:
         "ui_type_text": RiskLevel.MEDIUM,
         "ui_press": RiskLevel.MEDIUM,
         "ui_hotkey": RiskLevel.MEDIUM,
+        "screenshot": RiskLevel.LOW,
         "code_workspace": RiskLevel.MEDIUM,
         "run_tests": RiskLevel.MEDIUM,
         "file_manager": RiskLevel.MEDIUM,
