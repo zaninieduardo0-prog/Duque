@@ -19,7 +19,7 @@ class DevelopmentReport:
 
 
 class SelfDevelopment:
-    """Infraestrutura segura para o Duque analisar e testar seu workspace."""
+    """Ferramentas controladas para o Duque analisar e testar seu workspace."""
 
     def __init__(self, workspace: Workspace) -> None:
         self.workspace = workspace
@@ -36,8 +36,12 @@ class SelfDevelopment:
         }
 
     def read_many(self, paths: list[str]) -> dict[str, Any]:
+        if not isinstance(paths, list):
+            raise ValueError("paths deve ser uma lista")
         result: dict[str, Any] = {}
         for path in paths:
+            if not isinstance(path, str):
+                raise ValueError("Cada caminho deve ser texto")
             result[path] = self.tools.read_file(path)["content"]
         return result
 
@@ -45,8 +49,9 @@ class SelfDevelopment:
         target = self.workspace.resolve(path)
         if target.is_dir():
             import subprocess
+            import sys
             completed = subprocess.run(
-                [__import__("sys").executable, "-m", "pytest", str(target)],
+                [sys.executable, "-m", "pytest", str(target)],
                 cwd=str(self.workspace.root), capture_output=True, text=True, timeout=120, shell=False,
             )
             return {
@@ -60,3 +65,9 @@ class SelfDevelopment:
 
     def apply_change(self, path: str, content: str) -> dict[str, Any]:
         return self.tools.write_file(path, content)
+
+    def register(self, executor: Any) -> None:
+        executor.register("inspect_workspace", self.inspect)
+        executor.register("read_many_files", self.read_many)
+        executor.register("run_tests", self.run_tests)
+        executor.register("write_file", self.apply_change)
