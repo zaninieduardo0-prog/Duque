@@ -11,7 +11,7 @@ from core.executor import ExecutionResult, Executor
 from core.task_engine import TaskEngine
 from core.tasks import TaskManager
 from computer.code_tools import CodeTools
-from computer.runtime import create_ui_tools
+from computer.runtime import create_ui_tools, create_verification
 from computer.tools import ComputerTools
 from computer.ui_tools import UITools
 from computer.workspace import Workspace
@@ -33,14 +33,15 @@ class AgentResult:
 
 
 class AgentLoop:
-    """Orquestra entendimento, planejamento, execução, correção, memória e agenda."""
+    """Orquestra entendimento, planejamento, execução, verificação, correção, memória e agenda."""
 
     def __init__(self, engine: DuqueEngine | None = None, tasks: TaskManager | None = None, executor: Executor | None = None, workspace: Workspace | None = None, ui_tools: UITools | None = None, model: ModelAdapter | None = None, model_planner: ModelPlanner | None = None, memory: Memory | None = None) -> None:
         self.engine = engine or DuqueEngine()
         self.router = IntentRouter()
         self.planner = Planner()
         self.tasks = tasks or TaskManager()
-        self.executor = executor or Executor(self.tasks)
+        self.verification = create_verification()
+        self.executor = executor or Executor(self.tasks, verification=self.verification)
         self.workspace = workspace or Workspace("duque_workspace")
         ComputerTools().register(self.executor)
         CodeTools(self.workspace).register(self.executor)
