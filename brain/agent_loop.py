@@ -104,6 +104,8 @@ class AgentLoop:
             ToolSpec("inspect_workspace", "Inspeciona a estrutura do workspace"),
             ToolSpec("run_tests", "Executa a suíte de testes do workspace", (), {"path": str}),
             ToolSpec("run_python", "Executa Python no workspace", ("path",), {"path": str}),
+            ToolSpec("git_status", "Consulta o estado do repositório Git sem alterar arquivos"),
+            ToolSpec("git_diff", "Consulta diferenças locais do repositório Git", (), {"path": str}),
             ToolSpec("ui_click", "Clica na tela", ("x", "y"), {"x": int, "y": int}),
             ToolSpec("ui_type_text", "Digita texto", ("text",), {"text": str}),
             ToolSpec("ui_press", "Pressiona uma tecla", ("key",), {"key": str}),
