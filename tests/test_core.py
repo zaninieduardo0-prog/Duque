@@ -1,8 +1,3 @@
-from __future__ import annotations
-
-import tempfile
-from pathlib import Path
-
 from core.engine import DuqueEngine
 from core.events import EventType
 from core.executor import Executor
@@ -41,7 +36,22 @@ def test_task_has_one_lifecycle_for_multiple_steps() -> None:
     assert task.result == [1, 2]
 
 
+def test_executor_detects_tool_reported_failure() -> None:
+    tasks = TaskManager()
+    executor = Executor(tasks)
+    executor.register("tool", lambda: {"success": False, "stderr": "falha declarada"})
+
+    task = tasks.create("falha declarada")
+    result = executor.execute_step(task, "tool")
+
+    assert result.success is False
+    assert "falha declarada" in (result.error or "")
+
+
 def test_workspace_blocks_path_escape() -> None:
+    import tempfile
+    from pathlib import Path
+
     with tempfile.TemporaryDirectory() as directory:
         workspace = Workspace(directory)
         workspace.write("app.py", "print('ok')")
@@ -55,6 +65,9 @@ def test_workspace_blocks_path_escape() -> None:
 
 
 def test_run_python_in_workspace() -> None:
+    import tempfile
+    from pathlib import Path
+
     with tempfile.TemporaryDirectory() as directory:
         workspace = Workspace(Path(directory))
         workspace.write("teste.py", "print('funcionando')")
