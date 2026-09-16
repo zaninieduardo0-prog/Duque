@@ -23,7 +23,13 @@ class SecurityPolicy:
 
     _DEFAULTS = {
         "open_app": RiskLevel.LOW,
+        "open_url": RiskLevel.LOW,
+        "open_path": RiskLevel.MEDIUM,
         "web_search": RiskLevel.LOW,
+        "read_file": RiskLevel.LOW,
+        "list_files": RiskLevel.LOW,
+        "write_file": RiskLevel.MEDIUM,
+        "run_python": RiskLevel.MEDIUM,
         "code_workspace": RiskLevel.MEDIUM,
         "run_tests": RiskLevel.MEDIUM,
         "file_manager": RiskLevel.MEDIUM,
