@@ -51,18 +51,23 @@ class GoalLoop:
         self.max_steps = max(1, max_steps)
 
     def run(self, context: AgentContext, steps: list[GoalStep] | None = None, *, confirmed: bool = False) -> GoalRunResult:
-        planned = steps
+        queued = list(steps) if steps is not None else None
         results: list[GoalStepResult] = []
 
         for _ in range(self.max_steps):
-            if planned is None:
-                if self.planner is None:
-                    return GoalRunResult(False, context, results, "Nenhum planejador foi configurado")
+            # Quando há um planejador, ele recebe o estado atualizado após cada ação.
+            if self.planner is not None:
                 planned = self.planner(context)
-            if not planned:
-                return GoalRunResult(True, context, results)
+                if not planned:
+                    return GoalRunResult(True, context, results)
+                step = planned[0]
+            else:
+                if queued is None:
+                    return GoalRunResult(False, context, results, "Nenhum plano ou planejador foi configurado")
+                if not queued:
+                    return GoalRunResult(True, context, results)
+                step = queued.pop(0)
 
-            step = planned.pop(0)
             if self.observer is not None:
                 context.observe(self.observer())
 
@@ -71,14 +76,7 @@ class GoalLoop:
                 return GoalRunResult(False, context, results, "Tarefa do contexto não encontrada")
 
             result = self.executor.execute_step(task, step.tool, step.arguments, confirmed=confirmed, manage_task=False)
-            item = GoalStepResult(
-                len(results) + 1,
-                step,
-                result.success,
-                result.value,
-                result.error,
-                result.verification,
-            )
+            item = GoalStepResult(len(results) + 1, step, result.success, result.value, result.error, result.verification)
             results.append(item)
 
             if not result.success:
@@ -86,6 +84,5 @@ class GoalLoop:
                 return GoalRunResult(False, context, results, result.error)
 
             context.record_step(tool=step.tool, arguments=step.arguments, result=result.value)
-            planned = planned
 
         return GoalRunResult(False, context, results, f"Limite de {self.max_steps} passos atingido")
