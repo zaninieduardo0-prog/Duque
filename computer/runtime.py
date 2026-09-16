@@ -6,7 +6,6 @@ import platform
 from brain.vision import NullVisionAdapter, OpenAIResponsesVisionAdapter
 
 from .composite_analyzer import CompositeScreenAnalyzer
-from .model_vision_analyzer import ModelVisionAnalyzer
 from .perception import Perception
 from .ui import UIController
 from .ui_backend import WindowsUIController
@@ -14,18 +13,21 @@ from .ui_tools import UITools
 from .verification import Verification
 from .windows_perception import WindowsScreenBackend
 from .windows_screen_analyzer import WindowsScreenAnalyzer
+from .model_vision_analyzer import ModelVisionAnalyzer
 
 
-def _create_analyzer() -> CompositeScreenAnalyzer:
+def _model_vision_enabled() -> bool:
+    return os.getenv("DUQUE_ENABLE_MODEL_VISION", "0").casefold() in {"1", "true", "yes", "on"}
+
+
+def _screen_analyzer():
     local = WindowsScreenAnalyzer()
-    if os.getenv("DUQUE_ENABLE_MODEL_VISION", "0").casefold() not in {"1", "true", "yes", "on"}:
-        vision = ModelVisionAnalyzer(NullVisionAdapter())
-    else:
-        try:
-            vision = ModelVisionAnalyzer(OpenAIResponsesVisionAdapter())
-        except ValueError:
-            # Configuração incompleta nunca deve impedir o Duque de iniciar.
-            vision = ModelVisionAnalyzer(NullVisionAdapter())
+    if not _model_vision_enabled():
+        return local
+    try:
+        vision = ModelVisionAnalyzer(adapter=OpenAIResponsesVisionAdapter())
+    except Exception:
+        vision = ModelVisionAnalyzer(adapter=NullVisionAdapter())
     return CompositeScreenAnalyzer(local, vision)
 
 
@@ -34,7 +36,7 @@ def create_ui_tools() -> UITools:
     if platform.system() != "Windows":
         return UITools()
     controller: UIController = WindowsUIController()
-    perception = Perception(WindowsScreenBackend(), analyzer=_create_analyzer())
+    perception = Perception(WindowsScreenBackend(), analyzer=_screen_analyzer())
     return UITools(controller=controller, perception=perception)
 
 
@@ -42,5 +44,5 @@ def create_verification() -> Verification | None:
     """Cria percepção/verificação visual real no Windows."""
     if platform.system() != "Windows":
         return None
-    perception = Perception(WindowsScreenBackend(), analyzer=_create_analyzer())
+    perception = Perception(WindowsScreenBackend(), analyzer=_screen_analyzer())
     return Verification(perception)
