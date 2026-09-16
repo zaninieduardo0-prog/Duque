@@ -8,6 +8,7 @@ from .ui_backend import WindowsUIController
 from .ui_tools import UITools
 from .verification import Verification
 from .windows_perception import WindowsScreenBackend
+from .windows_screen_analyzer import WindowsScreenAnalyzer
 
 
 def create_ui_tools() -> UITools:
@@ -15,12 +16,13 @@ def create_ui_tools() -> UITools:
     if platform.system() != "Windows":
         return UITools()
     controller: UIController = WindowsUIController()
-    perception = Perception(WindowsScreenBackend())
+    perception = Perception(WindowsScreenBackend(), analyzer=WindowsScreenAnalyzer())
     return UITools(controller=controller, perception=perception)
 
 
 def create_verification() -> Verification | None:
-    """Cria a percepção/verificação visual real quando executado no Windows."""
+    """Cria percepção/verificação visual real no Windows."""
     if platform.system() != "Windows":
         return None
-    return Verification(Perception(WindowsScreenBackend()))
+    perception = Perception(WindowsScreenBackend(), analyzer=WindowsScreenAnalyzer())
+    return Verification(perception)
