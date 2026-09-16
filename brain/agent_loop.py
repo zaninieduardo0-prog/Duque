@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -17,14 +18,17 @@ from computer.tools import ComputerTools
 from computer.ui_tools import UITools
 from computer.verification_tools import VerificationTools
 from computer.verified_ui import VerifiedScreenActions
-from computer.visual_workflow import VisualStep, VisualWorkflow
+from computer.visual_workflow import VisualWorkflow
 from computer.workspace import Workspace
 from memory.memory import Memory, MemoryLayer
+from .agent_state import AgentContext
+from .autonomous_loop import AutonomousLoop
 from .model import ModelAdapter, NullModel
 from .model_planner import ModelPlanner
 from .planner import Planner, StepKind
 from .router import IntentRouter
 from .self_correction import SelfCorrection
+from .self_development import SelfDevelopment
 from .tool_schema import ToolSchemaRegistry, ToolSpec
 
 
@@ -49,13 +53,16 @@ class AgentLoop:
         self.workspace = workspace or Workspace("duque_workspace")
         ComputerTools().register(self.executor)
         CodeTools(self.workspace).register(self.executor)
+        self.self_development = SelfDevelopment(self.workspace)
+        self.self_development.register(self.executor)
         active_ui_tools = ui_tools or create_ui_tools()
         active_ui_tools.register(self.executor)
         if self.verification is not None:
             VerificationTools(self.verification).register(self.executor)
             ScreenTools(self.verification).register(self.executor)
-            VerifiedScreenActions(active_ui_tools.controller, self.verification).register(self.executor)
-            self.visual_workflow = VisualWorkflow(VerifiedScreenActions(active_ui_tools.controller, self.verification), self.verification)
+            verified_actions = VerifiedScreenActions(active_ui_tools.controller, self.verification)
+            verified_actions.register(self.executor)
+            self.visual_workflow = VisualWorkflow(verified_actions, self.verification)
         else:
             self.visual_workflow = None
         self.task_engine = TaskEngine(self.executor, self.tasks, self.engine.emit)
@@ -64,6 +71,7 @@ class AgentLoop:
         self.schemas = ToolSchemaRegistry()
         self._register_tool_schemas()
         self.model_planner = model_planner or ModelPlanner(self.model, self.schemas)
+        self.autonomous = AutonomousLoop(self.model, self.executor, self.schemas)
         self.memory = memory or Memory()
 
         self.scheduler = Scheduler(database=self.tasks.database)
@@ -78,8 +86,11 @@ class AgentLoop:
             ToolSpec("open_path", "Abre um caminho existente", ("path",), {"path": str}),
             ToolSpec("web_search", "Pesquisa na web", ("query",), {"query": str}),
             ToolSpec("read_file", "Lê um arquivo do workspace", ("path",), {"path": str}),
+            ToolSpec("read_many_files", "Lê vários arquivos do workspace", ("paths",), {"paths": list}),
             ToolSpec("write_file", "Escreve arquivo no workspace", ("path", "content"), {"path": str, "content": str}),
             ToolSpec("list_files", "Lista arquivos do workspace"),
+            ToolSpec("inspect_workspace", "Inspeciona a estrutura do workspace"),
+            ToolSpec("run_tests", "Executa a suíte de testes do workspace", (), {"path": str}),
             ToolSpec("run_python", "Executa Python no workspace", ("path",), {"path": str}),
             ToolSpec("ui_click", "Clica na tela", ("x", "y"), {"x": int, "y": int}),
             ToolSpec("ui_type_text", "Digita texto", ("text",), {"text": str}),
@@ -126,9 +137,32 @@ class AgentLoop:
         except Exception:
             return self.planner.build(text, intent)
 
+    def _autonomous_enabled(self) -> bool:
+        return os.getenv("DUQUE_AUTONOMOUS_AGENT", "0").casefold() in {"1", "true", "yes", "on"} and not isinstance(self.model, NullModel)
+
+    def _handle_autonomous(self, text: str, *, confirmed: bool = False) -> AgentResult:
+        task = self.tasks.create(text, mode="autonomous")
+        context = AgentContext(goal=text, task_id=task.id)
+        try:
+            self.tasks.start(task.id)
+            result = self.autonomous.run(context, confirmed=confirmed)
+            if result.success:
+                self.tasks.complete(task.id, result.message)
+                self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "mode": "autonomous", "steps": result.steps})
+                return AgentResult(result.message, task.id, result.executions[-1] if result.executions else None, result.steps or 1)
+            if task.status.value == "running":
+                self.tasks.fail(task.id, result.error or result.message or "Falha no agente autônomo")
+            return AgentResult(result.message or f"Não consegui concluir a tarefa: {result.error}", task.id, result.executions[-1] if result.executions else None, result.steps or 1)
+        except Exception as exc:
+            if task.status.value == "running":
+                self.tasks.fail(task.id, f"{type(exc).__name__}: {exc}")
+            return AgentResult(f"O agente encontrou um erro: {type(exc).__name__}: {exc}", task.id)
+
     def handle(self, text: str, *, confirmed: bool = False, max_attempts: int = 3) -> AgentResult:
         route = self.router.route(text)
         self.memory.remember(MemoryLayer.CONVERSATION, f"turn:{uuid4().hex}", {"role": "user", "text": text, "intent": route.intent.value})
+        if self._autonomous_enabled():
+            return self._handle_autonomous(text, confirmed=confirmed)
         plan = self._build_plan(text, route.intent.value)
         task = self.tasks.create(text, intent=route.intent.value, confidence=route.confidence)
         self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "created"})
