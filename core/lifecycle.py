@@ -30,5 +30,7 @@ class LifecycleManager:
         self.engine.wake()
 
     def shutdown(self) -> None:
-        self.engine.emit(EventType.DUQUE_SLEEP, reason="shutdown")
+        """Entra em repouso uma única vez; o Engine é a fonte do evento de sleep."""
+        if not self.engine.running and self.engine.state.snapshot().state == DuqueState.SLEEPING:
+            return
         self.engine.sleep()
