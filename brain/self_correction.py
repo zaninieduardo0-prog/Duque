@@ -31,9 +31,13 @@ class SelfCorrection:
     ) -> CorrectionReport:
         error: str | None = None
         all_results: list[StepResult] = []
+        attempts_limit = max(1, max_attempts)
 
-        for attempt in range(1, max(1, max_attempts) + 1):
+        for attempt in range(1, attempts_limit + 1):
             steps = steps_factory(error, attempt)
+            if not steps:
+                return CorrectionReport(False, attempt, all_results, "O plano não contém etapas executáveis")
+
             results = self.task_engine.run(task, steps, confirmed=confirmed)
             all_results.extend(results)
 
@@ -43,4 +47,4 @@ class SelfCorrection:
             failed = next((item for item in reversed(results) if not item.result.success), None)
             error = failed.result.error if failed else "Falha sem detalhes"
 
-        return CorrectionReport(False, max(1, max_attempts), all_results, error)
+        return CorrectionReport(False, attempts_limit, all_results, error)
