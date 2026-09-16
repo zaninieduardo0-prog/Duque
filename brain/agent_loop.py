@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import uuid4
 
+from automation.runner import ScheduledTaskRunner
+from automation.scheduler import Scheduler
 from core.engine import DuqueEngine
 from core.events import EventType
 from core.executor import ExecutionResult, Executor
@@ -31,7 +33,7 @@ class AgentResult:
 
 
 class AgentLoop:
-    """Orquestra entendimento, planejamento, execução, correção e memória."""
+    """Orquestra entendimento, planejamento, execução, correção, memória e agenda."""
 
     def __init__(self, engine: DuqueEngine | None = None, tasks: TaskManager | None = None, executor: Executor | None = None, workspace: Workspace | None = None, ui_tools: UITools | None = None, model: ModelAdapter | None = None, model_planner: ModelPlanner | None = None, memory: Memory | None = None) -> None:
         self.engine = engine or DuqueEngine()
@@ -51,6 +53,18 @@ class AgentLoop:
         self.model_planner = model_planner or ModelPlanner(self.model, self.schemas)
         self.memory = memory or Memory()
 
+        # Scheduler compartilha o mesmo SQLite do TaskManager para sobreviver a restart.
+        self.scheduler = Scheduler(database=self.tasks.database)
+        self.scheduled_runner = ScheduledTaskRunner(
+            self.scheduler,
+            self.task_engine,
+            self.tasks,
+            event_sink=self.engine.emit,
+        )
+        self.scheduled_runner.start()
+
+        self.executor.register("schedule_task", self._schedule_task)
+
     def _register_tool_schemas(self) -> None:
         specs = [
             ToolSpec("open_app", "Abre um aplicativo", ("name",), {"name": str}),
@@ -66,9 +80,40 @@ class AgentLoop:
             ToolSpec("ui_press", "Pressiona uma tecla", ("key",), {"key": str}),
             ToolSpec("ui_hotkey", "Pressiona combinação de teclas", ("keys",), {"keys": list}),
             ToolSpec("screenshot", "Captura a tela"),
+            ToolSpec("schedule_task", "Agenda uma tarefa serializável", ("description", "delay_seconds", "steps"), {"description": str, "delay_seconds": (int, float), "steps": list}),
         ]
         for spec in specs:
             self.schemas.register(spec)
+
+    def _schedule_task(self, description: str, delay_seconds: int | float, steps: list[dict[str, object]], repeat_seconds: int | float | None = None) -> dict[str, object]:
+        if not isinstance(description, str) or not description.strip():
+            raise ValueError("description não pode ser vazio")
+        if not isinstance(steps, list) or not steps:
+            raise ValueError("steps deve conter pelo menos uma etapa")
+        normalized: list[dict[str, object]] = []
+        for item in steps:
+            if not isinstance(item, dict):
+                raise ValueError("Cada etapa deve ser um objeto")
+            tool = item.get("tool")
+            arguments = item.get("arguments", {})
+            if not isinstance(tool, str) or not tool.strip():
+                raise ValueError("Cada etapa precisa de uma ferramenta")
+            if not isinstance(arguments, dict):
+                raise ValueError("arguments deve ser um objeto")
+            validation = self.schemas.validate(tool, arguments)
+            if not validation.valid:
+                raise ValueError(validation.error or f"Etapa inválida: {tool}")
+            normalized.append({"tool": tool, "arguments": arguments})
+
+        task = self.tasks.create(description, source="scheduled", scheduled=True)
+        job = self.scheduler.add_task_after(
+            description,
+            max(0, float(delay_seconds)),
+            task_id=task.id,
+            steps=normalized,
+            repeat_seconds=float(repeat_seconds) if repeat_seconds is not None else None,
+        )
+        return {"job_id": job.id, "task_id": task.id, "description": description, "run_at": job.run_at}
 
     def _build_plan(self, text: str, intent: str):
         if intent in {"chat", "unknown"}:
