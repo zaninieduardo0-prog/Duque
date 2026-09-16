@@ -5,7 +5,7 @@ from typing import Any, Callable
 
 from core.events import EventType
 from core.task_engine import StepResult, TaskEngine
-from core.tasks import Task, TaskManager
+from core.tasks import Task, TaskManager, TaskStatus
 
 from .scheduler import ScheduledJob, Scheduler
 
@@ -22,14 +22,7 @@ class ScheduledExecution:
 class ScheduledTaskRunner:
     """Transforma jobs persistentes do Scheduler em execuções reais do TaskEngine."""
 
-    def __init__(
-        self,
-        scheduler: Scheduler,
-        task_engine: TaskEngine,
-        tasks: TaskManager | None = None,
-        event_sink: Callable[..., Any] | None = None,
-        reminder_handler: Callable[[ScheduledJob], Any] | None = None,
-    ) -> None:
+    def __init__(self, scheduler: Scheduler, task_engine: TaskEngine, tasks: TaskManager | None = None, event_sink: Callable[..., Any] | None = None, reminder_handler: Callable[[ScheduledJob], Any] | None = None) -> None:
         self.scheduler = scheduler
         self.task_engine = task_engine
         self.tasks = tasks or task_engine.tasks
@@ -50,18 +43,12 @@ class ScheduledTaskRunner:
             self._emit(EventType.ERROR, source="scheduler", job_id=job.id, error=error)
             return ScheduledExecution(job.id, kind, error=error)
 
-        task = self._resolve_task(job)
-        steps = self._steps(job)
-        if not steps:
-            error = "Tarefa agendada não possui etapas executáveis"
-            if task.status.value not in {"completed", "cancelled"}:
-                if task.status.value != "running":
-                    self.tasks.start(task.id)
-                self.tasks.fail(task.id, error)
-            self._emit(EventType.TASK_FAILED, task_id=task.id, job_id=job.id, error=error)
-            return ScheduledExecution(job.id, kind, task.id, error=error)
-
+        task: Task | None = None
         try:
+            task = self._resolve_task(job)
+            steps = self._steps(job)
+            if not steps:
+                raise ValueError("Tarefa agendada não possui etapas executáveis")
             results = self.task_engine.run(task, steps)
             if self.task_engine.succeeded(results):
                 return ScheduledExecution(job.id, kind, task.id, results=results)
@@ -69,25 +56,19 @@ class ScheduledTaskRunner:
             return ScheduledExecution(job.id, kind, task.id, results=results, error=failed.result.error if failed else "Falha desconhecida")
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
-            if task.status.value == "running":
+            task_id = task.id if task else (str(job.metadata.get("task_id")) if job.metadata.get("task_id") else None)
+            if task is not None and task.status == TaskStatus.RUNNING:
                 self.tasks.fail(task.id, error)
-            self._emit(EventType.TASK_FAILED, task_id=task.id, job_id=job.id, error=error)
-            return ScheduledExecution(job.id, kind, task.id, error=error)
+            self._emit(EventType.TASK_FAILED, task_id=task_id, job_id=job.id, error=error)
+            return ScheduledExecution(job.id, kind, task_id, error=error)
 
     def _resolve_task(self, job: ScheduledJob) -> Task:
         task_id = job.metadata.get("task_id")
-        if task_id:
-            task = self.tasks.get(str(task_id))
-            if task is not None:
-                return task
-
-        task = self.tasks.create(
-            job.description,
-            scheduled_job_id=job.id,
-            source="scheduler",
-        )
-        job.metadata["task_id"] = task.id
-        self.scheduler._save(job)
+        task = self.tasks.get(str(task_id)) if task_id else None
+        if task is None or task.status in {TaskStatus.COMPLETED, TaskStatus.CANCELLED}:
+            task = self.tasks.create(job.description, scheduled_job_id=job.id, source="scheduler")
+            job.metadata["task_id"] = task.id
+            self.scheduler._save(job)
         return task
 
     @staticmethod
@@ -95,15 +76,14 @@ class ScheduledTaskRunner:
         raw_steps = job.metadata.get("steps") or []
         if not isinstance(raw_steps, list):
             raise ValueError("steps deve ser uma lista")
-
         steps: list[tuple[str, dict[str, Any] | None]] = []
         for item in raw_steps:
             if not isinstance(item, dict):
                 raise ValueError("Cada etapa deve ser um objeto")
             tool = item.get("tool")
+            arguments = item.get("arguments")
             if not isinstance(tool, str) or not tool.strip():
                 raise ValueError("Cada etapa precisa de uma ferramenta")
-            arguments = item.get("arguments")
             if arguments is not None and not isinstance(arguments, dict):
                 raise ValueError("arguments deve ser um objeto")
             steps.append((tool, arguments))
