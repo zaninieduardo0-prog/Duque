@@ -14,6 +14,7 @@ from computer.code_tools import CodeTools
 from computer.runtime import create_ui_tools, create_verification
 from computer.tools import ComputerTools
 from computer.ui_tools import UITools
+from computer.verification_tools import VerificationTools
 from computer.workspace import Workspace
 from memory.memory import Memory, MemoryLayer
 from .model import ModelAdapter, NullModel
@@ -46,6 +47,8 @@ class AgentLoop:
         ComputerTools().register(self.executor)
         CodeTools(self.workspace).register(self.executor)
         (ui_tools or create_ui_tools()).register(self.executor)
+        if self.verification is not None:
+            VerificationTools(self.verification).register(self.executor)
         self.task_engine = TaskEngine(self.executor, self.tasks, self.engine.emit)
         self.correction = SelfCorrection(self.task_engine)
         self.model = model or NullModel()
@@ -81,6 +84,8 @@ class AgentLoop:
             ToolSpec("ui_press", "Pressiona uma tecla", ("key",), {"key": str}),
             ToolSpec("ui_hotkey", "Pressiona combinação de teclas", ("keys",), {"keys": list}),
             ToolSpec("screenshot", "Captura a tela"),
+            ToolSpec("screen_snapshot", "Observa a tela com contexto semântico"),
+            ToolSpec("screen_contains_text", "Verifica se um texto está visível via OCR", ("text",), {"text": str}),
             ToolSpec(
                 "schedule_task",
                 "Agenda uma tarefa serializável",
