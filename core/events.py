@@ -20,6 +20,8 @@ class EventType(str, Enum):
     GOODBYE_DETECTED = "goodbye_detected"
     DUQUE_WAKE = "duque_wake"
     DUQUE_SLEEP = "duque_sleep"
+    STATE_CHANGED = "state_changed"
+    MEMORY_UPDATED = "memory_updated"
     OBSERVATION_STARTED = "observation_started"
     OBSERVATION_FINISHED = "observation_finished"
     VERIFICATION_STARTED = "verification_started"
