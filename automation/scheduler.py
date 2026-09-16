@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable
 from uuid import uuid4
+
+from memory.database import MemoryDatabase
 
 
 @dataclass(slots=True)
@@ -17,23 +20,42 @@ class ScheduledJob:
     repeat_seconds: float | None = None
     enabled: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
+    created_at: float = field(default_factory=time.time)
+    last_run_at: float | None = None
+    run_count: int = 0
 
 
 class Scheduler:
-    """Agendador local em memória; persistência dos jobs entra no storage operacional."""
+    """Agendador persistente em SQLite, recuperável após reiniciar o Duque."""
 
-    def __init__(self, poll_interval: float = 0.5) -> None:
+    def __init__(self, database: MemoryDatabase | None = None, poll_interval: float = 0.5) -> None:
+        self.database = database or MemoryDatabase()
         self.poll_interval = max(0.1, poll_interval)
         self._jobs: dict[str, ScheduledJob] = {}
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._load()
+
+    def _load(self) -> None:
+        for row in self.database.load_jobs(enabled_only=False):
+            try:
+                metadata = json.loads(row["metadata"] or "{}")
+                self._jobs[row["id"]] = ScheduledJob(
+                    description=row["description"], id=row["id"], run_at=row["run_at"],
+                    repeat_seconds=row["repeat_seconds"], enabled=bool(row["enabled"]),
+                    metadata=metadata, created_at=row["created_at"],
+                    last_run_at=row["last_run_at"], run_count=row["run_count"],
+                )
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                continue
 
     def add(self, description: str, run_at: float | datetime, callback: Callable[[], Any] | None = None, *, repeat_seconds: float | None = None, **metadata: Any) -> ScheduledJob:
         timestamp = run_at.timestamp() if isinstance(run_at, datetime) else float(run_at)
         job = ScheduledJob(description, timestamp, callback, repeat_seconds=max(0.1, repeat_seconds) if repeat_seconds else None, metadata=metadata)
         with self._lock:
             self._jobs[job.id] = job
+            self._save(job)
         return job
 
     def add_after(self, description: str, seconds: float, callback: Callable[[], Any] | None = None, *, repeat_seconds: float | None = None, **metadata: Any) -> ScheduledJob:
@@ -45,6 +67,7 @@ class Scheduler:
             if not job:
                 return False
             job.enabled = False
+            self._save(job)
             return True
 
     def list(self, include_disabled: bool = False) -> list[ScheduledJob]:
@@ -60,30 +83,45 @@ class Scheduler:
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, name="DuqueScheduler", daemon=True)
         self._thread.start()
+        # Jobs vencidos são avaliados imediatamente após o boot.
+        self.run_due()
 
     def stop(self) -> None:
         self._stop.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2)
 
+    def run_due(self) -> int:
+        now = time.time()
+        with self._lock:
+            due = [job for job in self._jobs.values() if job.enabled and job.run_at <= now]
+        for job in due:
+            self._execute(job)
+        return len(due)
+
     def _run(self) -> None:
         while not self._stop.wait(self.poll_interval):
-            now = time.time()
-            due: list[ScheduledJob] = []
-            with self._lock:
-                for job in self._jobs.values():
-                    if job.enabled and job.run_at <= now:
-                        due.append(job)
-            for job in due:
-                self._execute(job)
+            self.run_due()
 
     def _execute(self, job: ScheduledJob) -> None:
+        # Marca a execução antes do callback para evitar disparos duplicados.
+        with self._lock:
+            if not job.enabled or job.run_at > time.time():
+                return
+            job.last_run_at = time.time()
+            job.run_count += 1
+            if job.repeat_seconds:
+                job.run_at = job.last_run_at + job.repeat_seconds
+            else:
+                job.enabled = False
+            self._save(job)
+
         try:
             if job.callback:
                 job.callback()
-        finally:
-            with self._lock:
-                if job.repeat_seconds and job.enabled:
-                    job.run_at = time.time() + job.repeat_seconds
-                else:
-                    job.enabled = False
+        except Exception:
+            # O scheduler não pode morrer por causa de uma tarefa individual.
+            pass
+
+    def _save(self, job: ScheduledJob) -> None:
+        self.database.upsert_job(job, job.created_at, job.last_run_at, job.run_count)
