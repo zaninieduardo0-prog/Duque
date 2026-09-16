@@ -12,6 +12,7 @@ from core.task_engine import TaskEngine
 from core.tasks import TaskManager
 from computer.code_tools import CodeTools
 from computer.runtime import create_ui_tools, create_verification
+from computer.screen_tools import ScreenTools
 from computer.tools import ComputerTools
 from computer.ui_tools import UITools
 from computer.verification_tools import VerificationTools
@@ -46,9 +47,11 @@ class AgentLoop:
         self.workspace = workspace or Workspace("duque_workspace")
         ComputerTools().register(self.executor)
         CodeTools(self.workspace).register(self.executor)
-        (ui_tools or create_ui_tools()).register(self.executor)
+        active_ui_tools = ui_tools or create_ui_tools()
+        active_ui_tools.register(self.executor)
         if self.verification is not None:
             VerificationTools(self.verification).register(self.executor)
+            ScreenTools(self.verification).register(self.executor)
         self.task_engine = TaskEngine(self.executor, self.tasks, self.engine.emit)
         self.correction = SelfCorrection(self.task_engine)
         self.model = model or NullModel()
@@ -57,7 +60,6 @@ class AgentLoop:
         self.model_planner = model_planner or ModelPlanner(self.model, self.schemas)
         self.memory = memory or Memory()
 
-        # Scheduler compartilha o mesmo SQLite do TaskManager para sobreviver a restart.
         self.scheduler = Scheduler(database=self.tasks.database)
         self.scheduled_runner = ScheduledTaskRunner(
             self.scheduler,
@@ -85,6 +87,7 @@ class AgentLoop:
             ToolSpec("ui_hotkey", "Pressiona combinação de teclas", ("keys",), {"keys": list}),
             ToolSpec("screenshot", "Captura a tela"),
             ToolSpec("screen_snapshot", "Observa a tela com contexto semântico"),
+            ToolSpec("screen_find", "Localiza um elemento visual por texto", ("text",), {"text": str}),
             ToolSpec("screen_contains_text", "Verifica se um texto está visível via OCR", ("text",), {"text": str}),
             ToolSpec(
                 "schedule_task",
