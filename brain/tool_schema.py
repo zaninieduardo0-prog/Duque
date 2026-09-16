@@ -9,7 +9,7 @@ class ToolSpec:
     name: str
     description: str = ""
     required: tuple[str, ...] = ()
-    argument_types: dict[str, type] = field(default_factory=dict)
+    argument_types: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True, frozen=True)
@@ -40,5 +40,12 @@ class ToolSchemaRegistry:
             return ValidationResult(False, f"Argumentos obrigatórios ausentes: {', '.join(missing)}")
         for key, expected in spec.argument_types.items():
             if key in args and not isinstance(args[key], expected):
-                return ValidationResult(False, f"Argumento '{key}' deve ser {expected.__name__}")
+                label = self._type_label(expected)
+                return ValidationResult(False, f"Argumento '{key}' deve ser {label}")
         return ValidationResult(True)
+
+    @staticmethod
+    def _type_label(expected: Any) -> str:
+        if isinstance(expected, tuple):
+            return " ou ".join(item.__name__ for item in expected)
+        return getattr(expected, "__name__", str(expected))
