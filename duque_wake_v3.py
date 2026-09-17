@@ -20,6 +20,13 @@ def patch_identity() -> None:
     agent.instructions = instructions
 
 
+async def finish_shutdown() -> None:
+    """Finaliza a sessão depois que a despedida realmente terminou."""
+    await runtime.wait_playback()
+    if runtime.SHUTDOWN_EVENT:
+        runtime.SHUTDOWN_EVENT.set()
+
+
 # Encerramento: corta a entrada imediatamente, mas mantém a sessão viva
 # para que a resposta de despedida possa terminar normalmente.
 def request_shutdown() -> None:
@@ -37,6 +44,13 @@ def request_shutdown() -> None:
     # ainda precisa atravessar a fila de áudio.
     runtime.hud("processando", "Encerrando conversa...")
     runtime.log("Encerramento solicitado; microfone desativado. A despedida continua liberada.")
+    # O encerramento não pode depender de agent_end: em algumas respostas
+    # o evento final não chega ao consumidor. Esperamos o áudio terminar e
+    # então liberamos explicitamente o evento que desmonta a sessão.
+    if runtime.LOOP is not None and runtime.SHUTDOWN_EVENT is not None:
+        runtime.LOOP.call_soon_threadsafe(
+            lambda: asyncio.create_task(finish_shutdown())
+        )
 
 
 async def receive_events(session) -> None:
