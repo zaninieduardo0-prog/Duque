@@ -21,8 +21,7 @@ def patch_identity() -> None:
 
 
 # Encerramento: corta a entrada imediatamente, mas mantém a sessão viva
-# para que a resposta de despedida que já estiver sendo gerada/reproduzida
-# possa terminar normalmente.
+# para que a resposta de despedida possa terminar normalmente.
 def request_shutdown() -> None:
     if runtime.SHUTTING_DOWN:
         return
@@ -34,8 +33,8 @@ def request_shutdown() -> None:
                 runtime.MIC_QUEUE.get_nowait()
             except asyncio.QueueEmpty:
                 break
-    # IMPORTANTE: não chamar FENCE.shutdown() aqui.
-    # Isso bloquearia os próprios chunks de áudio da despedida.
+    # Não invalida a geração de playback aqui: a resposta de despedida
+    # ainda precisa atravessar a fila de áudio.
     runtime.hud("processando", "Encerrando conversa...")
     runtime.log("Encerramento solicitado; microfone desativado. A despedida continua liberada.")
 
@@ -66,14 +65,25 @@ async def receive_events(session) -> None:
 
         elif kind == "audio":
             item_id = event.audio.item_id
-            if runtime.cancelled(item_id) or runtime.SHUTTING_DOWN:
+            if runtime.cancelled(item_id):
+                continue
+            allow_shutdown = runtime.SHUTTING_DOWN
+            if not runtime.FENCE.can_enqueue(
+                runtime.FENCE.state.generation,
+                item_id,
+                allow_shutdown=allow_shutdown,
+            ):
                 continue
             if not runtime.DUQUE_SPEAKING:
                 runtime.DUQUE_SPEAKING = True
                 runtime.SPEECH_STARTED_AT = runtime.time.perf_counter()
                 runtime.hud("falando", "Duque falando...")
-            if runtime.FENCE.can_enqueue(runtime.FENCE.state.generation, item_id):
-                runtime.enqueue_audio(event.audio.data, item_id, event.audio.content_index)
+            runtime.enqueue_audio(
+                event.audio.data,
+                item_id,
+                event.audio.content_index,
+                allow_shutdown=allow_shutdown,
+            )
 
         elif kind == "audio_interrupted":
             item_id = runtime.CURRENT_ITEM
@@ -81,6 +91,7 @@ async def receive_events(session) -> None:
                 with runtime.CANCELLED_LOCK:
                     runtime.CANCELLED.add(item_id)
             runtime.clear_audio()
+            runtime.FENCE.discard_audio(runtime.FENCE.state.generation)
             runtime.reset_voice_processor()
             runtime.DUQUE_SPEAKING = False
             runtime.SPEECH_STARTED_AT = None
