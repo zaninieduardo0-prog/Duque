@@ -15,7 +15,7 @@ def test_new_session_invalidates_previous_generation() -> None:
     assert fence.can_enqueue(second, "new") is True
 
 
-def test_shutdown_rejects_new_audio_but_keeps_existing_playback() -> None:
+def test_shutdown_rejects_new_input_audio_but_allows_farewell_playback() -> None:
     fence = PlaybackFence()
     generation = fence.new_session()
     assert fence.can_enqueue(generation, "current") is True
@@ -23,9 +23,22 @@ def test_shutdown_rejects_new_audio_but_keeps_existing_playback() -> None:
     fence.shutdown()
     assert fence.stale(generation) is True
     assert fence.can_enqueue(generation, "late") is False
+    assert fence.can_enqueue(generation, "farewell", allow_shutdown=True) is True
     assert fence.drained() is False
 
     assert fence.can_consume(generation) is True
+    assert fence.can_consume(generation) is True
+    assert fence.drained() is True
+
+
+def test_discard_audio_clears_pending_playback() -> None:
+    fence = PlaybackFence()
+    generation = fence.new_session()
+    assert fence.can_enqueue(generation, "current") is True
+    assert fence.can_enqueue(generation, "current") is True
+    assert fence.drained() is False
+
+    assert fence.discard_audio(generation) is True
     assert fence.drained() is True
 
 
