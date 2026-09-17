@@ -7,8 +7,10 @@ import threading
 import time
 import urllib.request
 from collections import deque
+from pathlib import Path
 
 import numpy as np
+import openwakeword
 import sounddevice as sd
 from openwakeword.model import Model
 from pvrecorder import PvRecorder
@@ -34,7 +36,10 @@ LOCAL_VAD_COOLDOWN = 0.8
 LOCAL_VAD_IGNORE_AFTER_SPEECH = 0.25
 PITCH_SEMITONES = float(os.getenv("DUQUE_PITCH", "-2.0"))
 VOICE_SPEED = float(os.getenv("DUQUE_VOICE_SPEED", "0.96"))
-VOICE_PROCESSING = os.getenv("DUQUE_VOICE_PROCESSING", "1").casefold() in {"1", "true", "yes", "on"}
+# O processamento pesado de pitch/time-stretch fica desligado por padrão.
+# O Realtime deve priorizar continuidade do áudio; podemos reintroduzir o
+# processamento em uma etapa assíncrona dedicada depois.
+VOICE_PROCESSING = os.getenv("DUQUE_VOICE_PROCESSING", "0").casefold() in {"1", "true", "yes", "on"}
 
 FAREWELLS = (
     "até mais duque", "até logo duque", "tchau duque", "pode dormir duque",
@@ -306,6 +311,22 @@ def extract_text(value, depth: int = 0) -> str:
     return " ".join(filter(None, parts))
 
 
+def extract_raw_text(data, raw_type: str) -> str:
+    """Extrai apenas eventos que realmente carregam texto.
+
+    Nunca trata response.output_audio.delta como texto: o SDK já converte
+    esse delta em evento `audio`; o campo bruto é Base64 de áudio.
+    """
+    text_types = {
+        "conversation.item.input_audio_transcription.completed",
+        "response.output_audio_transcript.delta",
+        "response.output_text.delta",
+    }
+    if raw_type not in text_types:
+        return ""
+    return extract_text(data).strip()
+
+
 async def receive_events(session) -> None:
     global DUQUE_SPEAKING, SPEECH_STARTED_AT, CURRENT_ITEM
     async for event in session:
@@ -315,9 +336,9 @@ async def receive_events(session) -> None:
         if kind == "raw_model_event":
             data = getattr(event, "data", None)
             raw_type = getattr(data, "type", "")
-            text = extract_text(data).strip()
             if raw_type == "input_audio_buffer.speech_started" and not SHUTTING_DOWN:
                 hud("ouvindo", "Escutando você...")
+            text = extract_raw_text(data, raw_type)
             if text and is_farewell(text):
                 request_shutdown()
         elif kind == "audio":
@@ -372,7 +393,7 @@ async def realtime_session() -> None:
     LOOP = asyncio.get_running_loop()
     MIC_QUEUE = asyncio.Queue(maxsize=100)
     SHUTDOWN_EVENT = asyncio.Event()
-    generation = FENCE.new_session()
+    FENCE.new_session()
     REALTIME = True
     MIC_ACTIVE = False
     SHUTTING_DOWN = False
@@ -443,7 +464,15 @@ async def realtime_session() -> None:
 def wake_loop() -> None:
     if not os.getenv("OPENAI_API_KEY"):
         raise SystemExit("OPENAI_API_KEY não encontrada")
-    wake_model = Model(wakeword_models=[WAKEWORD])
+
+    wake_model_path = Path(openwakeword.__file__).resolve().parent / "resources" / "models" / "hey_jarvis_v0.1.onnx"
+    if not wake_model_path.exists():
+        raise SystemExit(f"Modelo wake word não encontrado: {wake_model_path}")
+
+    wake_model = Model(
+        wakeword_models=[str(wake_model_path)],
+        inference_framework="onnx",
+    )
     recorder = None
     last_wake = 0.0
     hud("standby", "Sistema online")
@@ -457,7 +486,9 @@ def wake_loop() -> None:
             now = time.perf_counter()
             if confidence >= WAKE_THRESHOLD and now - last_wake >= WAKE_COOLDOWN:
                 last_wake = now
-                recorder.stop(); recorder.delete(); recorder = None
+                recorder.stop()
+                recorder.delete()
+                recorder = None
                 asyncio.run(realtime_session())
                 recorder = PvRecorder(frame_length=FRAME_LENGTH, device_index=0)
                 recorder.start()
@@ -466,7 +497,8 @@ def wake_loop() -> None:
     finally:
         if recorder:
             try:
-                recorder.stop(); recorder.delete()
+                recorder.stop()
+                recorder.delete()
             except Exception:
                 pass
         hud("standby", "Sistema offline")
