@@ -144,6 +144,7 @@ def clear_audio() -> None:
         AUDIO.clear()
     with PROCESSING_LOCK:
         PROCESSING.clear()
+    FENCE.discard_audio(FENCE.state.generation)
     PLAYBACK_DRAINED.set()
 
 
