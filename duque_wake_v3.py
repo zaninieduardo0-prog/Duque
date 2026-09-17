@@ -1,7 +1,24 @@
 from __future__ import annotations
 
 import asyncio
+
 import duque_wake_v2 as runtime
+
+
+# Ajuste de identidade do Realtime: o usuário é tratado por "Du".
+# Mantemos o agente legado local, mas corrigimos as instruções antes da sessão.
+def patch_identity() -> None:
+    agent = runtime.duque_realtime
+    instructions = getattr(agent, "instructions", "") or ""
+    replacements = {
+        'do senhor.': 'do Du.',
+        'Chame o usuário de "senhor".': 'Chame o usuário de "Du".',
+        'Nunca chame o usuário de "Du".': 'Nunca chame o usuário de "senhor".',
+        'Não use "Eduardo", a menos que ele peça.': 'Não use "Eduardo", a menos que ele peça.',
+    }
+    for old, new in replacements.items():
+        instructions = instructions.replace(old, new)
+    agent.instructions = instructions
 
 
 # Correção de lifecycle: o pedido de encerramento desliga a entrada, mas não
@@ -23,13 +40,7 @@ def request_shutdown() -> None:
 
 
 async def receive_events(session) -> None:
-    """Versão corrigida do consumidor de eventos do v2.
-
-    O erro crítico anterior era marcar a sessão como encerrada e, ao mesmo
-    tempo, rejeitar todo áudio posterior. Isso descartava a própria despedida.
-    Aqui a entrada é bloqueada imediatamente, mas a saída continua até
-    `agent_end` + drenagem real do player.
-    """
+    """Consumidor de eventos sem despejar deltas de áudio Base64 no terminal."""
     runtime.DUQUE_SPEAKING = False
     runtime.SPEECH_STARTED_AT = None
 
@@ -41,9 +52,9 @@ async def receive_events(session) -> None:
         if kind == "raw_model_event":
             data = getattr(event, "data", None)
             raw_type = getattr(data, "type", "")
-            text = runtime.extract_text(data).strip()
             if raw_type == "input_audio_buffer.speech_started" and not runtime.SHUTTING_DOWN:
                 runtime.hud("ouvindo", "Escutando você...")
+            text = runtime.extract_raw_text(data, raw_type)
             if text and runtime.is_farewell(text):
                 request_shutdown()
 
@@ -54,7 +65,7 @@ async def receive_events(session) -> None:
 
         elif kind == "audio":
             item_id = event.audio.item_id
-            if runtime.cancelled(item_id):
+            if runtime.cancelled(item_id) or runtime.SHUTTING_DOWN:
                 continue
             if not runtime.DUQUE_SPEAKING:
                 runtime.DUQUE_SPEAKING = True
@@ -87,8 +98,6 @@ async def receive_events(session) -> None:
                 runtime.hud("processando", "Processando comando...")
 
         elif kind == "audio_end":
-            # Não encerra o estado visual aqui: ainda pode haver bytes no
-            # processamento local ou na fila do dispositivo.
             pass
 
         elif kind == "agent_end":
@@ -106,6 +115,7 @@ async def receive_events(session) -> None:
             return
 
 
+patch_identity()
 runtime.request_shutdown = request_shutdown
 runtime.receive_events = receive_events
 
