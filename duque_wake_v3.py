@@ -6,7 +6,6 @@ import duque_wake_v2 as runtime
 
 
 # Ajuste de identidade do Realtime: o usuário é tratado por "Du".
-# Mantemos o agente legado local, mas corrigimos as instruções antes da sessão.
 def patch_identity() -> None:
     agent = runtime.duque_realtime
     instructions = getattr(agent, "instructions", "") or ""
@@ -21,9 +20,9 @@ def patch_identity() -> None:
     agent.instructions = instructions
 
 
-# Correção de lifecycle: o pedido de encerramento desliga a entrada, mas não
-# invalida a geração de áudio antes da despedida chegar. A sessão só é fechada
-# depois que o playback realmente drenou.
+# Encerramento: corta a entrada imediatamente, mas mantém a sessão viva
+# para que a resposta de despedida que já estiver sendo gerada/reproduzida
+# possa terminar normalmente.
 def request_shutdown() -> None:
     if runtime.SHUTTING_DOWN:
         return
@@ -35,6 +34,8 @@ def request_shutdown() -> None:
                 runtime.MIC_QUEUE.get_nowait()
             except asyncio.QueueEmpty:
                 break
+    # IMPORTANTE: não chamar FENCE.shutdown() aqui.
+    # Isso bloquearia os próprios chunks de áudio da despedida.
     runtime.hud("processando", "Encerrando conversa...")
     runtime.log("Encerramento solicitado; microfone desativado. A despedida continua liberada.")
 
@@ -71,8 +72,8 @@ async def receive_events(session) -> None:
                 runtime.DUQUE_SPEAKING = True
                 runtime.SPEECH_STARTED_AT = runtime.time.perf_counter()
                 runtime.hud("falando", "Duque falando...")
-            runtime.FENCE.can_enqueue(runtime.FENCE.state.generation, item_id)
-            runtime.enqueue_audio(event.audio.data, item_id, event.audio.content_index)
+            if runtime.FENCE.can_enqueue(runtime.FENCE.state.generation, item_id):
+                runtime.enqueue_audio(event.audio.data, item_id, event.audio.content_index)
 
         elif kind == "audio_interrupted":
             item_id = runtime.CURRENT_ITEM
