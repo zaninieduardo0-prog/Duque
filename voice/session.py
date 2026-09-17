@@ -44,9 +44,22 @@ class RealtimeSessionState:
         with self._lock:
             return self.active and generation == self.generation and not self.shutting_down
 
-    def add_audio(self, generation: int, item_id: str | None = None) -> bool:
+    def accepts_playback(self, generation: int) -> bool:
+        """Permite terminar áudio da sessão mesmo após pedido de encerramento."""
         with self._lock:
-            if not self.active or generation != self.generation or self.shutting_down:
+            return self.active and generation == self.generation
+
+    def add_audio(
+        self,
+        generation: int,
+        item_id: str | None = None,
+        *,
+        allow_shutdown: bool = False,
+    ) -> bool:
+        with self._lock:
+            if not self.active or generation != self.generation:
+                return False
+            if self.shutting_down and not allow_shutdown:
                 return False
             self.pending_audio += 1
             if item_id is not None:
@@ -78,13 +91,25 @@ class PlaybackFence:
     def shutdown(self) -> int:
         return self.state.begin_shutdown()
 
-    def can_enqueue(self, generation: int, item_id: str | None = None) -> bool:
-        return self.state.add_audio(generation, item_id)
+    def can_enqueue(
+        self,
+        generation: int,
+        item_id: str | None = None,
+        *,
+        allow_shutdown: bool = False,
+    ) -> bool:
+        return self.state.add_audio(
+            generation,
+            item_id,
+            allow_shutdown=allow_shutdown,
+        )
 
     def can_consume(self, generation: int) -> bool:
         return self.state.consume_audio(generation)
 
-    def stale(self, generation: int) -> bool:
+    def stale(self, generation: int, *, allow_shutdown: bool = False) -> bool:
+        if allow_shutdown:
+            return not self.state.accepts_playback(generation)
         return not self.state.accepts_audio(generation)
 
     def drained(self) -> bool:
