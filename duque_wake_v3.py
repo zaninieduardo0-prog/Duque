@@ -20,6 +20,61 @@ def patch_identity() -> None:
     agent.instructions = instructions
 
 
+# Evita QueueFull no callback de áudio quando a sessão termina com erro.
+def safe_microphone_callback(indata, _frames, _time_info, status) -> None:
+    if status:
+        runtime.log(f"[MIC] {status}")
+    if (
+        not runtime.REALTIME
+        or not runtime.MIC_ACTIVE
+        or runtime.LOOP is None
+        or runtime.MIC_QUEUE is None
+    ):
+        return
+
+    audio = indata.copy().tobytes()
+    if runtime.DUQUE_SPEAKING and not runtime.SHUTTING_DOWN:
+        now = runtime.time.perf_counter()
+        if (
+            runtime.SPEECH_STARTED_AT is None
+            or now - runtime.SPEECH_STARTED_AT >= runtime.LOCAL_VAD_IGNORE_AFTER_SPEECH
+        ):
+            runtime.VAD_COUNT = (
+                runtime.VAD_COUNT + 1
+                if runtime.rms(audio) >= runtime.LOCAL_VAD_THRESHOLD
+                else 0
+            )
+            if (
+                runtime.VAD_COUNT >= runtime.LOCAL_VAD_BLOCKS
+                and now - runtime.LAST_INTERRUPT >= runtime.LOCAL_VAD_COOLDOWN
+            ):
+                runtime.VAD_COUNT = 0
+                runtime.LAST_INTERRUPT = now
+                runtime.LOOP.call_soon_threadsafe(
+                    lambda: asyncio.create_task(runtime.interrupt_session())
+                )
+
+    def enqueue() -> None:
+        queue = runtime.MIC_QUEUE
+        if (
+            queue is None
+            or not runtime.REALTIME
+            or not runtime.MIC_ACTIVE
+            or runtime.SHUTTING_DOWN
+        ):
+            return
+        try:
+            queue.put_nowait(audio)
+        except asyncio.QueueFull:
+            # Durante uma falha do transporte, o frame atual é descartável.
+            pass
+
+    try:
+        runtime.LOOP.call_soon_threadsafe(enqueue)
+    except Exception:
+        pass
+
+
 async def finish_shutdown() -> None:
     """Finaliza a sessão depois que a despedida realmente terminou."""
     await runtime.wait_playback()
@@ -40,13 +95,8 @@ def request_shutdown() -> None:
                 runtime.MIC_QUEUE.get_nowait()
             except asyncio.QueueEmpty:
                 break
-    # Não invalida a geração de playback aqui: a resposta de despedida
-    # ainda precisa atravessar a fila de áudio.
     runtime.hud("processando", "Encerrando conversa...")
     runtime.log("Encerramento solicitado; microfone desativado. A despedida continua liberada.")
-    # O encerramento não pode depender de agent_end: em algumas respostas
-    # o evento final não chega ao consumidor. Esperamos o áudio terminar e
-    # então liberamos explicitamente o evento que desmonta a sessão.
     if runtime.LOOP is not None and runtime.SHUTDOWN_EVENT is not None:
         runtime.LOOP.call_soon_threadsafe(
             lambda: asyncio.create_task(finish_shutdown())
@@ -138,12 +188,16 @@ async def receive_events(session) -> None:
 
         elif kind == "error":
             runtime.log(f"[REALTIME] erro: {getattr(event, 'error', event)}")
+            # Garante limpeza completa da sessão após erro do modelo/WebSocket.
+            if runtime.SHUTDOWN_EVENT:
+                runtime.SHUTDOWN_EVENT.set()
             return
 
 
 patch_identity()
 runtime.request_shutdown = request_shutdown
 runtime.receive_events = receive_events
+runtime.microphone_callback = safe_microphone_callback
 
 
 if __name__ == "__main__":
