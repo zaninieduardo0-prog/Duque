@@ -68,8 +68,9 @@ async def receive_events(session) -> None:
             if runtime.cancelled(item_id):
                 continue
             allow_shutdown = runtime.SHUTTING_DOWN
+            generation = runtime.FENCE.state.generation
             if not runtime.FENCE.can_enqueue(
-                runtime.FENCE.state.generation,
+                generation,
                 item_id,
                 allow_shutdown=allow_shutdown,
             ):
@@ -91,7 +92,6 @@ async def receive_events(session) -> None:
                 with runtime.CANCELLED_LOCK:
                     runtime.CANCELLED.add(item_id)
             runtime.clear_audio()
-            runtime.FENCE.discard_audio(runtime.FENCE.state.generation)
             runtime.reset_voice_processor()
             runtime.DUQUE_SPEAKING = False
             runtime.SPEECH_STARTED_AT = None
