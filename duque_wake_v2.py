@@ -27,6 +27,7 @@ CANAIS = 1
 BLOCKSIZE = 480
 SERVIDOR = "http://127.0.0.1:5000"
 WAKEWORD = "hey_jarvis"
+WAKEWORD_MODEL_NAME = "hey_jarvis_v0.1"
 FRAME_LENGTH = 1280
 WAKE_THRESHOLD = float(os.getenv("DUQUE_WAKE_THRESHOLD", "0.5"))
 WAKE_COOLDOWN = 2.0
@@ -36,9 +37,6 @@ LOCAL_VAD_COOLDOWN = 0.8
 LOCAL_VAD_IGNORE_AFTER_SPEECH = 0.25
 PITCH_SEMITONES = float(os.getenv("DUQUE_PITCH", "-2.0"))
 VOICE_SPEED = float(os.getenv("DUQUE_VOICE_SPEED", "0.96"))
-# O processamento pesado de pitch/time-stretch fica desligado por padrão.
-# O Realtime deve priorizar continuidade do áudio; podemos reintroduzir o
-# processamento em uma etapa assíncrona dedicada depois.
 VOICE_PROCESSING = os.getenv("DUQUE_VOICE_PROCESSING", "0").casefold() in {"1", "true", "yes", "on"}
 
 FAREWELLS = (
@@ -312,11 +310,6 @@ def extract_text(value, depth: int = 0) -> str:
 
 
 def extract_raw_text(data, raw_type: str) -> str:
-    """Extrai apenas eventos que realmente carregam texto.
-
-    Nunca trata response.output_audio.delta como texto: o SDK já converte
-    esse delta em evento `audio`; o campo bruto é Base64 de áudio.
-    """
     text_types = {
         "conversation.item.input_audio_transcription.completed",
         "response.output_audio_transcript.delta",
@@ -479,13 +472,15 @@ def wake_loop() -> None:
     try:
         recorder = PvRecorder(frame_length=FRAME_LENGTH, device_index=0)
         recorder.start()
-        log('Wake word ativo: "Hey Jarvis"')
+        log(f'Wake word ativo: "Hey Jarvis" | modelo={WAKEWORD_MODEL_NAME} | threshold={WAKE_THRESHOLD}')
         while True:
             frame = np.asarray(recorder.read(), dtype=np.int16)
-            confidence = wake_model.predict(frame).get(WAKEWORD, 0.0)
+            predictions = wake_model.predict(frame)
+            confidence = predictions.get(WAKEWORD, predictions.get(WAKEWORD_MODEL_NAME, 0.0))
             now = time.perf_counter()
             if confidence >= WAKE_THRESHOLD and now - last_wake >= WAKE_COOLDOWN:
                 last_wake = now
+                log(f"Wake word detectado (confiança={confidence:.2f})")
                 recorder.stop()
                 recorder.delete()
                 recorder = None
