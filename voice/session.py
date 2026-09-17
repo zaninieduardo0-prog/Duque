@@ -74,6 +74,15 @@ class RealtimeSessionState:
                 self.pending_audio -= 1
             return True
 
+    def discard_audio(self, generation: int) -> bool:
+        """Descarta áudio enfileirado quando uma resposta é interrompida."""
+        with self._lock:
+            if generation != self.generation:
+                return False
+            self.pending_audio = 0
+            self.current_item = None
+            return True
+
     def playback_drained(self) -> bool:
         with self._lock:
             return self.pending_audio == 0
@@ -106,6 +115,9 @@ class PlaybackFence:
 
     def can_consume(self, generation: int) -> bool:
         return self.state.consume_audio(generation)
+
+    def discard_audio(self, generation: int) -> bool:
+        return self.state.discard_audio(generation)
 
     def stale(self, generation: int, *, allow_shutdown: bool = False) -> bool:
         if allow_shutdown:
