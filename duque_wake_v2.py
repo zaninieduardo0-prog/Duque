@@ -173,9 +173,10 @@ def process_audio(data: bytes) -> bytes:
         return data
 
 
-def enqueue_audio(data: bytes, item_id: str, content_index: int) -> None:
+def enqueue_audio(data: bytes, item_id: str, content_index: int, *, allow_shutdown: bool = False) -> None:
     global CURRENT_ITEM
-    if cancelled(item_id) or FENCE.stale(FENCE.state.generation):
+    generation = FENCE.state.generation
+    if cancelled(item_id) or FENCE.stale(generation, allow_shutdown=allow_shutdown):
         return
     processed = process_audio(data)
     with AUDIO_LOCK:
@@ -191,11 +192,13 @@ def output_callback(outdata, frames, _time_info, status) -> None:
     needed = frames * 2 * CANAIS
     result = bytearray()
     played: list[tuple[str, int, bytes]] = []
+    consumed: list[int] = []
     with AUDIO_LOCK:
         while len(result) < needed and AUDIO:
             item_id, content_index, data = AUDIO[0]
             if cancelled(item_id):
                 AUDIO.popleft()
+                consumed.append(FENCE.state.generation)
                 continue
             remaining = needed - len(result)
             chunk, rest = data[:remaining], data[remaining:]
@@ -204,6 +207,7 @@ def output_callback(outdata, frames, _time_info, status) -> None:
                 AUDIO[0] = (item_id, content_index, rest)
             else:
                 AUDIO.popleft()
+                consumed.append(FENCE.state.generation)
             played.append((item_id, content_index, chunk))
         if not AUDIO:
             with PROCESSING_LOCK:
@@ -213,6 +217,8 @@ def output_callback(outdata, frames, _time_info, status) -> None:
     if len(result) < needed:
         result.extend(b"\x00" * (needed - len(result)))
     outdata[:] = bytes(result)
+    for generation in consumed:
+        FENCE.can_consume(generation)
     if TRACKER:
         for item_id, content_index, chunk in played:
             try:
@@ -497,8 +503,3 @@ def wake_loop() -> None:
             except Exception:
                 pass
         hud("standby", "Sistema offline")
-
-
-if __name__ == "__main__":
-    log(f"Duque Realtime {MODEL} | voz={VOICE} | processamento={'on' if VOICE_PROCESSING else 'off'}")
-    wake_loop()
