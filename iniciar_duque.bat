@@ -1,9 +1,10 @@
 @echo off
 title DUQUE AI
 
-cd /d C:\Duque
+rem Usa automaticamente a pasta onde este .bat estiver.
+cd /d "%~dp0"
 
-set PYTHON=C:\Duque\.venv\Scripts\python.exe
+set PYTHON=python
 
 rem Configuracao de voz: altere estas variaveis sem mexer no runtime.
 set DUQUE_VOICE=cedar
@@ -16,12 +17,13 @@ echo ==========================================
 echo              DUQUE AI
 echo ==========================================
 echo.
-echo Python:
-echo %PYTHON%
+echo Pasta:
+echo %CD%
 echo.
 
-if not exist "%PYTHON%" (
-    echo ERRO: Python do ambiente virtual nao encontrado.
+where %PYTHON% >nul 2>&1
+if errorlevel 1 (
+    echo ERRO: Python nao encontrado no PATH.
     echo.
     pause
     exit /b
@@ -30,14 +32,14 @@ if not exist "%PYTHON%" (
 echo Iniciando servidor...
 echo.
 
-start "DUQUE - SERVIDOR" cmd /k "cd /d C:\Duque && "%PYTHON%" servidor.py"
+start "DUQUE - SERVIDOR" cmd /k "cd /d "%~dp0" && %PYTHON% servidor.py"
 
 timeout /t 3 /nobreak >nul
 
 echo Iniciando inteligencia artificial...
 echo.
 
-start "DUQUE - IA" cmd /k "cd /d C:\Duque && "%PYTHON%" duque_wake_v3.py"
+start "DUQUE - IA" cmd /k "cd /d "%~dp0" && %PYTHON% duque_wake_v3.py"
 timeout /t 4 /nobreak >nul
 
 echo Abrindo interface...
