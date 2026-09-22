@@ -93,6 +93,21 @@ class Planner:
                             "delete_file",
                             {"path": path},
                         )])
+            for marker_text in ("crie o arquivo ", "criar o arquivo ", "escreva o arquivo ", "salve o arquivo "):
+                if marker_text in lowered and tool_available("write_file"):
+                    remainder = goal[lowered.index(marker_text) + len(marker_text):].strip()
+                    separator = " com conteúdo "
+                    if separator in remainder.casefold():
+                        split_at = remainder.casefold().index(separator)
+                        path = remainder[:split_at].strip()
+                        content = remainder[split_at + len(separator):]
+                        if path and content:
+                            return Plan(goal, [PlanStep(
+                                f"Criar o arquivo solicitado: {path}",
+                                StepKind.TOOL,
+                                "write_file",
+                                {"path": path, "content": content},
+                            )])
             return Plan(goal)
 
         if intent == "code":
