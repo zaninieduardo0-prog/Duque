@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from brain.tool_schema import ToolSchemaRegistry, ToolSpec
 
 
