@@ -43,9 +43,19 @@ class Planner:
                 return value[len(prefix):].strip()
         return value
 
-    def build(self, goal: str, intent: str = "chat") -> Plan:
+    def build(
+        self,
+        goal: str,
+        intent: str = "chat",
+        available_tools: set[str] | None = None,
+    ) -> Plan:
+        def tool_available(name: str) -> bool:
+            return available_tools is None or name in available_tools
+
         if intent == "open_app":
             app_name = self._app_name(goal)
+            if not tool_available("open_app"):
+                return Plan(goal)
             return Plan(goal, [PlanStep(
                 f"Abrir o aplicativo solicitado: {app_name}",
                 StepKind.TOOL,
@@ -53,19 +63,28 @@ class Planner:
                 {"name": app_name},
             )])
         if intent == "search":
-            return Plan(goal, [PlanStep(f"Pesquisar: {goal}", StepKind.TOOL, "web_search", {"query": goal})])
+            if not tool_available("web_search"):
+                return Plan(goal)
+            return Plan(goal, [PlanStep(
+                f"Pesquisar: {goal}",
+                StepKind.TOOL,
+                "web_search",
+                {"query": goal},
+            )])
         if intent == "code":
-            return Plan(goal, [
-                PlanStep("Entender o objetivo e os requisitos", StepKind.THINK),
-                PlanStep("Listar o workspace antes da alteração", StepKind.TOOL, "list_files"),
+            steps = [PlanStep("Entender o objetivo e os requisitos", StepKind.THINK)]
+            if tool_available("list_files"):
+                steps.append(PlanStep(
+                    "Listar o workspace antes da alteração",
+                    StepKind.TOOL,
+                    "list_files",
+                ))
+            steps.extend([
                 PlanStep("Escrever ou modificar o código", StepKind.THINK),
                 PlanStep("Executar o código ou teste solicitado", StepKind.THINK),
                 PlanStep("Relatar o resultado", StepKind.RESPOND),
             ])
-        if intent == "file_operation":
-            return Plan(goal, [PlanStep(f"Executar a operação de arquivo: {goal}", StepKind.TOOL, "file_manager", {"operation": goal})])
-        if intent == "reminder":
-            return Plan(goal, [PlanStep(f"Criar lembrete: {goal}", StepKind.TOOL, "scheduler", {"description": goal})])
-        if intent == "system":
-            return Plan(goal, [PlanStep(f"Executar ação do sistema: {goal}", StepKind.TOOL, "system_control", {"action": goal})])
+            return Plan(goal, steps)
+        if intent in {"file_operation", "reminder", "system"}:
+            return Plan(goal)
         return Plan(goal, [PlanStep("Responder à solicitação", StepKind.RESPOND)])
