@@ -153,13 +153,29 @@ class AgentLoop:
         except Exception:
             return self.planner.build(text, intent)
 
+    def _validated_tool_steps(self, steps):
+        validated: list[tuple[str, dict[str, object]]] = []
+        for step in steps:
+            tool = step.tool or ""
+            arguments = step.arguments or {}
+            if not tool:
+                continue
+            validation = self.schemas.validate(tool, arguments)
+            if validation.valid:
+                validated.append((tool, arguments))
+        return validated
+
     def _ensure_executable_plan(self, text: str, intent: str, plan):
-        tool_steps = [(step.tool or "", step.arguments) for step in plan.steps if step.kind == StepKind.TOOL and step.tool]
+        tool_steps = self._validated_tool_steps(
+            step for step in plan.steps if step.kind == StepKind.TOOL
+        )
         if tool_steps:
             return tool_steps
         if intent in {"open_app", "search", "file_operation", "reminder", "system"}:
             fallback = self.planner.build(text, intent)
-            return [(step.tool or "", step.arguments) for step in fallback.steps if step.kind == StepKind.TOOL and step.tool]
+            return self._validated_tool_steps(
+                step for step in fallback.steps if step.kind == StepKind.TOOL
+            )
         return []
 
     def _autonomous_enabled(self) -> bool:
@@ -212,8 +228,21 @@ class AgentLoop:
     def _correct_steps(self, goal: str, intent: str, original_steps, error: str | None, attempt: int):
         if not error:
             return original_steps
+
+        correction_goal = (
+            f"Objetivo original: {goal}\n"
+            f"Falha da tentativa {attempt}: {error}\n"
+            "Crie um novo plano corrigido."
+        )
         try:
-            plan = self.model_planner.build(f"Objetivo original: {goal}\nFalha da tentativa {attempt}: {error}\nCrie um novo plano corrigido.", self.executor.tools.names())
-            return [(step.tool, step.arguments) for step in plan.steps if step.kind == StepKind.TOOL and step.tool]
+            if isinstance(self.model, NullModel):
+                plan = self.planner.build(correction_goal, intent)
+            else:
+                plan = self.model_planner.build(correction_goal, self.executor.tools.names())
+
+            corrected = self._validated_tool_steps(
+                step for step in plan.steps if step.kind == StepKind.TOOL
+            )
+            return corrected or original_steps
         except Exception:
             return original_steps
