@@ -73,3 +73,18 @@ def test_agent_loop_does_not_complete_unsupported_operational_intent() -> None:
     task = agent.tasks.get(result.task_id)
     assert task is not None
     assert task.status.value == "failed"
+
+
+def test_agent_schema_registry_contains_only_registered_tools() -> None:
+    agent = AgentLoop()
+    registered = set(agent.executor.tools.names())
+    assert set(agent.schemas.names()) <= registered
+    assert "file_manager" not in agent.schemas.names()
+    assert "scheduler" not in agent.schemas.names()
+    assert "system_control" not in agent.schemas.names()
+
+
+def test_schedule_task_is_registered_before_schema_catalog() -> None:
+    agent = AgentLoop()
+    assert "schedule_task" in agent.executor.tools.names()
+    assert "schedule_task" in agent.schemas.names()
