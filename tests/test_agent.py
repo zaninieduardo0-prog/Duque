@@ -100,3 +100,13 @@ def test_planner_builds_delete_file_operation_only_when_available() -> None:
     plan = Planner().build("apague o arquivo lixo.txt", "file_operation", {"delete_file"})
     assert plan.steps[0].tool == "delete_file"
     assert plan.steps[0].arguments == {"path": "lixo.txt"}
+
+
+def test_planner_builds_write_file_operation_from_natural_language() -> None:
+    plan = Planner().build(
+        "crie o arquivo teste.txt com conteúdo Olá Duque",
+        "file_operation",
+        {"write_file"},
+    )
+    assert plan.steps[0].tool == "write_file"
+    assert plan.steps[0].arguments == {"path": "teste.txt", "content": "Olá Duque"}
