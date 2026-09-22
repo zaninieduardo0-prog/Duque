@@ -67,6 +67,7 @@ class AutonomousLoop:
         ]
         executions: list[ExecutionResult] = []
         had_successful_tool = False
+        last_tool_succeeded = False
 
         for step_number in range(1, self.max_steps + 1):
             if self.observer is not None:
@@ -91,8 +92,13 @@ class AutonomousLoop:
                 if not message:
                     messages.append({"role": "user", "content": "AÇÃO REJEITADA: a mensagem de conclusão está vazia. Continue trabalhando."})
                     continue
-                if not had_successful_tool and context.goal.strip():
-                    messages.append({"role": "user", "content": "AÇÃO REJEITADA: ainda não existe evidência de execução. Execute uma ferramenta ou, se a tarefa realmente não exigir ferramenta, explique o resultado sem alegar uma ação externa."})
+                if context.goal.strip() and (not had_successful_tool or not last_tool_succeeded):
+                    reason = (
+                        "ainda não existe evidência de execução"
+                        if not had_successful_tool
+                        else "a última ferramenta falhou e a tarefa precisa ser reavaliada"
+                    )
+                    messages.append({"role": "user", "content": f"AÇÃO REJEITADA: {reason}. Execute uma ferramenta ou corrija a abordagem antes de concluir."})
                     continue
                 self._emit(EventType.TASK_FINISHED, task_id=task.id, steps=step_number - 1)
                 return AutonomousResult(True, message, step_number - 1, executions)
@@ -115,6 +121,7 @@ class AutonomousLoop:
 
             if result.success:
                 had_successful_tool = True
+                last_tool_succeeded = True
                 safe_result = self._safe_result(result.value)
                 context.record_step(tool=tool, arguments=arguments, result=safe_result)
                 feedback = {
@@ -125,6 +132,7 @@ class AutonomousLoop:
                 }
                 self._emit(EventType.TASK_FINISHED, task_id=task.id, step=step_number, tool=tool)
             else:
+                last_tool_succeeded = False
                 error = result.error or "Falha desconhecida"
                 context.record_failure(error)
                 feedback = {
