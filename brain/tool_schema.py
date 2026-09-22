@@ -52,6 +52,10 @@ class ToolSchemaRegistry:
         missing = [key for key in spec.required if key not in args]
         if missing:
             return ValidationResult(False, f"Argumentos obrigatórios ausentes: {', '.join(missing)}")
+        allowed = set(spec.argument_types) | set(spec.required)
+        unexpected = [key for key in args if key not in allowed]
+        if unexpected:
+            return ValidationResult(False, f"Argumentos não suportados: {', '.join(unexpected)}")
         for key, expected in spec.argument_types.items():
             if key in args and not isinstance(args[key], expected):
                 label = self._type_label(expected)
