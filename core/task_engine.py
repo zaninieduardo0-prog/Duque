@@ -5,7 +5,7 @@ from typing import Any, Callable
 
 from .events import EventType
 from .executor import ExecutionResult, Executor
-from .tasks import Task, TaskManager, TaskStatus
+from .tasks import Task, TaskManager
 
 
 @dataclass(slots=True)
@@ -30,6 +30,12 @@ class TaskEngine:
     def run(self, task: Task, steps: list[tuple[str, dict[str, Any] | None]], *, confirmed: bool = False) -> list[StepResult]:
         self.tasks.start(task.id)
         results: list[StepResult] = []
+
+        if not steps:
+            reason = "O plano não contém etapas executáveis"
+            self.tasks.fail(task.id, reason)
+            self._emit(EventType.TASK_FAILED, task_id=task.id, error=reason)
+            return results
 
         for index, (tool, arguments) in enumerate(steps, start=1):
             self._emit(EventType.TASK_STARTED, task_id=task.id, step=index, tool=tool)
