@@ -126,6 +126,11 @@ class Executor:
     def execute_task(self, task: Task, steps: list[tuple[str, dict[str, Any] | None]], *, confirmed: bool = False) -> list[ExecutionResult]:
         self.tasks.start(task.id)
         results: list[ExecutionResult] = []
+
+        if not steps:
+            self.tasks.fail(task.id, "O plano não contém etapas executáveis")
+            return results
+
         for tool_name, arguments in steps:
             result = self.execute_step(task, tool_name, arguments, confirmed=confirmed, manage_task=False)
             results.append(result)
