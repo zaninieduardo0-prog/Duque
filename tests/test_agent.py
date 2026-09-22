@@ -88,3 +88,15 @@ def test_schedule_task_is_registered_before_schema_catalog() -> None:
     agent = AgentLoop()
     assert "schedule_task" in agent.executor.tools.names()
     assert "schedule_task" in agent.schemas.names()
+
+
+def test_planner_builds_read_file_operation() -> None:
+    plan = Planner().build("leia o arquivo config.json", "file_operation", {"read_file"})
+    assert plan.steps[0].tool == "read_file"
+    assert plan.steps[0].arguments == {"path": "config.json"}
+
+
+def test_planner_builds_delete_file_operation_only_when_available() -> None:
+    plan = Planner().build("apague o arquivo lixo.txt", "file_operation", {"delete_file"})
+    assert plan.steps[0].tool == "delete_file"
+    assert plan.steps[0].arguments == {"path": "lixo.txt"}
