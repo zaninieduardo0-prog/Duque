@@ -71,6 +71,30 @@ class Planner:
                 "web_search",
                 {"query": goal},
             )])
+        if intent == "file_operation":
+            lowered = goal.casefold()
+            for marker_text in ("leia o arquivo ", "ler o arquivo ", "abra o arquivo "):
+                if marker_text in lowered:
+                    path = goal[lowered.index(marker_text) + len(marker_text):].strip()
+                    if tool_available("read_file") and path:
+                        return Plan(goal, [PlanStep(
+                            f"Ler o arquivo solicitado: {path}",
+                            StepKind.TOOL,
+                            "read_file",
+                            {"path": path},
+                        )])
+            for marker_text in ("apague o arquivo ", "delete o arquivo ", "exclua o arquivo "):
+                if marker_text in lowered:
+                    path = goal[lowered.index(marker_text) + len(marker_text):].strip()
+                    if tool_available("delete_file") and path:
+                        return Plan(goal, [PlanStep(
+                            f"Excluir o arquivo solicitado: {path}",
+                            StepKind.TOOL,
+                            "delete_file",
+                            {"path": path},
+                        )])
+            return Plan(goal)
+
         if intent == "code":
             steps = [PlanStep("Entender o objetivo e os requisitos", StepKind.THINK)]
             if tool_available("list_files"):
@@ -85,6 +109,6 @@ class Planner:
                 PlanStep("Relatar o resultado", StepKind.RESPOND),
             ])
             return Plan(goal, steps)
-        if intent in {"file_operation", "reminder", "system"}:
+        if intent in {"reminder", "system"}:
             return Plan(goal)
         return Plan(goal, [PlanStep("Responder à solicitação", StepKind.RESPOND)])
