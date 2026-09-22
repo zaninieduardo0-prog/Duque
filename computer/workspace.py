@@ -44,5 +44,12 @@ class Workspace:
         path.write_text(content, encoding="utf-8")
         return FileResult(str(path), created=not existed, changed=old != content)
 
+    def delete(self, relative_path: str | Path) -> FileResult:
+        path = self.resolve(relative_path)
+        if not path.is_file():
+            raise FileNotFoundError(str(path))
+        path.unlink()
+        return FileResult(str(path), changed=True)
+
     def list_files(self) -> list[str]:
         return sorted(str(path.relative_to(self.root)) for path in self.root.rglob("*") if path.is_file())
