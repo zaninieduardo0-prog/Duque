@@ -47,4 +47,7 @@ class SelfCorrection:
             failed = next((item for item in reversed(results) if not item.result.success), None)
             error = failed.result.error if failed else "Falha sem detalhes"
 
+            if failed and failed.result.confirmation_required:
+                return CorrectionReport(False, attempt, all_results, error)
+
         return CorrectionReport(False, attempts_limit, all_results, error)
