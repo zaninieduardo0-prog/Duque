@@ -80,7 +80,6 @@ class AgentLoop:
         self.executor.register("schedule_task", self._schedule_task)
 
     def _observe_screen(self) -> dict[str, object]:
-        """Fornece percepção leve ao ciclo autônomo sem expor a imagem bruta ao modelo."""
         if self.verification is None:
             return {}
         observation = self.verification.snapshot()
@@ -145,9 +144,6 @@ class AgentLoop:
         return {"job_id": job.id, "task_id": task.id, "description": description, "run_at": job.run_at}
 
     def _build_plan(self, text: str, intent: str):
-        # Sem um modelo real, o planejador heurístico é a fonte de verdade.
-        # O NullModel existe para testes/offline e não deve transformar um
-        # pedido executável em uma tentativa de resposta conversacional.
         if isinstance(self.model, NullModel):
             return self.planner.build(text, intent)
         if intent in {"chat", "unknown"}:
@@ -156,6 +152,15 @@ class AgentLoop:
             return self.model_planner.build(text, self.executor.tools.names())
         except Exception:
             return self.planner.build(text, intent)
+
+    def _ensure_executable_plan(self, text: str, intent: str, plan):
+        tool_steps = [(step.tool or "", step.arguments) for step in plan.steps if step.kind == StepKind.TOOL and step.tool]
+        if tool_steps:
+            return tool_steps
+        if intent in {"open_app", "search", "file_operation", "reminder", "system"}:
+            fallback = self.planner.build(text, intent)
+            return [(step.tool or "", step.arguments) for step in fallback.steps if step.kind == StepKind.TOOL and step.tool]
+        return []
 
     def _autonomous_enabled(self) -> bool:
         return os.getenv("DUQUE_AUTONOMOUS_AGENT", "0").casefold() in {"1", "true", "yes", "on"} and not isinstance(self.model, NullModel)
@@ -186,7 +191,7 @@ class AgentLoop:
         plan = self._build_plan(text, route.intent.value)
         task = self.tasks.create(text, intent=route.intent.value, confidence=route.confidence)
         self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "created"})
-        tool_steps = [(step.tool or "", step.arguments) for step in plan.steps if step.kind == StepKind.TOOL and step.tool]
+        tool_steps = self._ensure_executable_plan(text, route.intent.value, plan)
         if not tool_steps:
             self.tasks.start(task.id)
             self.tasks.complete(task.id, text)
