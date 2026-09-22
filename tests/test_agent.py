@@ -110,3 +110,9 @@ def test_planner_builds_write_file_operation_from_natural_language() -> None:
     )
     assert plan.steps[0].tool == "write_file"
     assert plan.steps[0].arguments == {"path": "teste.txt", "content": "Olá Duque"}
+
+
+def test_web_search_tool_is_registered() -> None:
+    agent = AgentLoop()
+    assert "web_search" in agent.executor.tools.names()
+    assert "web_search" in agent.schemas.names()
