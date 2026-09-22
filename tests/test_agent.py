@@ -58,3 +58,18 @@ def test_agent_loop_rejects_invalid_planned_arguments() -> None:
     assert agent._ensure_executable_plan("abrir o bloco de notas", "open_app", plan) == [
         ("open_app", {"name": "bloco de notas"})
     ]
+
+
+def test_planner_does_not_invent_unregistered_tools() -> None:
+    plan = Planner().build("pesquisar o preço do dólar", "search", {"open_app"})
+    assert plan.steps == []
+
+
+def test_agent_loop_does_not_complete_unsupported_operational_intent() -> None:
+    agent = AgentLoop()
+    result = agent.handle("pesquisar o preço do dólar")
+    assert result.task_id
+    assert "Não consigo executar essa ação ainda" in result.text
+    task = agent.tasks.get(result.task_id)
+    assert task is not None
+    assert task.status.value == "failed"
