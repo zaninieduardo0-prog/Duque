@@ -22,6 +22,10 @@ class CodeTools:
         result = self.workspace.write(path, content)
         return {"path": result.path, "created": result.created, "changed": result.changed}
 
+    def delete_file(self, path: str) -> dict[str, Any]:
+        result = self.workspace.delete(path)
+        return {"path": result.path, "deleted": True}
+
     def list_files(self) -> dict[str, Any]:
         return {"files": self.workspace.list_files()}
 
@@ -56,6 +60,7 @@ class CodeTools:
     def register(self, executor: Any) -> None:
         executor.register("read_file", self.read_file)
         executor.register("write_file", self.write_file)
+        executor.register("delete_file", self.delete_file)
         executor.register("list_files", self.list_files)
         executor.register("run_python", self.run_python)
         executor.register("run_tests", self.run_tests)
