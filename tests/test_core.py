@@ -46,6 +46,20 @@ def test_executor_detects_tool_reported_failure() -> None:
 
     assert result.success is False
     assert "falha declarada" in (result.error or "")
+    assert task.status == TaskStatus.FAILED
+
+
+def test_executor_marks_tool_exception_as_failed_task() -> None:
+    tasks = TaskManager()
+    executor = Executor(tasks)
+    executor.register("tool", lambda: (_ for _ in ()).throw(RuntimeError("quebrou")))
+
+    task = tasks.create("exceção")
+    result = executor.execute_step(task, "tool")
+
+    assert result.success is False
+    assert "quebrou" in (result.error or "")
+    assert task.status == TaskStatus.FAILED
 
 
 def test_workspace_blocks_path_escape() -> None:
