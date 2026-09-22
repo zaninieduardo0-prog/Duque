@@ -145,7 +145,7 @@ class AgentLoop:
 
     def _build_plan(self, text: str, intent: str):
         if isinstance(self.model, NullModel):
-            return self.planner.build(text, intent)
+            return self.planner.build(text, intent, set(self.schemas.names()))
         if intent in {"chat", "unknown"}:
             return self.planner.build(text, intent)
         try:
@@ -172,7 +172,7 @@ class AgentLoop:
         if tool_steps:
             return tool_steps
         if intent in {"open_app", "search", "file_operation", "reminder", "system"}:
-            fallback = self.planner.build(text, intent)
+            fallback = self.planner.build(text, intent, set(self.schemas.names()))
             return self._validated_tool_steps(
                 step for step in fallback.steps if step.kind == StepKind.TOOL
             )
@@ -210,6 +210,16 @@ class AgentLoop:
         tool_steps = self._ensure_executable_plan(text, route.intent.value, plan)
         if not tool_steps:
             self.tasks.start(task.id)
+            if route.intent.value in {"open_app", "search", "file_operation", "reminder", "system"}:
+                error = f"Nenhuma ferramenta disponível para a intenção: {route.intent.value}"
+                self.tasks.fail(task.id, error)
+                self.memory.remember(
+                    MemoryLayer.OPERATIONAL,
+                    f"task:{task.id}",
+                    {"description": text, "status": "failed", "error": error},
+                )
+                self.engine.emit(EventType.TASK_FAILED, task_id=task.id, error=error)
+                return AgentResult(f"Não consigo executar essa ação ainda: {error}.", task.id)
             self.tasks.complete(task.id, text)
             self.engine.emit(EventType.TASK_FINISHED, task_id=task.id)
             return AgentResult(text, task.id)
@@ -236,7 +246,7 @@ class AgentLoop:
         )
         try:
             if isinstance(self.model, NullModel):
-                plan = self.planner.build(correction_goal, intent)
+                plan = self.planner.build(correction_goal, intent, set(self.schemas.names()))
             else:
                 plan = self.model_planner.build(correction_goal, self.executor.tools.names())
 
