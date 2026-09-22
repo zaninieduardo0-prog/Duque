@@ -110,3 +110,27 @@ def test_autonomous_loop_feeds_failed_tool_result_back_for_correction():
         for item in batch
         if item["role"] == "user"
     )
+
+
+def test_autonomous_loop_cannot_finish_immediately_after_failed_tool():
+    loop, model, tasks, task = make_loop([
+        {"action": "tool", "tool": "echo", "arguments": {"value": "ok"}},
+        {"action": "tool", "tool": "echo", "arguments": {"value": "falha"}},
+        {"action": "finish", "message": "Concluído."},
+        {"action": "tool", "tool": "echo", "arguments": {"value": "nova evidência"}},
+        {"action": "finish", "message": "Agora concluído."},
+    ])
+    calls = []
+
+    def flaky_echo(value):
+        calls.append(value)
+        if value == "falha":
+            raise RuntimeError("falha simulada")
+        return {"value": value}
+
+    loop.executor.tools._tools["echo"] = flaky_echo
+    result = loop.run(AgentContext("teste", task.id))
+
+    assert result.success is True
+    assert result.message == "Agora concluído."
+    assert calls == ["ok", "falha", "nova evidência"]
