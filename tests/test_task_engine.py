@@ -39,3 +39,16 @@ def test_task_engine_stops_on_failure():
     assert len(results) == 2
     assert not task_engine.succeeded(results)
     assert "quebrou" in (task.error or "")
+
+
+def test_task_engine_rejects_empty_plan() -> None:
+    tasks = TaskManager()
+    executor = Executor(tasks)
+    task_engine = TaskEngine(executor)
+    task = tasks.create("plano vazio")
+
+    results = task_engine.run(task, [])
+
+    assert results == []
+    assert task.status == TaskStatus.FAILED
+    assert "etapas executáveis" in (task.error or "")
