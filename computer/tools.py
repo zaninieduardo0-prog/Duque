@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, quote_plus, unquote, urlparse
+from urllib.request import Request, urlopen
 
 from .apps import resolve_app
 from .controller import ComputerController
-
 
 
 class _SearchParser(HTMLParser):
@@ -37,6 +39,18 @@ class _SearchParser(HTMLParser):
                 self.results.append({"title": self._title, "url": self._href})
             self._capture = False
 
+
+def _normalize_search_url(href: str) -> str:
+    if href.startswith("//"):
+        href = "https:" + href
+    parsed = urlparse(href)
+    query = parse_qs(parsed.query)
+    redirected = query.get("uddg")
+    if redirected:
+        return unquote(redirected[0])
+    return href
+
+
 class ComputerTools:
     """Ferramentas de computador expostas ao executor, sem shell arbitrário."""
 
@@ -53,8 +67,12 @@ class ComputerTools:
             html = response.read().decode("utf-8", errors="replace")
         parser = _SearchParser()
         parser.feed(html)
-        results = parser.results[:8]
+        results = [
+            {"title": item["title"], "url": _normalize_search_url(item["url"])}
+            for item in parser.results[:8]
+        ]
         return {"query": query, "results": results, "count": len(results)}
+
     def open_app(self, name: str) -> dict[str, Any]:
         command = resolve_app(name)
         if not command:
