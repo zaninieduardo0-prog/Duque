@@ -22,3 +22,4 @@ def test_agent_loop_open_app_uses_registered_tool() -> None:
     assert result.task_id
     assert result.execution is not None
     assert result.execution.success
+    assert result.execution.value == {"opened": "bloco de notas"}
