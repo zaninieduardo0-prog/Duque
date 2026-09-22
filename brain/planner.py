@@ -28,9 +28,30 @@ class Plan:
 class Planner:
     """Planejador heurístico seguro até o planejador orientado por modelo entrar."""
 
+    @staticmethod
+    def _app_name(goal: str) -> str:
+        value = goal.strip()
+        prefixes = (
+            "abrir o aplicativo ",
+            "abrir aplicativo ",
+            "abrir o ",
+            "abrir ",
+        )
+        lowered = value.casefold()
+        for prefix in prefixes:
+            if lowered.startswith(prefix):
+                return value[len(prefix):].strip()
+        return value
+
     def build(self, goal: str, intent: str = "chat") -> Plan:
         if intent == "open_app":
-            return Plan(goal, [PlanStep(f"Abrir o aplicativo solicitado: {goal}", StepKind.TOOL, "open_app", {"name": goal})])
+            app_name = self._app_name(goal)
+            return Plan(goal, [PlanStep(
+                f"Abrir o aplicativo solicitado: {app_name}",
+                StepKind.TOOL,
+                "open_app",
+                {"name": app_name},
+            )])
         if intent == "search":
             return Plan(goal, [PlanStep(f"Pesquisar: {goal}", StepKind.TOOL, "web_search", {"query": goal})])
         if intent == "code":
