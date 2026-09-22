@@ -69,6 +69,7 @@ class AgentLoop:
         self.correction = SelfCorrection(self.task_engine)
         self.model = model or NullModel()
         self.schemas = ToolSchemaRegistry()
+        self.executor.register("schedule_task", self._schedule_task)
         self._register_tool_schemas()
         self.model_planner = model_planner or ModelPlanner(self.model, self.schemas)
         self.autonomous = AutonomousLoop(self.model, self.executor, self.schemas, observer=self._observe_screen, event_sink=self.engine.emit)
@@ -77,7 +78,6 @@ class AgentLoop:
         self.scheduler = Scheduler(database=self.tasks.database)
         self.scheduled_runner = ScheduledTaskRunner(self.scheduler, self.task_engine, self.tasks, event_sink=self.engine.emit)
         self.scheduled_runner.start()
-        self.executor.register("schedule_task", self._schedule_task)
 
     def _observe_screen(self) -> dict[str, object]:
         if self.verification is None:
@@ -117,8 +117,10 @@ class AgentLoop:
             ToolSpec("screen_contains_text", "Verifica se um texto está visível via OCR", ("text",), {"text": str}),
             ToolSpec("schedule_task", "Agenda uma tarefa serializável", ("description", "delay_seconds", "steps"), {"description": str, "delay_seconds": (int, float), "steps": list, "repeat_seconds": (int, float)}),
         ]
+        registered = set(self.executor.tools.names())
         for spec in specs:
-            self.schemas.register(spec)
+            if spec.name in registered:
+                self.schemas.register(spec)
 
     def _schedule_task(self, description: str, delay_seconds: int | float, steps: list[dict[str, object]], repeat_seconds: int | float | None = None) -> dict[str, object]:
         if not isinstance(description, str) or not description.strip():
