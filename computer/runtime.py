@@ -8,11 +8,11 @@ from brain.vision import NullVisionAdapter, OpenAIResponsesVisionAdapter
 from .composite_analyzer import CompositeScreenAnalyzer
 from .perception import Perception
 from .ui import UIController
-from .ui_backend import WindowsUIController
 from .ui_tools import UITools
 from .verification import Verification
 from .windows_perception import WindowsScreenBackend
 from .windows_screen_analyzer import WindowsScreenAnalyzer
+from .windows_ui import WindowsUIController
 from .model_vision_analyzer import ModelVisionAnalyzer
 
 
