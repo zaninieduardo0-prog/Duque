@@ -49,7 +49,10 @@ class SecurityPolicy:
     }
 
     def assess(self, action: str) -> ActionPolicy:
-        risk = self._DEFAULTS.get(action, RiskLevel.HIGH)
+        # Ferramentas registradas que ainda não possuem uma classificação
+        # explícita recebem risco médio. A confirmação fica reservada às
+        # ações realmente classificadas como HIGH/CRITICAL.
+        risk = self._DEFAULTS.get(action, RiskLevel.MEDIUM)
         return ActionPolicy(
             action=action,
             risk=risk,
