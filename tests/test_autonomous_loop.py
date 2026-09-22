@@ -80,3 +80,33 @@ def test_autonomous_loop_rejects_unknown_tool():
     result = loop.run(AgentContext("teste", task.id))
     assert result.success is False
     assert result.error == "Limite de 5 passos atingido"
+
+
+def test_autonomous_loop_feeds_failed_tool_result_back_for_correction():
+    loop, model, tasks, task = make_loop([
+        {"action": "tool", "tool": "echo", "arguments": {"value": "primeira"}},
+        {"action": "tool", "tool": "echo", "arguments": {"value": "segunda"}},
+        {"action": "finish", "message": "Corrigido."},
+    ])
+    original = loop.executor.tools._tools["echo"]
+    calls = []
+
+    def flaky_echo(value):
+        calls.append(value)
+        if len(calls) == 1:
+            raise RuntimeError("falha simulada")
+        return original(value)
+
+    loop.executor.tools._tools["echo"] = flaky_echo
+    result = loop.run(AgentContext("teste", task.id))
+
+    assert result.success is True
+    assert result.message == "Corrigido."
+    assert calls == ["primeira", "segunda"]
+    assert any(
+        '"success": false' in item["content"]
+        and "falha simulada" in item["content"]
+        for batch in model.messages
+        for item in batch
+        if item["role"] == "user"
+    )
