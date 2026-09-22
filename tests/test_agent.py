@@ -37,3 +37,24 @@ def test_agent_loop_open_app_uses_registered_tool() -> None:
     assert result.execution is not None
     assert result.execution.success
     assert result.execution.value == {"opened": "bloco de notas"}
+
+
+def test_agent_loop_correction_uses_heuristic_planner_without_model() -> None:
+    agent = AgentLoop(model=NullModel())
+    steps = agent._correct_steps(
+        "abrir o bloco de notas",
+        "open_app",
+        [("open_app", {"name": "bloco de notas"})],
+        "falha simulada",
+        2,
+    )
+    assert steps == [("open_app", {"name": "bloco de notas"})]
+
+
+def test_agent_loop_rejects_invalid_planned_arguments() -> None:
+    agent = AgentLoop()
+    plan = agent.planner.build("abrir o bloco de notas", "open_app")
+    plan.steps[0].arguments["inventado"] = "x"
+    assert agent._ensure_executable_plan("abrir o bloco de notas", "open_app", plan) == [
+        ("open_app", {"name": "bloco de notas"})
+    ]
