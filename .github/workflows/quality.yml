@@ -25,7 +25,7 @@ jobs:
         run: python -m pytest
 
       - name: Run Ruff
-        run: ruff check tests pyproject.toml
+        run: ruff check tests
 
       - name: Run Pyright
         run: pyright
