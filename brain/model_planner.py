@@ -15,7 +15,7 @@ class ModelPlanner:
         "Você é o planejador de tarefas do Duque. Retorne SOMENTE JSON no formato "
         '{"goal": "...", "steps": [{"description":"...", "kind":"tool", '
         '"tool":"nome", "arguments":{}}]}. '
-        "kind" pode ser think, tool ou respond. Use apenas ferramentas fornecidas."
+        '"kind" pode ser think, tool ou respond. Use apenas ferramentas fornecidas.'
     )
 
     def __init__(self, model: ModelAdapter, schemas: ToolSchemaRegistry) -> None:
@@ -25,7 +25,12 @@ class ModelPlanner:
     def build(self, goal: str, available_tools: list[str] | None = None) -> Plan:
         tools = available_tools or []
         prompt = f"Objetivo: {goal}\nFerramentas disponíveis: {json.dumps(tools, ensure_ascii=False)}"
-        response = self.model.respond([{"role": "system", "content": self.SYSTEM}, {"role": "user", "content": prompt}])
+        response = self.model.respond(
+            [
+                {"role": "system", "content": self.SYSTEM},
+                {"role": "user", "content": prompt},
+            ]
+        )
         try:
             payload: dict[str, Any] = json.loads(response.text)
         except json.JSONDecodeError as exc:
