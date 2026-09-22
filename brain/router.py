@@ -25,12 +25,22 @@ class Route:
 class IntentRouter:
     """Roteador heurístico inicial; futuramente pode ser substituído pelo LLM."""
 
+    OPEN_APP_PHRASES = (
+        "abrir o navegador",
+        "abrir navegador",
+        "abrir chrome",
+        "abrir edge",
+        "abrir bloco de notas",
+        "abrir o bloco de notas",
+        "abrir notepad",
+    )
+
     def route(self, text: str) -> Route:
-        value = text.casefold().strip()
+        value = " ".join(text.casefold().strip().split())
         if not value:
             return Route(Intent.UNKNOWN, 0.0, "texto vazio")
 
-        if any(x in value for x in ("abrir o navegador", "abrir navegador", "abrir chrome", "abrir edge", "abrir bloco de notas", "abrir notepad")):
+        if any(phrase in value for phrase in self.OPEN_APP_PHRASES):
             return Route(Intent.OPEN_APP, 0.95, "pedido explícito para abrir aplicativo")
         if any(x in value for x in ("pesquise", "pesquisar", "procure na internet", "busque na internet", "google")):
             return Route(Intent.SEARCH, 0.9, "pedido explícito de pesquisa")
