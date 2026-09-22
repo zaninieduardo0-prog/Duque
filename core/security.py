@@ -29,6 +29,7 @@ class SecurityPolicy:
         "read_file": RiskLevel.LOW,
         "list_files": RiskLevel.LOW,
         "write_file": RiskLevel.MEDIUM,
+        "delete_file": RiskLevel.HIGH,
         "run_python": RiskLevel.MEDIUM,
         "ui_click": RiskLevel.MEDIUM,
         "screen_click_text": RiskLevel.MEDIUM,
