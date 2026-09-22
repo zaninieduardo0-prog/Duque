@@ -145,6 +145,11 @@ class AgentLoop:
         return {"job_id": job.id, "task_id": task.id, "description": description, "run_at": job.run_at}
 
     def _build_plan(self, text: str, intent: str):
+        # Sem um modelo real, o planejador heurístico é a fonte de verdade.
+        # O NullModel existe para testes/offline e não deve transformar um
+        # pedido executável em uma tentativa de resposta conversacional.
+        if isinstance(self.model, NullModel):
+            return self.planner.build(text, intent)
         if intent in {"chat", "unknown"}:
             return self.planner.build(text, intent)
         try:
