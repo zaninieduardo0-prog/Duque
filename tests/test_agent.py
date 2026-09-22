@@ -116,3 +116,49 @@ def test_web_search_tool_is_registered() -> None:
     agent = AgentLoop()
     assert "web_search" in agent.executor.tools.names()
     assert "web_search" in agent.schemas.names()
+
+
+def test_search_parser_extracts_and_normalizes_results() -> None:
+    from computer import tools as computer_tools
+
+    html = """
+    <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpagina&amp;rut=abc">
+        Resultado de teste
+    </a>
+    """
+    parser = computer_tools._SearchParser()
+    parser.feed(html)
+
+    assert parser.results == [{
+        "title": "Resultado de teste",
+        "url": "//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpagina&rut=abc",
+    }]
+    assert computer_tools._normalize_search_url(parser.results[0]["url"]) == "https://example.com/pagina"
+
+
+def test_web_search_parses_duckduckgo_html(monkeypatch) -> None:
+    from computer import tools as computer_tools
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return b'<a class="result__a" href="https://example.com">Exemplo</a>'
+
+    def fake_urlopen(request, timeout):
+        assert "q=duque" in request.full_url
+        assert timeout == 15
+        return FakeResponse()
+
+    monkeypatch.setattr(computer_tools, "urlopen", fake_urlopen)
+    result = computer_tools.ComputerTools().web_search("duque")
+
+    assert result == {
+        "query": "duque",
+        "results": [{"title": "Exemplo", "url": "https://example.com"}],
+        "count": 1,
+    }
