@@ -96,14 +96,17 @@ class Executor:
         try:
             value = tool(**(arguments or {}))
         except Exception as exc:
-            return ExecutionResult(False, error=f"{type(exc).__name__}: {exc}")
+            error = f"{type(exc).__name__}: {exc}"
+            if manage_task and task.status.value == "running":
+                self.tasks.fail(task.id, error)
+            return ExecutionResult(False, error=error)
 
-        # A ferramenta pode retornar um relatório estruturado de falha.
-        # Isso é especialmente importante para testes: o agente precisa
-        # receber o erro como erro, e não como uma execução bem-sucedida.
         if isinstance(value, dict) and value.get("success") is False:
             error = value.get("error") or value.get("stderr") or value.get("stdout") or f"Ferramenta '{tool_name}' falhou"
-            return ExecutionResult(False, value=value, error=str(error))
+            error = str(error)
+            if manage_task and task.status.value == "running":
+                self.tasks.fail(task.id, error)
+            return ExecutionResult(False, value=value, error=error)
 
         verification = None
         if before is not None:
@@ -111,8 +114,13 @@ class Executor:
             verification = self.verification.verify_change(before)
             self._emit(EventType.VERIFICATION_FINISHED, task_id=task.id, tool=tool_name, status=verification.status.value, changed=verification.changed, confidence=verification.confidence)
             if not verification.changed:
-                return ExecutionResult(False, value=value, error=f"Ação executada, mas a verificação não detectou mudança: {verification.reason}", verification=verification)
+                error = f"Ação executada, mas a verificação não detectou mudança: {verification.reason}"
+                if manage_task and task.status.value == "running":
+                    self.tasks.fail(task.id, error)
+                return ExecutionResult(False, value=value, error=error, verification=verification)
 
+        if manage_task:
+            self.tasks.complete(task.id, value)
         return ExecutionResult(True, value=value, verification=verification)
 
     def execute_task(self, task: Task, steps: list[tuple[str, dict[str, Any] | None]], *, confirmed: bool = False) -> list[ExecutionResult]:
