@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>DUQUE — NEURAL CORE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Saira:wght@200;300;400&family=Saira+Condensed:wght@200;300&display=swap" rel="stylesheet">
+<style>
+:root{
+  --black:#020303;
+  --black-blue:#040608;
+  --gold-deep:#8a5a12;
+  --gold:#c9902f;
+  --amber:#e8a838;
+  --gold-hot:#ffd489;
+  --warm-white:#f6ead6;
+  --line:rgba(201,144,47,.22);
+  --line-soft:rgba(201,144,47,.11);
+  --txt:rgba(246,234,214,.62);
+  --txt-dim:rgba(246,234,214,.34);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--black);overflow:hidden}
+body{
+  font-family:'Saira','Saira Condensed',system-ui,sans-serif;
+  color:var(--txt);
+  -webkit-font-smoothing:antialiased;
+  cursor:crosshair;
+}
+#scene{position:fixed;inset:0;display:block}
+.vignette{
+  position:fixed;inset:0;pointer-events:none;
+  background:radial-gradient(120% 90% at 42% 52%,rgba(0,0,0,0) 35%,rgba(0,0,0,.55) 78%,rgba(0,0,0,.9) 100%);
+  mix-blend-mode:multiply;
+}
+#hud{position:fixed;inset:0;pointer-events:none;z-index:3}
+#hud .z{pointer-events:auto}
+
+/* ---------- tipografia de telemetria ---------- */
+.label{
+  font-size:10.5px;font-weight:300;letter-spacing:.34em;
+  color:var(--txt-dim);text-transform:uppercase;
+}
+.value{
+  font-size:18px;font-weight:200;letter-spacing:.18em;
+  color:var(--warm-white);
+}
+.value.sm{font-size:14px;letter-spacing:.2em;color:rgba(246,234,214,.78)}
+.value.gold{color:var(--gold-hot)}
+.stack{display:flex;flex-direction:column;gap:2px}
+.group{display:flex;flex-direction:column;gap:14px}
+
+/* ---------- cantos ---------- */
+.corner{position:absolute;opacity:0;animation:boot 1.6s ease forwards}
+.tl{top:34px;left:40px;animation-delay:.25s}
+.tr{top:34px;right:44px;text-align:right;animation-delay:.45s}
+.bl{bottom:38px;left:40px;animation-delay:.9s}
+.br{bottom:38px;right:44px;text-align:right;animation-delay:1.05s}
+@keyframes boot{from{opacity:0;transform:translateY(6px);filter:blur(4px)}to{opacity:1;transform:none;filter:none}}
+
+.tick{display:flex;align-items:center;gap:9px}
+.tr .tick{justify-content:flex-end}
+.dot{width:4px;height:4px;background:var(--amber);box-shadow:0 0 10px rgba(232,168,56,.85);transform:rotate(45deg)}
+.dot.idle{background:var(--gold-deep);box-shadow:none}
+.rule{height:1px;background:linear-gradient(90deg,var(--line),transparent);width:132px;margin:10px 0}
+.tr .rule{background:linear-gradient(270deg,var(--line),transparent);margin-left:auto}
+
+/* ---------- estado central ---------- */
+#stateBlock{
+  position:absolute;left:50%;transform:translateX(-50%);
+  bottom:19%;text-align:center;width:min(520px,80vw);
+}
+#stateName{
+  font-size:15px;font-weight:200;letter-spacing:.62em;text-indent:.62em;
+  color:var(--gold-hot);text-transform:uppercase;
+  text-shadow:0 0 22px rgba(232,168,56,.45);
+  transition:opacity .5s ease;
+}
+#stateTask{
+  margin-top:9px;font-size:11px;letter-spacing:.3em;color:var(--txt-dim);
+  text-transform:uppercase;min-height:14px;
+}
+#stateBar{
+  margin:16px auto 0;width:180px;height:1px;background:rgba(201,144,47,.14);position:relative;overflow:hidden;
+}
+#stateBar i{position:absolute;inset:0;width:34%;background:linear-gradient(90deg,transparent,var(--amber),transparent);
+  transform:translateX(-120%);animation:sweep 4.2s cubic-bezier(.45,0,.25,1) infinite}
+@keyframes sweep{0%{transform:translateX(-120%)}55%{transform:translateX(320%)}100%{transform:translateX(320%)}}
+
+/* ---------- telemetria contextual (direita, flutuante) ---------- */
+#telemetry{
+  position:absolute;right:44px;top:50%;transform:translateY(-50%);
+  width:236px;display:flex;flex-direction:column;gap:11px;align-items:flex-end;text-align:right;
+}
+.tel{opacity:0;animation:telIn .6s ease forwards}
+.tel.out{animation:telOut .7s ease forwards}
+.tel .k{font-size:9.5px;letter-spacing:.34em;color:rgba(201,144,47,.55);text-transform:uppercase}
+.tel .v{font-size:15px;font-weight:200;letter-spacing:.14em;color:var(--warm-white);margin-top:2px}
+.tel .v em{font-style:normal;color:var(--gold-hot)}
+@keyframes telIn{from{opacity:0;transform:translateX(14px);filter:blur(3px)}to{opacity:1;transform:none;filter:none}}
+@keyframes telOut{to{opacity:0;transform:translateX(10px);filter:blur(3px)}}
+
+/* ---------- atividade recente (esquerda baixa) ---------- */
+#activity{position:absolute;left:40px;bottom:170px;display:flex;flex-direction:column;gap:7px}
+#activity div{
+  font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:rgba(246,234,214,.3);
+  display:flex;align-items:center;gap:8px;animation:telIn .5s ease both;
+}
+#activity div:first-child{color:rgba(246,234,214,.7)}
+#activity span.i{width:14px;height:1px;background:var(--gold-deep);display:inline-block}
+#activity div:first-child span.i{background:var(--amber);box-shadow:0 0 8px rgba(232,168,56,.6)}
+
+/* ---------- spotify ---------- */
+#spotify{
+  position:absolute;left:40px;bottom:38px;width:262px;
+  opacity:0;animation:boot 1.4s ease .95s forwards;
+}
+#spotify .head{display:flex;align-items:center;justify-content:space-between}
+#spotify .head .label{letter-spacing:.42em}
+#sTrack{margin-top:10px;font-size:14px;font-weight:200;letter-spacing:.1em;color:var(--warm-white);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sArtist{margin-top:2px;font-size:10.5px;letter-spacing:.26em;text-transform:uppercase;color:var(--txt-dim)}
+#sBarWrap{margin-top:12px;height:1px;background:rgba(201,144,47,.16);position:relative}
+#sBar{position:absolute;left:0;top:0;height:1px;width:0%;
+  background:linear-gradient(90deg,rgba(201,144,47,.5),var(--gold-hot));box-shadow:0 0 8px rgba(232,168,56,.5)}
+#sBar::after{content:'';position:absolute;right:-1px;top:-1.5px;width:2px;height:4px;background:var(--gold-hot)}
+#sMeta{margin-top:7px;display:flex;justify-content:space-between;font-size:9.5px;letter-spacing:.2em;color:rgba(246,234,214,.28)}
+#sCtl{margin-top:12px;display:flex;align-items:center;gap:18px}
+#sCtl button,.ghost{
+  background:none;border:0;padding:0;color:rgba(246,234,214,.5);cursor:pointer;
+  font-family:inherit;font-size:11px;letter-spacing:.24em;text-transform:uppercase;
+  transition:color .25s ease,text-shadow .25s ease;
+}
+#sCtl button:hover,.ghost:hover,#sCtl button:focus-visible,.ghost:focus-visible{
+  color:var(--gold-hot);text-shadow:0 0 14px rgba(232,168,56,.55);outline:none}
+#sCtl button svg{display:block}
+#sOpen{margin-top:14px;display:inline-block;text-decoration:none}
+
+/* ---------- comando / rodapé ---------- */
+#voice{position:absolute;left:50%;transform:translateX(-50%);bottom:38px;text-align:center;
+  opacity:0;animation:boot 1.4s ease 1.2s forwards}
+#voiceLine{display:flex;align-items:center;gap:10px;justify-content:center}
+#cmd{
+  margin-top:14px;width:min(430px,70vw);background:none;border:0;border-bottom:1px solid rgba(201,144,47,.18);
+  color:var(--warm-white);font-family:inherit;font-size:12.5px;letter-spacing:.2em;padding:7px 2px;text-align:center;
+  transition:border-color .3s ease;
+}
+#cmd::placeholder{color:rgba(246,234,214,.2);letter-spacing:.3em;text-transform:uppercase;font-size:10.5px}
+#cmd:focus{outline:none;border-color:rgba(232,168,56,.55)}
+#response{margin:16px auto 0;width:min(560px,78vw);min-height:18px;font-size:11px;line-height:1.6;letter-spacing:.12em;color:rgba(246,234,214,.58);text-transform:none;opacity:0;transform:translateY(4px);transition:opacity .35s ease,transform .35s ease}
+#response.show{opacity:1;transform:none}
+#response .who{color:var(--gold-hot);letter-spacing:.22em;text-transform:uppercase;font-size:9px;margin-right:7px}
+#keys{margin-top:12px;font-size:9px;letter-spacing:.24em;color:rgba(246,234,214,.18);text-transform:uppercase}
+
+@media (max-width:820px){
+  #telemetry{display:none}
+  #spotify{width:calc(100% - 80px);bottom:150px}
+  #voice{bottom:24px}
+  #activity{display:none}
+  .tl,.tr{top:24px}
+  .tl{left:24px}.tr{right:24px}
+  #spotify{left:24px}
+  #stateBlock{bottom:30%}
+}
+@media (prefers-reduced-motion:reduce){
+  .corner,#spotify,#voice{animation-duration:.01ms}
+  #stateBar i{animation:none;transform:translateX(100%)}
+}
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div class="vignette"></div>
+
+<div id="hud">
+  <!-- topo esquerda -->
+  <div class="corner tl group">
+    <div class="stack">
+      <div class="label">System</div>
+      <div class="tick"><span class="dot" id="sysDot"></span><span class="value sm" id="sysState">Online</span></div>
+    </div>
+    <div class="rule"></div>
+    <div class="stack">
+      <div class="label">Neural core</div>
+      <div class="value sm gold" id="coreState">Active</div>
+    </div>
+    <div class="stack">
+      <div class="label">Nodes · links</div>
+      <div class="value sm" id="nodeCount">0000 · 000</div>
+    </div>
+    <div class="stack">
+      <div class="label">Coherence</div>
+      <div class="value sm" id="coherence">0.000</div>
+    </div>
+  </div>
+
+  <!-- topo direita -->
+  <div class="corner tr group">
+    <div class="stack">
+      <div class="label">Data</div>
+      <div class="value" id="date">—</div>
+    </div>
+    <div class="stack">
+      <div class="value" id="clock" style="font-size:30px;letter-spacing:.14em">--:--:--</div>
+      <div class="label" id="tz">—</div>
+    </div>
+    <div class="rule"></div>
+    <div class="stack">
+      <div class="label" id="city">Localizando</div>
+      <div class="value gold" id="temp">--°</div>
+      <div class="label" id="sky" style="letter-spacing:.24em">—</div>
+    </div>
+  </div>
+
+  <!-- estado central -->
+  <div id="stateBlock">
+    <div id="stateName">Standby</div>
+    <div id="stateTask"></div>
+    <div id="stateBar"><i></i></div>
+  </div>
+
+  <!-- telemetria contextual -->
+  <div id="telemetry"></div>
+
+  <!-- atividade recente -->
+  <div id="activity"></div>
+
+  <!-- spotify -->
+  <div id="spotify" class="z">
+    <div class="head">
+      <span class="label">Spotify</span>
+      <span class="label" id="sStatus" style="letter-spacing:.24em">Pausado</span>
+    </div>
+    <div id="sTrack">Nenhuma faixa</div>
+    <div id="sArtist">—</div>
+    <div id="sBarWrap"><div id="sBar"></div></div>
+    <div id="sMeta"><span id="sCur">0:00</span><span id="sDur">0:00</span></div>
+    <div id="sCtl">
+      <button id="sPrev" title="Faixa anterior" aria-label="Faixa anterior">
+        <svg width="13" height="11" viewBox="0 0 13 11" fill="none"><path d="M12 1 4 5.5 12 10V1Z" stroke="currentColor" stroke-width="1"/><path d="M1 1v9" stroke="currentColor" stroke-width="1"/></svg>
+      </button>
+      <button id="sPlay" title="Tocar" aria-label="Tocar" style="color:var(--gold-hot)">
+        <svg width="12" height="13" viewBox="0 0 12 13" fill="none" id="sIcon"><path d="M1 1l10 5.5L1 12V1Z" stroke="currentColor" stroke-width="1"/></svg>
+      </button>
+      <button id="sNext" title="Próxima faixa" aria-label="Próxima faixa">
+        <svg width="13" height="11" viewBox="0 0 13 11" fill="none"><path d="M1 1l8 4.5L1 10V1Z" stroke="currentColor" stroke-width="1"/><path d="M12 1v9" stroke="currentColor" stroke-width="1"/></svg>
+      </button>
+    </div>
+    <a id="sOpen" class="ghost" href="https://open.spotify.com" target="_blank" rel="noopener">Abrir Spotify</a>
+  </div>
+
+  <!-- rodapé central -->
+  <div id="voice" class="z">
+    <div id="voiceLine">
+      <span class="dot idle" id="micDot"></span>
+      <span class="label" style="letter-spacing:.42em">Canal de voz</span>
+      <span class="value sm" id="micState" style="font-size:12px">Inativo</span>
+    </div>
+    <input id="cmd" autocomplete="off" spellcheck="false" placeholder="Digite um comando">
+    <div id="response" aria-live="polite"></div>
+    <div id="keys">1–5 estados · M microfone · Enter comando</div>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   DUQUE — HUD NEURAL
+   Estado global observável. Tudo aqui pode ser alimentado por
+   WebSocket / backend Python sem recarregar a página:
+     DUQUE.setState({ state:'processing', currentTask:'...' })
+     DUQUE.telemetry([{k:'label', v:'valor'}], ms)
+     DUQUE.activity('WEB SEARCH')
+     DUQUE.audioLevel(0..1)        // se preferir enviar nível externo
+   ========================================================= */
+const DUQUE = (() => {
+  const state = {
+    state:'standby',           // standby | listening | processing | speaking | executing
+    date:'', time:'', temperature:null, city:'', sky:'',
+    currentTask:'',
+    spotify:{ playing:false, track:'Nenhuma faixa', artist:'—', progress:0, duration:0 }
+  };
+  const subs = [];
+  return {
+    get:()=>state,
+    on:f=>subs.push(f),
+    setState(patch){
+      if(patch.spotify) Object.assign(state.spotify, patch.spotify), delete patch.spotify;
+      Object.assign(state, patch);
+      subs.forEach(f=>f(state));
+    },
+    telemetry:(items,ms)=>window.__tel(items,ms),
+    activity:t=>window.__act(t),
+    audioLevel:v=>window.__ext(v)
+  };
+})();
+window.DUQUE = DUQUE;
+
+/* ---------------- canvas / cena ---------------- */
+const cv = document.getElementById('scene');
+const ctx = cv.getContext('2d', { alpha:false });
+let W=0,H=0,DPR=1,CX=0,CY=0,R=1;
+
+function layout(){
+  DPR = Math.min(2, window.devicePixelRatio||1);
+  W = innerWidth; H = innerHeight;
+  cv.width = Math.floor(W*DPR); cv.height = Math.floor(H*DPR);
+  cv.style.width = W+'px'; cv.style.height = H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  // composição assimétrica: núcleo fora do centro geométrico
+  CX = W<820 ? W*0.5 : W*0.415;
+  CY = W<820 ? H*0.40 : H*0.50;
+  R  = Math.min(W,H) * (W<820 ? 0.30 : 0.255);
+}
+addEventListener('resize', ()=>{ layout(); buildStars(); });
+layout();
+
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const lerp=(a,b,t)=>a+(b-a)*t;
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+
+/* ---------------- núcleo: conjunção de estrelas ----------------
+   Distribuição irregular: aglomerados em torno de atratores +
+   casca deformada por harmônicos + satélites distantes.        */
+const PARTS = [];
+const LINKS = [];
+let NP = 0;
+
+function shellDeform(x,y,z){
+  return 1
+    + 0.20*Math.sin(2.7*x + 1.1)*Math.cos(2.1*y - .4)
+    + 0.13*Math.sin(3.6*z + 2.2)
+    - 0.09*Math.cos(4.3*y*x + .8);
+}
+
+function buildCore(){
+  PARTS.length = 0; LINKS.length = 0;
+  const area = innerWidth*innerHeight;
+  NP = Math.round(clamp(area/1150, 620, 1500));
+
+  const attractors = [];
+  for(let i=0;i<16;i++){
+    const u=rnd(-1,1), th=rnd(0,Math.PI*2), s=Math.sqrt(1-u*u);
+    attractors.push({x:s*Math.cos(th), y:u, z:s*Math.sin(th), w:rnd(.5,1)});
+  }
+
+  for(let i=0;i<NP;i++){
+    let x,y,z;
+    const mode = Math.random();
+    if(mode < .62){                       // aglomerados
+      const a = attractors[(Math.random()*attractors.length)|0];
+      const sp = rnd(.05,.34);
+      x = a.x + rnd(-sp,sp); y = a.y + rnd(-sp,sp); z = a.z + rnd(-sp,sp);
+    } else if(mode < .93){                // casca irregular
+      const u=rnd(-1,1), th=rnd(0,Math.PI*2), s=Math.sqrt(1-u*u);
+      x=s*Math.cos(th); y=u; z=s*Math.sin(th);
+    } else {                              // satélites afastados
+      const u=rnd(-1,1), th=rnd(0,Math.PI*2), s=Math.sqrt(1-u*u);
+      const k=rnd(1.25,1.85);
+      x=s*Math.cos(th)*k; y=u*k; z=s*Math.sin(th)*k;
+    }
+    const len = Math.hypot(x,y,z)||1;
+    const nx=x/len, ny=y/len, nz=z/len;
+    const rr = len * shellDeform(nx,ny,nz) * rnd(.86,1.04);
+    const far = rr > 1.2;
+
+    PARTS.push({
+      x:nx*rr*R, y:ny*rr*R, z:nz*rr*R,
+      ox:nx*rr*R, oy:ny*rr*R, oz:nz*rr*R,
+      dx:0, dy:0, dz:0,
+      ph: rnd(0,Math.PI*2),
+      sp: rnd(.25,1.1),
+      s: far ? rnd(.5,.9) : rnd(.55,1.75),
+      b: far ? rnd(.16,.38) : rnd(.3,1),
+      far
+    });
+  }
+
+  // conexões finas entre vizinhos próximos (limitadas)
+  const maxD = R*0.24, cap = 260;
+  for(let i=0;i<PARTS.length && LINKS.length<cap;i+=2){
+    for(let j=i+1;j<PARTS.length;j+=7){
+      const a=PARTS[i], b=PARTS[j];
+      const d=Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z);
+      if(d<maxD && d>R*0.07){ LINKS.push({a:i,b:j,t:Math.random(),v:rnd(.15,.5)}); break; }
+    }
+  }
+}
+buildCore();
+
+/* ---------------- órbitas e geometria ---------------- */
+const ORBITS=[];
+function buildOrbits(){
+  ORBITS.length=0;
+  const defs=[
+    {r:1.24,e:.62,a0:-0.4,a1:2.5,seg:1,w:.9,m:3},
+    {r:1.42,e:.88,a0:1.9,a1:4.3,seg:1,w:.7,m:2},
+    {r:1.02,e:.45,a0:2.6,a1:6.0,seg:1,w:.8,m:2},
+    {r:1.66,e:.74,a0:.2,a1:1.7,seg:1,w:.6,m:1},
+    {r:1.9,e:.55,a0:3.4,a1:5.2,seg:1,w:.5,m:2},
+    {r:1.15,e:.95,a0:4.6,a1:6.2,seg:1,w:.6,m:1},
+    {r:2.15,e:.68,a0:1.2,a1:2.2,seg:1,w:.45,m:1}
+  ];
+  defs.forEach((d,i)=>{
+    ORBITS.push({
+      rad:R*d.r, ecc:d.e, a0:d.a0, a1:d.a1, w:d.w, markers:d.m,
+      tiltX:rnd(-1.1,1.1), tiltZ:rnd(-1.2,1.2),
+      spin:rnd(.02,.09)*(Math.random()<.5?-1:1),
+      phase:rnd(0,6.28), dash: i%3===0
+    });
+  });
+}
+buildOrbits();
+
+/* ---------------- estrelas de fundo ---------------- */
+let STARS=[];
+function buildStars(){
+  STARS=[];
+  const n = Math.round(clamp(innerWidth*innerHeight/14000, 60, 170));
+  for(let i=0;i<n;i++) STARS.push({x:Math.random(),y:Math.random(),s:rnd(.4,1.1),b:rnd(.05,.3),ph:rnd(0,6.3),d:rnd(.2,1)});
+}
+buildStars();
+
+/* ---------------- ondas de energia ---------------- */
+const WAVES=[];
+function spawnWave(strength=1){ WAVES.push({r:R*0.15, life:1, str:strength, tilt:rnd(-1,1)}); }
+
+/* ---------------- pulsos de dados nas órbitas ---------------- */
+const PULSES=[];
+function spawnPulse(){ PULSES.push({o:(Math.random()*ORBITS.length)|0, t:0, sp:rnd(.25,.6)}); }
+
+/* ---------------- estado visual ---------------- */
+const ENERGY={ standby:.10, listening:.42, processing:.95, speaking:.62, executing:.75 };
+let energy=.1, energyTarget=.1;
+let audio=0, audioTarget=0, extAudio=null;
+let rotY=0, rotX=-0.18, mouseX=0, mouseY=0, pMx=0, pMy=0;
+let boot = 0;
+
+addEventListener('pointermove', e=>{ mouseX=(e.clientX/W-.5); mouseY=(e.clientY/H-.5); }, {passive:true});
+
+function rotate(p, ry, rx){
+  const c=Math.cos(ry), s=Math.sin(ry);
+  const x=p.x*c - p.z*s, z0=p.x*s + p.z*c;
+  const c2=Math.cos(rx), s2=Math.sin(rx);
+  const y=p.y*c2 - z0*s2, z=p.y*s2 + z0*c2;
+  return {x,y,z};
+}
+const FOC=1250;
+function project(p){ const k=FOC/(FOC-p.z); return {x:CX+p.x*k+pMx, y:CY+p.y*k+pMy, k}; }
+
+/* ---------------- render ---------------- */
+let last=performance.now(), frame=0, coherence=0;
+
+function draw(now){
+  const dt = Math.min(.05, (now-last)/1000); last=now; frame++;
+  const t = now/1000;
+  boot = Math.min(1, boot + dt*0.55);
+
+  // energia e áudio suavizados
+  energyTarget = ENERGY[DUQUE.get().state] ?? .1;
+  energy = lerp(energy, energyTarget, 1-Math.pow(.004, dt));
+  if(extAudio!==null) audioTarget = extAudio;
+  audio = lerp(audio, audioTarget, 1-Math.pow(.0008, dt));
+
+  // parallax do mouse
+  pMx = lerp(pMx, mouseX*-26, 1-Math.pow(.02,dt));
+  pMy = lerp(pMy, mouseY*-18, 1-Math.pow(.02,dt));
+  rotY += dt*(0.045 + energy*0.16) ;
+  rotX = lerp(rotX, -0.18 + mouseY*0.22, 1-Math.pow(.05,dt));
+  const ry = rotY + mouseX*0.30;
+
+  // fundo
+  ctx.globalCompositeOperation='source-over';
+  ctx.fillStyle='#020303';
+  ctx.fillRect(0,0,W,H);
+
+  drawBackdrop(t);
+
+  ctx.globalCompositeOperation='lighter';
+  drawBloom(t);
+  drawOrbits(t, ry, rotX, -1);   // metade de trás
+  drawCore(t, dt, ry, rotX);
+  drawOrbits(t, ry, rotX, 1);    // metade da frente
+  drawWaves(dt, ry, rotX);
+  ctx.globalCompositeOperation='source-over';
+  drawScanlines(t);
+
+  updateHudFast();
+  requestAnimationFrame(draw);
+}
+
+function drawBackdrop(t){
+  // estrelas distantes
+  for(const s of STARS){
+    const tw = .6 + .4*Math.sin(t*s.d + s.ph);
+    ctx.fillStyle = `rgba(226,196,150,${(s.b*tw*boot).toFixed(3)})`;
+    ctx.fillRect(s.x*W + pMx*s.d*.4, s.y*H + pMy*s.d*.4, s.s, s.s);
+  }
+  // pequenas linhas técnicas
+  ctx.strokeStyle='rgba(201,144,47,.05)'; ctx.lineWidth=1;
+  ctx.beginPath();
+  ctx.moveTo(0, H*0.5+.5); ctx.lineTo(W*0.06, H*0.5+.5);
+  ctx.moveTo(W, H*0.5+.5); ctx.lineTo(W*0.94, H*0.5+.5);
+  ctx.moveTo(CX+pMx, 0); ctx.lineTo(CX+pMx, H*0.05);
+  ctx.moveTo(CX+pMx, H); ctx.lineTo(CX+pMx, H*0.95);
+  ctx.stroke();
+  // ruído digital sutil
+  if(frame%2===0){
+    ctx.fillStyle='rgba(255,220,170,.012)';
+    for(let i=0;i<26;i++) ctx.fillRect(Math.random()*W, Math.random()*H, Math.random()*30+4, 1);
+  }
+}
+
+function drawBloom(t){
+  const breathe = 1 + Math.sin(t*(0.5+energy))*0.05;
+  const g1 = ctx.createRadialGradient(CX+pMx,CY+pMy,0,CX+pMx,CY+pMy,R*2.1*breathe);
+  const a = (0.05 + energy*0.10 + audio*0.10) * boot;
+  g1.addColorStop(0,`rgba(255,196,110,${a})`);
+  g1.addColorStop(.35,`rgba(190,120,35,${a*0.34})`);
+  g1.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g1; ctx.fillRect(CX+pMx-R*2.2, CY+pMy-R*2.2, R*4.4, R*4.4);
+}
+
+function drawCore(t, dt, ry, rx){
+  const pulse = 1 + Math.sin(t*1.4)*0.012 + audio*0.075 + energy*0.02;
+  const excite = energy;
+  const proj = [];
+
+  for(let i=0;i<PARTS.length;i++){
+    const p=PARTS[i];
+    // deriva orgânica — reorganização sutil e constante
+    const w = t*p.sp*(0.35 + excite*1.5) + p.ph;
+    const amp = R*(0.012 + excite*0.05 + audio*0.05);
+    p.dx = lerp(p.dx, Math.sin(w)*amp, 1-Math.pow(.02,dt));
+    p.dy = lerp(p.dy, Math.cos(w*0.83+1.2)*amp, 1-Math.pow(.02,dt));
+    p.dz = lerp(p.dz, Math.sin(w*1.17-.6)*amp, 1-Math.pow(.02,dt));
+
+    const q = rotate({x:(p.ox+p.dx)*pulse, y:(p.oy+p.dy)*pulse, z:(p.oz+p.dz)*pulse}, ry, rx);
+    p.px=q.x; p.py=q.y; p.pz=q.z;
+    const s = project(q);
+    proj.push({i, x:s.x, y:s.y, k:s.k, z:q.z, p});
+  }
+  proj.sort((a,b)=>a.z-b.z);
+
+  // conexões
+  const linkA = clamp((energy-.08)*0.85 + audio*.3, 0, .55) * boot;
+  if(linkA > 0.02){
+    ctx.lineWidth = .6;
+    for(const L of LINKS){
+      const a=PARTS[L.a], b=PARTS[L.b];
+      if(a.px===undefined) continue;
+      const pa=project({x:a.px,y:a.py,z:a.pz}), pb=project({x:b.px,y:b.py,z:b.pz});
+      const depth = clamp((((a.pz+b.pz)/2)/R+1.3)/2.4, .12, 1);
+      ctx.strokeStyle = `rgba(214,152,64,${(linkA*L.v*depth).toFixed(3)})`;
+      ctx.beginPath(); ctx.moveTo(pa.x,pa.y); ctx.lineTo(pb.x,pb.y); ctx.stroke();
+
+      // pequeno pulso luminoso viajando pela conexão
+      if(energy>.5){
+        L.t += dt*(.25+energy*.5);
+        if(L.t>1) L.t-=1;
+        const px=lerp(pa.x,pb.x,L.t), py=lerp(pa.y,pb.y,L.t);
+        ctx.fillStyle=`rgba(255,222,160,${(linkA*depth*.9).toFixed(3)})`;
+        ctx.fillRect(px-.9,py-.9,1.8,1.8);
+      }
+    }
+  }
+
+  // partículas
+  for(const o of proj){
+    const p=o.p;
+    const depth = clamp((o.z/R+1.35)/2.5, 0, 1);
+    const twinkle = .78 + .22*Math.sin(t*(1.1+p.sp*1.6)+p.ph);
+    let a = p.b * (0.22 + depth*0.9) * twinkle * boot;
+    a *= (0.62 + energy*0.5 + audio*0.45);
+    if(a<=.004) continue;
+    const size = Math.max(.7, p.s*o.k*(0.85 + depth*0.5) * (1+audio*.35));
+    // cor quente varia com profundidade
+    const r=255, g=Math.round(lerp(150,214,depth)), b=Math.round(lerp(52,142,depth));
+    ctx.fillStyle=`rgba(${r},${g},${b},${a.toFixed(3)})`;
+    ctx.fillRect(o.x-size/2, o.y-size/2, size, size);
+    // halo apenas nas partículas mais brilhantes e próximas
+    if(depth>.72 && p.b>.75 && a>.35){
+      ctx.fillStyle=`rgba(255,200,120,${(a*0.16).toFixed(3)})`;
+      const hs=size*3.4;
+      ctx.fillRect(o.x-hs/2,o.y-hs/2,hs,hs);
+    }
+  }
+  coherence = 0.72 + energy*0.24 + Math.sin(t*.4)*0.02;
+}
+
+function orbitPoint(o, ang, ry, rx){
+  const x=Math.cos(ang)*o.rad, y=Math.sin(ang)*o.rad*o.ecc;
+  // inclinações próprias da órbita
+  const cz=Math.cos(o.tiltZ), sz=Math.sin(o.tiltZ);
+  const x1=x*cz - y*sz, y1=x*sz + y*cz;
+  const cx=Math.cos(o.tiltX), sx=Math.sin(o.tiltX);
+  const y2=y1*cx, z2=y1*sx;
+  return rotate({x:x1,y:y2,z:z2}, ry, rx);
+}
+
+function drawOrbits(t, ry, rx, side){
+  for(const o of ORBITS){
+    const a0=o.a0 + o.phase + t*o.spin*(1+energy*2.2);
+    const a1=o.a1 + o.phase + t*o.spin*(1+energy*2.2);
+    const steps=54;
+    ctx.lineWidth=o.w*0.9;
+    let started=false;
+    ctx.beginPath();
+    for(let i=0;i<=steps;i++){
+      const f=i/steps;
+      if(o.dash && (Math.sin(f*34)>.55)){ started=false; continue; }
+      const ang=lerp(a0,a1,f);
+      const q=orbitPoint(o,ang,ry,rx);
+      if(Math.sign(q.z||1)!==side){ started=false; continue; }
+      const s=project(q);
+      if(!started){ ctx.moveTo(s.x,s.y); started=true; } else ctx.lineTo(s.x,s.y);
+    }
+    const base = side===1 ? .30 : .13;
+    ctx.strokeStyle=`rgba(201,144,47,${(base*(0.45+energy*0.7)*boot).toFixed(3)})`;
+    ctx.stroke();
+
+    // marcadores luminosos sobre a trajetória
+    for(let m=0;m<o.markers;m++){
+      const f=(m+1)/(o.markers+1);
+      const ang=lerp(a0,a1,(f + t*0.03*o.spin*8)%1);
+      const q=orbitPoint(o,ang,ry,rx);
+      if(Math.sign(q.z||1)!==side) continue;
+      const s=project(q);
+      const a=(side===1?.85:.3)*(0.4+energy*.7)*boot;
+      ctx.fillStyle=`rgba(255,206,132,${a.toFixed(3)})`;
+      ctx.fillRect(s.x-1.4,s.y-1.4,2.8,2.8);
+      if(side===1){
+        ctx.strokeStyle=`rgba(232,168,56,${(a*.3).toFixed(3)})`;
+        ctx.lineWidth=.6; ctx.beginPath(); ctx.arc(s.x,s.y,5.5,0,6.283); ctx.stroke();
+      }
+    }
+  }
+
+  // dados percorrendo as órbitas quando há processamento
+  if(side===1){
+    if(energy>.55 && Math.random()<energy*0.09) spawnPulse();
+    for(let i=PULSES.length-1;i>=0;i--){
+      const pu=PULSES[i]; pu.t += 0.012*pu.sp*(1+energy);
+      if(pu.t>1){ PULSES.splice(i,1); continue; }
+      const o=ORBITS[pu.o];
+      const ang=lerp(o.a0+o.phase, o.a1+o.phase, pu.t) + t*o.spin;
+      const q=orbitPoint(o,ang,ry,rx);
+      const s=project(q);
+      const a=Math.sin(pu.t*Math.PI)*0.9;
+      ctx.fillStyle=`rgba(255,228,175,${a.toFixed(3)})`;
+      ctx.fillRect(s.x-1.5,s.y-1.5,3,3);
+    }
+  }
+}
+
+function drawWaves(dt, ry, rx){
+  if((DUQUE.get().state==='processing' && Math.random()<.02) ||
+     (DUQUE.get().state==='speaking' && audio>.35 && Math.random()<.05)) spawnWave(audio+.4);
+  for(let i=WAVES.length-1;i>=0;i--){
+    const w=WAVES[i];
+    w.r += dt*R*1.05; w.life -= dt*0.55;
+    if(w.life<=0){ WAVES.splice(i,1); continue; }
+    const a=w.life*w.life*0.30*w.str;
+    ctx.strokeStyle=`rgba(255,196,110,${a.toFixed(3)})`;
+    ctx.lineWidth=.9;
+    ctx.beginPath();
+    for(let k=0;k<=46;k++){
+      const ang=k/46*6.283;
+      const q=rotate({x:Math.cos(ang)*w.r, y:Math.sin(ang)*w.r*0.42, z:Math.sin(ang*1.3)*w.r*0.18*w.tilt}, ry, rx);
+      const s=project(q);
+      k? ctx.lineTo(s.x,s.y) : ctx.moveTo(s.x,s.y);
+    }
+    ctx.stroke();
+  }
+}
+
+function drawScanlines(t){
+  const y=(t*38)%H;
+  const g=ctx.createLinearGradient(0,y-60,0,y+60);
+  g.addColorStop(0,'rgba(232,168,56,0)');
+  g.addColorStop(.5,'rgba(232,168,56,.018)');
+  g.addColorStop(1,'rgba(232,168,56,0)');
+  ctx.fillStyle=g; ctx.fillRect(0,y-60,W,120);
+}
+requestAnimationFrame(draw);
+
+/* ---------------- HUD ---------------- */
+const $=id=>document.getElementById(id);
+const MONTHS=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+const STATE_LABEL={standby:'Standby',listening:'Listening',processing:'Processing',speaking:'Speaking',executing:'Executing'};
+
+function tickClock(){
+  const d=new Date();
+  const p=n=>String(n).padStart(2,'0');
+  const time=`${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  const date=`${p(d.getDate())} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  $('clock').textContent=time;
+  $('date').textContent=date;
+  DUQUE.get().time=time; DUQUE.get().date=date;
+}
+setInterval(tickClock,1000); tickClock();
+try{ $('tz').textContent = Intl.DateTimeFormat().resolvedOptions().timeZone.replace('_',' '); }catch(e){}
+
+let hudAcc=0;
+function updateHudFast(){
+  if(frame%10) return;
+  $('nodeCount').textContent = `${String(NP).padStart(4,'0')} · ${String(LINKS.length).padStart(3,'0')}`;
+  $('coherence').textContent = coherence.toFixed(3);
+}
+
+function renderState(){
+  const s=DUQUE.get();
+  $('stateName').textContent = STATE_LABEL[s.state]||s.state;
+  $('stateTask').textContent = s.currentTask||'';
+  $('coreState').textContent = s.state==='standby' ? 'Idle' : 'Active';
+  $('sysDot').className = 'dot' + (s.state==='standby'?' idle':'');
+  $('sysState').textContent = s.state==='standby' ? 'Online' : 'Engaged';
+}
+DUQUE.on(renderState); renderState();
+
+/* telemetria contextual efêmera */
+window.__tel=(items, ms=4200)=>{
+  const box=$('telemetry');
+  const nodes=items.map(it=>{
+    const el=document.createElement('div');
+    el.className='tel';
+    el.innerHTML=`<div class="k">${it.k}</div><div class="v">${it.v}</div>`;
+    box.appendChild(el); return el;
+  });
+  nodes.forEach((n,i)=>{ n.style.animationDelay=(i*0.09)+'s'; });
+  setTimeout(()=>{
+    nodes.forEach((n,i)=>{ n.classList.add('out'); n.style.animationDelay=(i*0.05)+'s';
+      setTimeout(()=>n.remove(), 900+i*60); });
+  }, ms);
+};
+
+/* atividade recente */
+const acts=[];
+window.__act=(txt)=>{
+  acts.unshift(txt); if(acts.length>4) acts.pop();
+  const box=$('activity'); box.innerHTML='';
+  acts.forEach((a,i)=>{
+    const d=document.createElement('div');
+    d.innerHTML=`<span class="i"></span>${i===0?'':''}${a}`;
+    d.style.animationDelay=(i*0.05)+'s';
+    box.appendChild(d);
+  });
+  clearTimeout(window.__actT);
+  window.__actT=setTimeout(()=>{ acts.length=0; box.innerHTML=''; }, 26000);
+};
+
+/* ---------------- clima ---------------- */
+async function weather(lat,lon,label){
+  try{
+    const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&timezone=auto`;
+    const r=await fetch(u); const j=await r.json();
+    const temp=Math.round(j.current.temperature_2m);
+    DUQUE.setState({temperature:temp, city:label, sky:skyText(j.current.weather_code)});
+    $('temp').textContent=temp+'°C';
+    $('city').textContent=label;
+    $('sky').textContent=skyText(j.current.weather_code);
+  }catch(e){
+    $('city').textContent=label; $('temp').textContent='--°C'; $('sky').textContent='Sem sinal';
+  }
+}
+function skyText(c){
+  if(c===0) return 'Céu limpo';
+  if(c<=3) return 'Nuvens';
+  if(c<=48) return 'Névoa';
+  if(c<=67) return 'Chuva';
+  if(c<=77) return 'Neve';
+  if(c<=82) return 'Pancadas';
+  return 'Tempestade';
+}
+// padrão: Piracicaba — substituído por geolocalização, se autorizada
+weather(-22.7253,-47.6492,'Piracicaba');
+if(navigator.geolocation){
+  navigator.geolocation.getCurrentPosition(async pos=>{
+    const {latitude:la, longitude:lo}=pos.coords;
+    let name='Local atual';
+    try{
+      const g=await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${la}&longitude=${lo}&localityLanguage=pt`);
+      const gj=await g.json(); name=gj.city||gj.locality||name;
+    }catch(e){}
+    weather(la,lo,name);
+  },()=>{},{timeout:8000});
+}
+
+/* ---------------- microfone ---------------- */
+let micOn=false, analyser=null, buf=null;
+window.__ext = v => { extAudio = (v===null?null:clamp(v,0,1)); };
+
+async function toggleMic(){
+  if(micOn){
+    micOn=false; $('micState').textContent='Inativo'; $('micDot').className='dot idle';
+    audioTarget=0; if(DUQUE.get().state==='listening') DUQUE.setState({state:'standby'});
+    return;
+  }
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    const ac=new (window.AudioContext||window.webkitAudioContext)();
+    const src=ac.createMediaStreamSource(stream);
+    analyser=ac.createAnalyser(); analyser.fftSize=512; analyser.smoothingTimeConstant=.75;
+    src.connect(analyser); buf=new Uint8Array(analyser.frequencyBinCount);
+    micOn=true; $('micState').textContent='Aberto'; $('micDot').className='dot';
+    DUQUE.setState({state:'listening'});
+    (function loop(){
+      if(!micOn) return;
+      analyser.getByteFrequencyData(buf);
+      let sum=0; for(let i=0;i<buf.length;i++) sum+=buf[i];
+      audioTarget = clamp((sum/buf.length)/70, 0, 1);
+      requestAnimationFrame(loop);
+    })();
+  }catch(e){
+    $('micState').textContent='Negado';
+  }
+}
+
+/* nível de áudio simulado quando o Duque "fala" */
+setInterval(()=>{
+  const s=DUQUE.get().state;
+  if(s==='speaking' && !micOn) audioTarget = clamp(0.25 + Math.random()*0.7, 0, 1);
+  else if(s==='processing' && !micOn) audioTarget = 0.12 + Math.random()*0.12;
+  else if(!micOn && s!=='listening') audioTarget = 0.02;
+}, 110);
+
+/* ---------------- spotify (arquitetura pronta para OAuth) ---------------- */
+const queue=[
+  {track:'Night Terminal', artist:'Mirrorline', duration:243},
+  {track:'Slow Machines', artist:'Aeris Vale', duration:198},
+  {track:'Gold Standard', artist:'Kaito Ferreira', duration:274},
+  {track:'Low Orbit', artist:'The Quiet Signal', duration:221}
+];
+let qi=0, sTimer=null;
+
+/* Substitua este objeto pela integração real (Web Playback SDK / Web API).
+   Basta chamar DUQUE.setState({spotify:{...}}) com os dados reais. */
+const Spotify = {
+  play(){ DUQUE.setState({spotify:{playing:true}}); runProgress(); DUQUE.activity('SPOTIFY'); },
+  pause(){ DUQUE.setState({spotify:{playing:false}}); clearInterval(sTimer); },
+  next(){ qi=(qi+1)%queue.length; load(); },
+  prev(){ qi=(qi-1+queue.length)%queue.length; load(); }
+};
+function load(){
+  const t=queue[qi];
+  DUQUE.setState({spotify:{track:t.track, artist:t.artist, duration:t.duration, progress:0}});
+  renderSpotify();
+  if(DUQUE.get().spotify.playing) runProgress();
+}
+function runProgress(){
+  clearInterval(sTimer);
+  sTimer=setInterval(()=>{
+    const sp=DUQUE.get().spotify;
+    if(!sp.playing) return;
+    sp.progress += 1;
+    if(sp.progress>=sp.duration) Spotify.next();
+    renderSpotify();
+  },1000);
+}
+const fmt=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+function renderSpotify(){
+  const sp=DUQUE.get().spotify;
+  $('sTrack').textContent=sp.track;
+  $('sArtist').textContent=sp.artist;
+  $('sStatus').textContent=sp.playing?'Tocando':'Pausado';
+  $('sBar').style.width=(sp.duration? (sp.progress/sp.duration*100):0)+'%';
+  $('sCur').textContent=fmt(sp.progress||0);
+  $('sDur').textContent=fmt(sp.duration||0);
+  $('sIcon').innerHTML = sp.playing
+    ? '<path d="M2 1v11M10 1v11" stroke="currentColor" stroke-width="1"/>'
+    : '<path d="M1 1l10 5.5L1 12V1Z" stroke="currentColor" stroke-width="1"/>';
+  $('sPlay').title = sp.playing?'Pausar':'Tocar';
+}
+$('sPlay').onclick=()=>DUQUE.get().spotify.playing?Spotify.pause():Spotify.play();
+$('sNext').onclick=()=>Spotify.next();
+$('sPrev').onclick=()=>Spotify.prev();
+load();
+
+/* ---------------- comando / backend real ----------------
+   O HUD conversa com o servidor Flask, que entrega o texto ao AgentLoop.
+   O estado visual continua sendo alimentado pela API /api/estado.
+*/
+function say(state, task=''){ DUQUE.setState({state, currentTask:task}); }
+
+function showResponse(text){
+  const box=$('response');
+  box.textContent=text||'';
+  box.classList.add('show');
+}
+
+async function runCommand(text){
+  const q=text.trim(); if(!q) return;
+  const input=$('cmd');
+  input.disabled=true;
+  showResponse('');
+  say('processing','Enviando ao núcleo');
+  DUQUE.telemetry([{k:'Comando recebido',v:q.length>26?q.slice(0,26)+'…':q}],3600);
+  try{
+    const response=await fetch('/api/comando',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:q})
+    });
+    const data=await response.json();
+    if(!response.ok) throw new Error(data.erro||'Falha ao processar comando');
+    showResponse(data.text||'Concluído.');
+    say('speaking','Resposta pronta');
+    DUQUE.activity('RESPONSE');
+    DUQUE.telemetry([{k:'Resposta',v:'<em>Pronta</em>'}],2600);
+    setTimeout(()=>{ if(!input.disabled) say('standby'); },2200);
+  }catch(error){
+    showResponse(error instanceof Error ? error.message : 'Não foi possível falar com o Duque.');
+    say('speaking','Erro de comunicação');
+    DUQUE.activity('ERROR');
+    setTimeout(()=>{ if(!input.disabled) say('standby'); },2600);
+  }finally{
+    input.disabled=false;
+    input.focus();
+  }
+}
+
+$('cmd').addEventListener('keydown', e=>{
+  if(e.key==='Enter' && !e.shiftKey){
+    e.preventDefault();
+    const value=$('cmd').value;
+    if(!value.trim()) return;
+    $('cmd').value='';
+    runCommand(value);
+  }
+});
+
+/* sequência de inicialização */
+(async()=>{
+  await wait(900);
+  DUQUE.telemetry([{k:'Núcleo neural',v:'<em>Online</em>'},{k:'Memória',v:'Sincronizada'}],3400);
+  DUQUE.activity('MEMORY');
+  await wait(2600);
+  DUQUE.activity('VOICE');
+})();
+
+/* ---------------- ponte para backend ----------------
+   Comandos usam POST /api/comando.
+   Estado visual usa GET /api/estado (sincronizado pelo servidor).
+   O payload visual segue o formato: { state, currentTask, spotify, ... }.
+------------------------------------------------------------------ */
+</script>
+</body>
+</html>
