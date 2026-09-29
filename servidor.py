@@ -1,8 +1,19 @@
-from flask import Flask, jsonify, request, Response
+from __future__ import annotations
+
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
+
+from flask import Flask, jsonify, request, Response
+
+from brain.agent_loop import AgentLoop
+from core.events import Event, EventType
+from core.state import DuqueState
 
 app = Flask(__name__)
+
+agent = AgentLoop()
+state_lock = Lock()
 
 estado_duque = {
     "estado": "standby",
@@ -12,54 +23,119 @@ estado_duque = {
     "ultima_atualizacao": None,
 }
 
-ESTADOS_PERMITIDOS = [
-    "standby",
-    "ouvindo",
-    "processando",
-    "executando",
-    "falando",
-]
+
+def _snapshot_to_dict(snapshot) -> dict[str, object]:
+    return {
+        "estado": snapshot.state.value,
+        "tarefa": snapshot.task,
+        "atividade": snapshot.activity,
+        "coerencia": snapshot.coherence,
+        "ultima_atualizacao": datetime.fromtimestamp(
+            snapshot.updated_at
+        ).isoformat(timespec="milliseconds"),
+    }
+
+
+def _set_state(
+    estado: DuqueState,
+    *,
+    tarefa: str = "",
+    atividade: str = "",
+    coerencia: int = 100,
+    force: bool = False,
+) -> None:
+    snapshot = agent.engine.transition(
+        estado,
+        task=tarefa,
+        activity=atividade,
+        coherence=coerencia,
+        force=force,
+    )
+    with state_lock:
+        estado_duque.update(_snapshot_to_dict(snapshot))
+
+
+def _handle_event(event: Event) -> None:
+    if event.type == EventType.STATE_CHANGED:
+        snapshot = event.data.get("snapshot")
+        if snapshot is not None:
+            with state_lock:
+                estado_duque.update(_snapshot_to_dict(snapshot))
+        return
+
+    if event.type == EventType.TASK_STARTED:
+        task_id = str(event.data.get("task_id", ""))
+        _set_state(
+            DuqueState.EXECUTING,
+            tarefa=task_id,
+            atividade="Executando tarefa",
+        )
+        return
+
+    if event.type == EventType.TASK_FINISHED:
+        _set_state(
+            DuqueState.SPEAKING,
+            atividade="Resposta pronta",
+        )
+        return
+
+    if event.type == EventType.TASK_FAILED:
+        error = str(event.data.get("error", "Falha na tarefa"))
+        _set_state(
+            DuqueState.ERROR,
+            atividade=error[:120],
+        )
+        return
+
+    if event.type == EventType.OBSERVATION_STARTED:
+        _set_state(
+            DuqueState.EXECUTING,
+            atividade="Observando a tela",
+        )
+        return
+
+    if event.type == EventType.VERIFICATION_STARTED:
+        _set_state(
+            DuqueState.EXECUTING,
+            atividade="Verificando resultado",
+        )
+        return
+
+    if event.type == EventType.RESPONSE_STARTED:
+        _set_state(
+            DuqueState.SPEAKING,
+            atividade="Gerando resposta",
+        )
+        return
+
+    if event.type == EventType.RESPONSE_FINISHED:
+        _set_state(
+            DuqueState.STANDBY,
+            atividade="Sistema online",
+        )
+
+
+agent.engine.events.subscribe(None, _handle_event)
 
 
 def atualizar_estado(
-    estado,
-    tarefa=None,
-    atividade=None,
-    coerencia=None
-):
-    if estado not in ESTADOS_PERMITIDOS:
+    estado: str,
+    tarefa: str | None = None,
+    atividade: str | None = None,
+    coerencia: int | None = None,
+) -> bool:
+    try:
+        target = DuqueState(estado)
+    except ValueError:
         return False
 
-    estado_duque["estado"] = estado
-
-    if tarefa is not None:
-        estado_duque["tarefa"] = tarefa
-
-    if atividade is not None:
-        estado_duque["atividade"] = atividade
-
-    if coerencia is not None:
-        try:
-            estado_duque["coerencia"] = max(
-                0,
-                min(100, int(coerencia))
-            )
-        except (TypeError, ValueError):
-            pass
-
-    estado_duque["ultima_atualizacao"] = (
-        datetime.now().isoformat(
-            timespec="milliseconds"
-        )
+    current = agent.engine.state.snapshot()
+    _set_state(
+        target,
+        tarefa=current.task if tarefa is None else tarefa,
+        atividade=current.activity if atividade is None else atividade,
+        coerencia=current.coherence if coerencia is None else coerencia,
     )
-
-    print(
-        "[DUQUE] "
-        f"{estado.upper()} | "
-        f"{estado_duque['atividade']} | "
-        f"{estado_duque['tarefa']}"
-    )
-
     return True
 
 
@@ -68,355 +144,157 @@ def inicio():
     caminho = Path("interface/index.html")
 
     if not caminho.exists():
-        return (
+        return Response(
             "Erro: interface/index.html não encontrado.",
-            500
+            status=500,
+            mimetype="text/plain",
         )
 
-    html = caminho.read_text(
-        encoding="utf-8"
-    )
+    html = caminho.read_text(encoding="utf-8")
 
-    ponte = """
-<script>
-(function(){
-
-    const URL_ESTADO = "/api/estado";
-
-    let ultimoEstado = null;
-    let ultimaAtividade = null;
-
-    function sincronizarEstado(dados){
-
-        if(!dados) return;
-
-        if(typeof window.DUQUE === "undefined"){
-            return;
-        }
-
-        const estado = dados.estado || "standby";
-        const tarefa = dados.tarefa || "";
-        const atividade = dados.atividade || "";
-
-        /*
-         * O servidor usa nomes em português.
-         * A HUD usa nomes em inglês.
-         */
-        const mapaEstados = {
-            standby: "standby",
-            ouvindo: "listening",
-            processando: "processing",
-            executando: "executing",
-            falando: "speaking"
-        };
-
-        const estadoVisual =
-            mapaEstados[estado] || "standby";
-
-        window.DUQUE.setState({
-            state: estadoVisual,
-            currentTask: tarefa
-        });
-
-        if(
-            atividade &&
-            atividade !== ultimaAtividade
-        ){
-
-            ultimaAtividade = atividade;
-
-            if(
-                typeof window.DUQUE.activity ===
-                "function"
-            ){
-                window.DUQUE.activity(
-                    atividade
-                );
-            }
-        }
-
-        if(
-            typeof dados.coerencia === "number"
-        ){
-
-            const elemento =
-                document.getElementById(
-                    "coherence"
-                );
-
-            if(elemento){
-
-                elemento.dataset.serverCoherence =
-                    dados.coerencia.toFixed(3);
-
-            }
-        }
-
-        if(
-            ultimoEstado !== null &&
-            ultimoEstado !== estado
-        ){
-
-            if(
-                typeof window.DUQUE.telemetry ===
-                "function"
-            ){
-
-                const nomes = {
-
-                    standby:
-                        "Standby",
-
-                    ouvindo:
-                        "Canal de voz",
-
-                    processando:
-                        "Processamento",
-
-                    executando:
-                        "Computer Use",
-
-                    falando:
-                        "Síntese de voz"
-                };
-
-                window.DUQUE.telemetry(
-                    [
-                        {
-                            k: "Estado",
-                            v:
-                                nomes[estado] ||
-                                estado
-                        }
-                    ],
-                    2200
-                );
-            }
-        }
-
-        ultimoEstado = estado;
-    }
+    # A própria HUD já sincroniza estado e envia comandos pela API.
+    # Mantemos esta rota simples para evitar injetar JavaScript duplicado.
+    return Response(html, mimetype="text/html")
 
 
-    async function atualizar(){
-
-        try{
-
-            const resposta =
-                await fetch(
-                    URL_ESTADO,
-                    {
-                        method: "GET",
-                        cache: "no-store"
-                    }
-                );
-
-            if(!resposta.ok){
-                return;
-            }
-
-            const dados =
-                await resposta.json();
-
-            sincronizarEstado(dados);
-
-        }catch(erro){
-
-            /*
-             * O servidor pode estar
-             * temporariamente indisponível.
-             * Não interromper a HUD.
-             */
-
-        }
-    }
-
-
-    atualizar();
-
-    setInterval(
-        atualizar,
-        300
-    );
-
-
-    console.log(
-        "[DUQUE] HUD conectada ao servidor."
-    );
-
-})();
-</script>
-"""
-
-    marcador = "</body>"
-
-    if marcador in html:
-
-        html = html.replace(
-            marcador,
-            ponte + "\n" + marcador,
-            1
-        )
-
-    else:
-
-        html += ponte
-
-    return Response(
-        html,
-        mimetype="text/html"
-    )
-
-
-@app.route(
-    "/api/estado",
-    methods=["GET"]
-)
+@app.route("/api/estado", methods=["GET"])
 def obter_estado():
-
-    return jsonify(
-        estado_duque
-    )
+    with state_lock:
+        return jsonify(dict(estado_duque))
 
 
-@app.route(
-    "/api/estado",
-    methods=["POST"]
-)
+@app.route("/api/estado", methods=["POST"])
 def alterar_estado():
+    dados = request.get_json(silent=True) or {}
+    novo_estado = dados.get("estado")
 
-    dados = request.get_json(
-        silent=True
-    )
-
-    if not dados:
-
+    if not isinstance(novo_estado, str) or novo_estado not in {
+        state.value for state in DuqueState
+    }:
         return jsonify({
-            "erro":
-                "JSON não informado."
+            "erro": f"Estado inválido: {novo_estado}",
+            "estados_permitidos": [state.value for state in DuqueState],
         }), 400
 
-    novo_estado = dados.get(
-        "estado"
-    )
-
-    if novo_estado not in ESTADOS_PERMITIDOS:
-
-        return jsonify({
-
-            "erro":
-                f"Estado inválido: {novo_estado}",
-
-            "estados_permitidos":
-                ESTADOS_PERMITIDOS
-
-        }), 400
-
-    atualizar_estado(
-
-        novo_estado,
-
-        tarefa=dados.get(
-            "tarefa"
-        ),
-
-        atividade=dados.get(
-            "atividade"
-        ),
-
-        coerencia=dados.get(
-            "coerencia"
+    try:
+        atualizar_estado(
+            novo_estado,
+            tarefa=dados.get("tarefa"),
+            atividade=dados.get("atividade"),
+            coerencia=dados.get("coerencia"),
         )
-    )
+    except Exception as exc:
+        return jsonify({"erro": f"{type(exc).__name__}: {exc}"}), 500
 
-    return jsonify(
-        estado_duque
-    )
+    return obter_estado()
 
 
-@app.route(
-    "/estado/<novo_estado>",
-    methods=["GET"]
-)
-def estado_compatibilidade(
-    novo_estado
-):
+@app.route("/api/comando", methods=["POST"])
+def executar_comando():
+    dados = request.get_json(silent=True) or {}
+    texto = dados.get("text")
 
-    if novo_estado not in ESTADOS_PERMITIDOS:
+    if not isinstance(texto, str) or not texto.strip():
+        return jsonify({"erro": "O comando não pode ser vazio."}), 400
+
+    try:
+        _set_state(
+            DuqueState.PROCESSING,
+            tarefa="Interpretando comando",
+            atividade="Processamento",
+        )
+
+        resultado = agent.handle(texto.strip())
+
+        if agent._pending_confirmation is not None:
+            _set_state(
+                DuqueState.SPEAKING,
+                tarefa="Aguardando confirmação",
+                atividade="Confirmação necessária",
+            )
+        elif resultado.execution is not None and not resultado.execution.success:
+            _set_state(
+                DuqueState.ERROR,
+                tarefa="",
+                atividade=resultado.execution.error or "Falha na execução",
+            )
+        else:
+            _set_state(
+                DuqueState.SPEAKING,
+                tarefa="",
+                atividade="Resposta pronta",
+            )
 
         return jsonify({
-            "erro":
-                "Estado inválido."
-        }), 400
+            "ok": True,
+            "text": resultado.text,
+            "task_id": resultado.task_id,
+            "attempts": resultado.attempts,
+            "execution": (
+                {
+                    "success": resultado.execution.success,
+                    "error": resultado.execution.error,
+                    "confirmation_required": resultado.execution.confirmation_required,
+                }
+                if resultado.execution is not None
+                else None
+            ),
+        })
 
-    atualizar_estado(
-        novo_estado
-    )
+    except Exception as exc:
+        _set_state(
+            DuqueState.ERROR,
+            atividade=f"{type(exc).__name__}: {exc}"[:120],
+        )
+        return jsonify({
+            "ok": False,
+            "erro": f"{type(exc).__name__}: {exc}",
+        }), 500
 
-    return jsonify(
-        estado_duque
-    )
+
+@app.route("/estado/<novo_estado>", methods=["GET"])
+def estado_compatibilidade(novo_estado: str):
+    if novo_estado not in {state.value for state in DuqueState}:
+        return jsonify({"erro": "Estado inválido."}), 400
+
+    atualizar_estado(novo_estado)
+    return obter_estado()
 
 
-@app.route(
-    "/status",
-    methods=["GET"]
-)
+@app.route("/status", methods=["GET"])
 def status():
-
-    return jsonify({
-
-        "estado":
-            estado_duque["estado"],
-
-        "atividade":
-            estado_duque["atividade"],
-
-        "tarefa":
-            estado_duque["tarefa"]
-
-    })
+    with state_lock:
+        return jsonify({
+            "estado": estado_duque["estado"],
+            "atividade": estado_duque["atividade"],
+            "tarefa": estado_duque["tarefa"],
+        })
 
 
 if __name__ == "__main__":
-
     print()
-
     print("=" * 60)
     print("DUQUE - SERVIDOR CENTRAL")
     print("=" * 60)
-
     print()
-
     print("Interface:")
-    print(
-        "http://127.0.0.1:5000"
-    )
-
+    print("http://127.0.0.1:5000")
     print()
-
-    print("API:")
-    print(
-        "http://127.0.0.1:5000/api/estado"
-    )
-
+    print("API de estado:")
+    print("http://127.0.0.1:5000/api/estado")
     print()
-
-    print("HUD:")
-    print(
-        "Sincronização automática: ATIVA"
-    )
-    print(
-        "Intervalo: 300 ms"
-    )
-
+    print("API de comando:")
+    print("POST http://127.0.0.1:5000/api/comando")
     print()
-
+    print("HUD: sincronização automática ativa")
+    print("AgentLoop: conectado")
+    print()
     print("=" * 60)
     print()
 
     app.run(
         host="127.0.0.1",
         port=5000,
-        debug=False
+        debug=False,
+        threaded=True,
     )
