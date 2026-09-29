@@ -19,6 +19,7 @@ estado_duque = {
     "estado": "standby",
     "tarefa": "",
     "atividade": "Sistema online",
+    "resposta": "",
     "coerencia": 100,
     "ultima_atualizacao": None,
 }
@@ -63,22 +64,8 @@ def _handle_event(event: Event) -> None:
                 estado_duque.update(_snapshot_to_dict(snapshot))
         return
 
-    if event.type == EventType.TASK_STARTED:
-        task_id = str(event.data.get("task_id", ""))
-        _set_state(
-            DuqueState.EXECUTING,
-            tarefa=task_id,
-            atividade="Executando tarefa",
-        )
-        return
-
-    if event.type == EventType.TASK_FINISHED:
-        _set_state(
-            DuqueState.SPEAKING,
-            atividade="Resposta pronta",
-        )
-        return
-
+    # TASK_STARTED/TASK_FINISHED descrevem o ciclo interno da tarefa.
+    # O estado visual principal é controlado pelo fluxo do comando.
     if event.type == EventType.TASK_FAILED:
         error = str(event.data.get("error", "Falha na tarefa"))
         _set_state(
@@ -205,6 +192,9 @@ def executar_comando():
         )
 
         resultado = agent.handle(texto.strip())
+
+        with state_lock:
+            estado_duque["resposta"] = resultado.text or ""
 
         if agent._pending_confirmation is not None:
             _set_state(
