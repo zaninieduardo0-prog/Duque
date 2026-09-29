@@ -40,6 +40,14 @@ class AgentResult:
     attempts: int = 1
 
 
+@dataclass(slots=True)
+class PendingConfirmation:
+    task_id: str
+    text: str
+    intent: str
+    steps: list[tuple[str, dict[str, object]]]
+
+
 class AgentLoop:
     """Orquestra entendimento, planejamento, execução, verificação, correção, memória e agenda."""
 
@@ -74,6 +82,7 @@ class AgentLoop:
         self.model_planner = model_planner or ModelPlanner(self.model, self.schemas)
         self.autonomous = AutonomousLoop(self.model, self.executor, self.schemas, observer=self._observe_screen, event_sink=self.engine.emit)
         self.memory = memory or Memory()
+        self._pending_confirmation: PendingConfirmation | None = None
 
         self.scheduler = Scheduler(database=self.tasks.database)
         self.scheduled_runner = ScheduledTaskRunner(self.scheduler, self.task_engine, self.tasks, event_sink=self.engine.emit)
@@ -202,7 +211,107 @@ class AgentLoop:
                 self.tasks.fail(task.id, f"{type(exc).__name__}: {exc}")
             return AgentResult(f"O agente encontrou um erro: {type(exc).__name__}: {exc}", task.id)
 
+    @staticmethod
+    def _is_confirmation(text: str) -> bool:
+        normalized = " ".join(text.casefold().strip().split())
+        return normalized in {
+            "sim",
+            "s",
+            "confirmo",
+            "confirmado",
+            "confirmar",
+            "pode",
+            "pode fazer",
+            "pode executar",
+            "pode excluir",
+            "pode apagar",
+            "autorizo",
+            "autorizado",
+        }
+
+    @staticmethod
+    def _is_cancellation(text: str) -> bool:
+        normalized = " ".join(text.casefold().strip().split())
+        return normalized in {
+            "não",
+            "nao",
+            "n",
+            "cancela",
+            "cancelar",
+            "deixa",
+            "deixa pra lá",
+            "deixa pra la",
+            "não pode",
+            "nao pode",
+        }
+
+    def _resume_pending_confirmation(self, *, confirmed: bool, max_attempts: int) -> AgentResult:
+        pending = self._pending_confirmation
+        if pending is None:
+            raise RuntimeError("Não há confirmação pendente")
+
+        task = self.tasks.get(pending.task_id)
+        if task is None:
+            self._pending_confirmation = None
+            return AgentResult("A ação pendente não está mais disponível para confirmação.")
+
+        if not confirmed:
+            self.tasks.cancel(task.id)
+            self._pending_confirmation = None
+            self.memory.remember(
+                MemoryLayer.OPERATIONAL,
+                f"task:{task.id}",
+                {"description": pending.text, "status": "cancelled", "reason": "user_confirmation_denied"},
+            )
+            return AgentResult("Certo. Ação cancelada.", task.id)
+
+        self._pending_confirmation = None
+        report = self.correction.run(
+            task,
+            lambda error, attempt: self._correct_steps(
+                pending.text,
+                pending.intent,
+                pending.steps,
+                error,
+                attempt,
+            ),
+            max_attempts=max_attempts,
+            confirmed=True,
+        )
+        if not report.success:
+            failed = next((item.result for item in reversed(report.results) if not item.result.success), None)
+            if failed and failed.confirmation_required:
+                self._pending_confirmation = pending
+                return AgentResult("A ação ainda exige confirmação antes de continuar.", task.id, failed, report.attempts)
+            error = report.last_error or (failed.error if failed else "Falha desconhecida")
+            self.memory.remember(
+                MemoryLayer.OPERATIONAL,
+                f"task:{task.id}",
+                {"description": pending.text, "status": "failed", "error": error, "attempts": report.attempts},
+            )
+            return AgentResult(f"Não consegui executar a tarefa: {error}", task.id, failed, report.attempts)
+
+        last = report.results[-1].result if report.results else None
+        self.memory.remember(
+            MemoryLayer.OPERATIONAL,
+            f"task:{task.id}",
+            {"description": pending.text, "status": "completed", "attempts": report.attempts},
+        )
+        return AgentResult("Tarefa concluída.", task.id, last, report.attempts)
+
     def handle(self, text: str, *, confirmed: bool = False, max_attempts: int = 3) -> AgentResult:
+        self.memory.remember(MemoryLayer.CONVERSATION, f"turn:{uuid4().hex}", {"role": "user", "text": text})
+        if self._pending_confirmation is not None:
+            if self._is_confirmation(text):
+                return self._resume_pending_confirmation(confirmed=True, max_attempts=max_attempts)
+            if self._is_cancellation(text):
+                return self._resume_pending_confirmation(confirmed=False, max_attempts=max_attempts)
+            pending = self._pending_confirmation
+            return AgentResult(
+                f"Tenho uma ação aguardando confirmação: {pending.text}. Responda 'confirmo' ou 'cancela'.",
+                pending.task_id,
+            )
+
         route = self.router.route(text)
         self.memory.remember(MemoryLayer.CONVERSATION, f"turn:{uuid4().hex}", {"role": "user", "text": text, "intent": route.intent.value})
         if self._autonomous_enabled():
@@ -230,6 +339,7 @@ class AgentLoop:
         if not report.success:
             failed = next((item.result for item in reversed(report.results) if not item.result.success), None)
             if failed and failed.confirmation_required:
+                self._pending_confirmation = PendingConfirmation(task.id, text, route.intent.value, tool_steps)
                 return AgentResult("Preciso da sua confirmação antes de executar essa ação.", task.id, failed, report.attempts)
             error = report.last_error or (failed.error if failed else "Falha desconhecida")
             self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "failed", "error": error, "attempts": report.attempts})
@@ -243,8 +353,10 @@ class AgentLoop:
             return original_steps
 
         correction_goal = (
-            f"Objetivo original: {goal}\n"
-            f"Falha da tentativa {attempt}: {error}\n"
+            f"Objetivo original: {goal}
+"
+            f"Falha da tentativa {attempt}: {error}
+"
             "Crie um novo plano corrigido."
         )
         try:
