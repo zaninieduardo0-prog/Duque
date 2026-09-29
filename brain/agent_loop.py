@@ -359,10 +359,10 @@ class AgentLoop:
         )
         try:
             if isinstance(self.model, NullModel):
-                plan = self.planner.build(correction_goal, intent, set(self.schemas.names()))
-            else:
-                plan = self.model_planner.build(correction_goal, self.executor.tools.names())
-
+                # O planner heurístico não possui contexto suficiente para reescrever
+                # uma ação a partir de uma mensagem de erro; preserve a etapa original.
+                return original_steps
+            plan = self.model_planner.build(correction_goal, self.executor.tools.names())
             corrected = self._validated_tool_steps(
                 step for step in plan.steps if step.kind == StepKind.TOOL
             )
