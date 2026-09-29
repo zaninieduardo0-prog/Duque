@@ -44,6 +44,9 @@ class TaskEngine:
 
             if not result.success:
                 reason = result.error or "Falha desconhecida"
+                if result.confirmation_required:
+                    self.tasks.await_confirmation(task.id, reason)
+                    return results
                 self.tasks.fail(task.id, reason)
                 self._emit(EventType.TASK_FAILED, task_id=task.id, step=index, tool=tool, error=reason)
                 return results
