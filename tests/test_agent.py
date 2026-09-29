@@ -65,14 +65,14 @@ def test_planner_does_not_invent_unregistered_tools() -> None:
     assert plan.steps == []
 
 
-def test_agent_loop_does_not_complete_unsupported_operational_intent() -> None:
+def test_agent_loop_builds_search_tool_for_search_intent() -> None:
     agent = AgentLoop()
-    result = agent.handle("pesquisar o preço do dólar")
-    assert result.task_id
-    assert "Não consigo executar essa ação ainda" in result.text
-    task = agent.tasks.get(result.task_id)
-    assert task is not None
-    assert task.status.value == "failed"
+    steps = agent._ensure_executable_plan(
+        "pesquisar o preço do dólar",
+        "search",
+        agent.planner.build("pesquisar o preço do dólar", "search", set(agent.schemas.names())),
+    )
+    assert steps == [("web_search", {"query": "pesquisar o preço do dólar"})]
 
 
 def test_agent_schema_registry_contains_only_registered_tools() -> None:
