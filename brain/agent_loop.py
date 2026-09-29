@@ -353,10 +353,8 @@ class AgentLoop:
             return original_steps
 
         correction_goal = (
-            f"Objetivo original: {goal}
-"
-            f"Falha da tentativa {attempt}: {error}
-"
+            f"Objetivo original: {goal}\\n"
+            f"Falha da tentativa {attempt}: {error}\\n"
             "Crie um novo plano corrigido."
         )
         try:
