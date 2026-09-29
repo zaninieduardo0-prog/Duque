@@ -211,7 +211,7 @@ def executar_comando():
         else:
             _set_state(
                 DuqueState.SPEAKING,
-                tarefa="",
+                tarefa=(resultado.text or "")[:120],
                 atividade="Resposta pronta",
             )
 
