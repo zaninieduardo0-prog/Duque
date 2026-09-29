@@ -162,3 +162,9 @@ def test_web_search_parses_duckduckgo_html(monkeypatch) -> None:
         "results": [{"title": "Exemplo", "url": "https://example.com"}],
         "count": 1,
     }
+
+
+def test_text_mode_uses_agent_loop_without_voice() -> None:
+    import duque_text
+
+    assert duque_text.AgentLoop is AgentLoop
