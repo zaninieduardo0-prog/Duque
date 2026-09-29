@@ -688,7 +688,7 @@ requestAnimationFrame(draw);
 /* ---------------- HUD ---------------- */
 const $=id=>document.getElementById(id);
 const MONTHS=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
-const STATE_LABEL={standby:'Standby',listening:'Listening',processing:'Processing',speaking:'Speaking',executing:'Executing'};
+const STATE_LABEL={standby:'Standby',ouvindo:'Listening',processando:'Processing',falando:'Speaking',executando:'Executing',dormindo:'Sleeping',erro:'Error',listening:'Listening',processing:'Processing',speaking:'Speaking',executing:'Executing'};
 
 function tickClock(){
   const d=new Date();
@@ -718,6 +718,30 @@ function renderState(){
   $('sysState').textContent = s.state==='standby' ? 'Online' : 'Engaged';
 }
 DUQUE.on(renderState); renderState();
+
+let serverSyncBusy=false;
+async function syncServerState(){
+  if(serverSyncBusy) return;
+  serverSyncBusy=true;
+  try{
+    const response=await fetch('/api/estado',{cache:'no-store'});
+    if(!response.ok) return;
+    const data=await response.json();
+    if(!data || !data.estado) return;
+    const current=DUQUE.get();
+    DUQUE.setState({
+      state:data.estado,
+      currentTask:data.tarefa||'',
+      serverActivity:data.atividade||''
+    });
+  }catch(e){
+    // O HUD continua funcional mesmo se o servidor estiver indisponível.
+  }finally{
+    serverSyncBusy=false;
+  }
+}
+syncServerState();
+setInterval(syncServerState,250);
 
 /* telemetria contextual efêmera */
 window.__tel=(items, ms=4200)=>{
@@ -904,16 +928,19 @@ async function runCommand(text){
     });
     const data=await response.json();
     if(!response.ok) throw new Error(data.erro||'Falha ao processar comando');
+
     showResponse(data.text||'Concluído.');
-    say('speaking','Resposta pronta');
     DUQUE.activity('RESPONSE');
+
+    // O estado final vem do servidor; não criamos uma transição
+    // local que possa atropelar o AgentLoop.
+    await syncServerState();
     DUQUE.telemetry([{k:'Resposta',v:'<em>Pronta</em>'}],2600);
-    setTimeout(()=>{ if(!input.disabled) say('standby'); },2200);
   }catch(error){
     showResponse(error instanceof Error ? error.message : 'Não foi possível falar com o Duque.');
-    say('speaking','Erro de comunicação');
     DUQUE.activity('ERROR');
-    setTimeout(()=>{ if(!input.disabled) say('standby'); },2600);
+    DUQUE.setState({state:'erro',currentTask:'Falha de comunicação'});
+    setTimeout(()=>syncServerState(),900);
   }finally{
     input.disabled=false;
     input.focus();
