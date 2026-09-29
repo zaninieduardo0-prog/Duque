@@ -168,3 +168,46 @@ def test_text_mode_uses_agent_loop_without_voice() -> None:
     import duque_text
 
     assert duque_text.AgentLoop is AgentLoop
+
+
+def test_confirmation_flow_resumes_original_action_after_confirm() -> None:
+    agent = AgentLoop()
+    calls: list[str] = []
+
+    def fake_delete(path: str) -> dict[str, str]:
+        calls.append(path)
+        return {"deleted": path}
+
+    agent.executor.tools._tools["delete_file"] = fake_delete
+
+    first = agent.handle("apague o arquivo teste.txt")
+    assert first.execution is not None
+    assert first.execution.confirmation_required
+    assert calls == []
+    task = agent.tasks.get(first.task_id)
+    assert task is not None
+    assert task.status.value == "awaiting_confirmation"
+
+    second = agent.handle("confirmo")
+    assert second.task_id == first.task_id
+    assert second.execution is not None
+    assert second.execution.success
+    assert second.execution.value == {"deleted": "teste.txt"}
+    assert calls == ["teste.txt"]
+    assert task.status.value == "completed"
+
+
+def test_confirmation_flow_can_cancel_pending_action() -> None:
+    agent = AgentLoop()
+    agent.executor.tools._tools["delete_file"] = lambda path: {"deleted": path}
+
+    first = agent.handle("apague o arquivo teste.txt")
+    assert first.execution is not None
+    assert first.execution.confirmation_required
+
+    second = agent.handle("cancela")
+    assert second.task_id == first.task_id
+    assert "cancelada" in second.text
+    task = agent.tasks.get(first.task_id)
+    assert task is not None
+    assert task.status.value == "cancelled"
