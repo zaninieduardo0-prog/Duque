@@ -29,6 +29,7 @@ def _create_agent() -> AgentLoop:
 
 agent = _create_agent()
 state_lock = Lock()
+command_lock = Lock()
 
 estado_duque = {
     "estado": "standby",
@@ -220,7 +221,8 @@ def executar_comando():
                 "erro": "OPENAI_API_KEY não configurada no ambiente do Duque.",
             }), 503
 
-        resultado = agent.handle(texto.strip())
+        with command_lock:
+            resultado = agent.handle(texto.strip())
 
         with state_lock:
             estado_duque["resposta"] = resultado.text or ""
@@ -249,7 +251,7 @@ def executar_comando():
             "text": resultado.text,
             "task_id": resultado.task_id,
             "attempts": resultado.attempts,
-            "autonomous": agent._autonomous_enabled(),
+            "autonomous": agent.autonomous_enabled(),
             "execution": (
                 {
                     "success": resultado.execution.success,
