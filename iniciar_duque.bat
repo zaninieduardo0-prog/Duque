@@ -5,6 +5,7 @@ rem Usa automaticamente a pasta onde este .bat estiver.
 cd /d "%~dp0"
 
 set PYTHON=python
+set PYTHONW=pythonw
 
 rem Workspace do agente: por padrao, o proprio projeto Duque.
 rem Pode ser sobrescrito antes de iniciar para apontar para outra pasta.
@@ -42,14 +43,14 @@ if errorlevel 1 (
 echo Iniciando servidor...
 echo.
 
-start "DUQUE - SERVIDOR" cmd /k "cd /d "%~dp0" && %PYTHON% servidor.py"
+start "" /b "%PYTHONW%" servidor.py
 
 timeout /t 3 /nobreak >nul
 
 echo Iniciando inteligencia artificial...
 echo.
 
-start "DUQUE - IA" cmd /k "cd /d "%~dp0" && %PYTHON% duque_wake_v3.py"
+start "" /b "%PYTHONW%" duque_wake_v3.py
 timeout /t 4 /nobreak >nul
 
 echo Abrindo interface...
