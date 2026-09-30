@@ -121,6 +121,7 @@ class AgentLoop:
             ToolSpec("apply_code_change", "Aplica uma alteração de código somente quando a auto-modificação estiver explicitamente habilitada", ("path", "content"), {"path": str, "content": str}),
             ToolSpec("list_files", "Lista arquivos do workspace"),
             ToolSpec("inspect_workspace", "Inspeciona a estrutura do workspace"),
+            ToolSpec("validate_python", "Valida a sintaxe de um arquivo Python sem executá-lo", ("path",), {"path": str}),
             ToolSpec("run_python", "Executa Python no workspace", ("path",), {"path": str}),
             ToolSpec("git_status", "Consulta o estado do repositório Git sem alterar arquivos"),
             ToolSpec("git_diff", "Consulta diferenças locais do repositório Git", (), {"path": str}),
