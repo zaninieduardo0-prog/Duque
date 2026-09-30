@@ -1,21 +1,11 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from computer.code_tools import CodeTools
 from computer.workspace import Workspace
-
-
-@dataclass(slots=True)
-class DevelopmentReport:
-    goal: str
-    inspected_files: list[str] = field(default_factory=list)
-    failures: list[str] = field(default_factory=list)
-    changes: list[dict[str, Any]] = field(default_factory=list)
-    success: bool = False
 
 
 class SelfDevelopment:
