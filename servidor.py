@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Timer
 
 from flask import Flask, jsonify, request, Response
 
@@ -53,6 +53,18 @@ def _snapshot_to_dict(snapshot) -> dict[str, object]:
     }
 
 
+def _return_to_standby(delay: float = 2.5) -> None:
+    def reset():
+        try:
+            _set_state(
+                DuqueState.STANDBY,
+                tarefa="",
+                atividade="Sistema online",
+            )
+        except Exception:
+            pass
+
+    Timer(delay, reset).start()
 def _set_state(
     estado: DuqueState,
     *,
@@ -234,7 +246,7 @@ def executar_comando():
         with state_lock:
             estado_duque["resposta"] = resultado.text or ""
 
-        if agent._pending_confirmation is not None or agent._pending_autonomous_confirmation is not None:
+                if agent._pending_confirmation is not None or agent._pending_autonomous_confirmation is not None:
             _set_state(
                 DuqueState.SPEAKING,
                 tarefa="Aguardando confirmação",
@@ -252,7 +264,7 @@ def executar_comando():
                 tarefa=(resultado.text or "")[:120],
                 atividade="Resposta pronta",
             )
-
+            _return_to_standby()
         return jsonify({
             "ok": True,
             "text": resultado.text,

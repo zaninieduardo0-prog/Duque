@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
@@ -32,13 +32,13 @@ class InvalidTransition(ValueError):
 
 class StateManager:
     _TRANSITIONS: dict[DuqueState, set[DuqueState]] = {
-        DuqueState.STANDBY: {DuqueState.LISTENING, DuqueState.SLEEPING, DuqueState.ERROR},
+        DuqueState.STANDBY: {DuqueState.LISTENING, DuqueState.PROCESSING, DuqueState.SLEEPING, DuqueState.ERROR},
         DuqueState.LISTENING: {DuqueState.PROCESSING, DuqueState.STANDBY, DuqueState.SLEEPING, DuqueState.ERROR},
         DuqueState.PROCESSING: {DuqueState.EXECUTING, DuqueState.SPEAKING, DuqueState.STANDBY, DuqueState.SLEEPING, DuqueState.ERROR},
         DuqueState.EXECUTING: {DuqueState.PROCESSING, DuqueState.SPEAKING, DuqueState.STANDBY, DuqueState.ERROR},
         DuqueState.SPEAKING: {DuqueState.LISTENING, DuqueState.PROCESSING, DuqueState.STANDBY, DuqueState.SLEEPING, DuqueState.ERROR},
         DuqueState.SLEEPING: {DuqueState.STANDBY, DuqueState.LISTENING, DuqueState.ERROR},
-        DuqueState.ERROR: {DuqueState.STANDBY, DuqueState.SLEEPING},
+        DuqueState.ERROR: {DuqueState.STANDBY, DuqueState.PROCESSING, DuqueState.SLEEPING},
     }
 
     def __init__(self, initial: DuqueState = DuqueState.STANDBY) -> None:
@@ -69,7 +69,7 @@ class StateManager:
         with self._lock:
             current = self._snapshot.state
             if not force and target != current and target not in self._TRANSITIONS[current]:
-                raise InvalidTransition(f"Transição inválida: {current.value} -> {target.value}")
+                raise InvalidTransition(f"TransiÃ§Ã£o invÃ¡lida: {current.value} -> {target.value}")
             self._snapshot = StateSnapshot(target, task, activity, max(0, min(100, coherence)))
             listeners = tuple(self._listeners)
             snapshot = self._snapshot
@@ -79,3 +79,5 @@ class StateManager:
             except Exception:
                 pass
         return snapshot
+
+

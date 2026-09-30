@@ -744,7 +744,15 @@ async function syncServerState(){
       state:data.estado,
       currentTask:data.tarefa||'',
       serverActivity:data.atividade||''
-    });
+});
+
+if(data.resposta){
+  showResponse(data.resposta);
+}
+
+if(data.resposta){
+      showResponse(data.resposta);
+}
   }catch(e){
     // O HUD continua funcional mesmo se o servidor estiver indisponível.
   }finally{
