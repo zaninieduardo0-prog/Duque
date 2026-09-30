@@ -46,6 +46,21 @@ class CodeTools:
             "directory_count": len(directories),
         }
 
+    def validate_python(self, path: str) -> dict[str, Any]:
+        target = self.workspace.resolve(path)
+        if target.suffix.lower() != ".py":
+            raise ValueError("validate_python aceita apenas arquivos .py")
+        try:
+            source = target.read_text(encoding="utf-8")
+            compile(source, str(target), "exec")
+            return {"path": str(target), "valid": True, "error": None}
+        except SyntaxError as exc:
+            return {
+                "path": str(target),
+                "valid": False,
+                "error": f"{exc.msg} (linha {exc.lineno}, coluna {exc.offset})",
+            }
+
     def run_python(self, path: str, timeout: int = 30) -> dict[str, Any]:
         target = self.workspace.resolve(path)
         if target.suffix.lower() != ".py":
@@ -75,6 +90,7 @@ class CodeTools:
         executor.register("delete_file", self.delete_file)
         executor.register("list_files", self.list_files)
         executor.register("inspect_workspace", self.inspect_workspace)
+        executor.register("validate_python", self.validate_python)
         executor.register("run_python", self.run_python)
         executor.register("git_status", self.git_status)
         executor.register("git_diff", self.git_diff)
