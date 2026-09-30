@@ -42,7 +42,6 @@ class SecurityPolicy:
         "screen_find": RiskLevel.LOW,
         "screen_contains_text": RiskLevel.LOW,
         "code_workspace": RiskLevel.MEDIUM,
-        "run_tests": RiskLevel.MEDIUM,
         "file_manager": RiskLevel.MEDIUM,
         "scheduler": RiskLevel.MEDIUM,
         "schedule_task": RiskLevel.MEDIUM,
