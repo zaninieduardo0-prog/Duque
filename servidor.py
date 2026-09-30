@@ -80,8 +80,15 @@ def _handle_event(event: Event) -> None:
                 estado_duque.update(_snapshot_to_dict(snapshot))
         return
 
-    # TASK_STARTED/TASK_FINISHED descrevem o ciclo interno da tarefa.
-    # O estado visual principal é controlado pelo fluxo do comando.
+    if event.type == EventType.TASK_STARTED:
+        _set_state(
+            DuqueState.EXECUTING,
+            atividade=f"Executando {event.data.get('tool', 'etapa')}",
+        )
+        return
+
+    # TASK_FINISHED descreve uma etapa concluída; a próxima etapa pode começar
+    # imediatamente, então não forçamos standby aqui.
     if event.type == EventType.TASK_FAILED:
         error = str(event.data.get("error", "Falha na tarefa"))
         _set_state(
