@@ -12,9 +12,9 @@ set DUQUE_WORKSPACE=%~dp0
 
 rem Desenvolvimento autonomo: o Duque pode ler, alterar e executar o proprio codigo.
 rem Deixe 0 para modo normal. Para autonomia de desenvolvimento, use 1 nos dois.
-set DUQUE_AUTONOMOUS_AGENT=0
+set DUQUE_AUTONOMOUS_AGENT=1
 set DUQUE_ALLOW_SELF_MODIFICATION=0
-set DUQUE_MODEL=gpt-5.6-luna
+set DUQUE_MODEL=gpt-5
 
 rem Configuracao de voz: altere estas variaveis sem mexer no runtime.
 set DUQUE_VOICE=cedar
@@ -35,7 +35,7 @@ where %PYTHON% >nul 2>&1
 if errorlevel 1 (
     echo ERRO: Python nao encontrado no PATH.
     echo.
-    pause
+    timeout /t 2 /nobreak >nul
     exit /b
 )
 
@@ -61,6 +61,6 @@ echo ==========================================
 echo       DUQUE INICIADO COM SUCESSO
 echo ==========================================
 echo.
-echo Pode fechar esta janela.
+echo O Duque fica disponivel pela interface.
 echo.
 pause
