@@ -123,6 +123,8 @@ class AutonomousLoop:
 
             self._emit(EventType.TASK_STARTED, task_id=task.id, step=step_number, tool=tool)
             action_confirmed = confirmed_action is not None and tool == confirmed_action[0] and arguments == confirmed_action[1]
+            if action_confirmed:
+                confirmed_action = None
             result = self.executor.execute_step(task, tool, arguments, confirmed=action_confirmed, manage_task=False)
             executions.append(result)
             if result.confirmation_required:
