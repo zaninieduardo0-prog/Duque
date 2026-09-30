@@ -14,7 +14,7 @@ set DUQUE_WORKSPACE=%~dp0
 rem Desenvolvimento autonomo: o Duque pode ler, alterar e executar o proprio codigo.
 rem Deixe 0 para modo normal. Para autonomia de desenvolvimento, use 1 nos dois.
 set DUQUE_AUTONOMOUS_AGENT=1
-set DUQUE_ALLOW_SELF_MODIFICATION=0
+set DUQUE_ALLOW_SELF_MODIFICATION=1
 set DUQUE_MODEL=gpt-5
 
 rem Configuracao de voz: altere estas variaveis sem mexer no runtime.
