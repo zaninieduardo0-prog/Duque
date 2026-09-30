@@ -18,6 +18,8 @@ class AutonomousResult:
     steps: int = 0
     executions: list[ExecutionResult] = field(default_factory=list)
     error: str | None = None
+    pending_tool: str | None = None
+    pending_arguments: dict[str, Any] | None = None
 
 
 class AutonomousLoop:
@@ -57,7 +59,12 @@ class AutonomousLoop:
         if self.event_sink:
             self.event_sink(event, **data)
 
-    def run(self, context: AgentContext, *, confirmed: bool = False) -> AutonomousResult:
+    def run(
+        self,
+        context: AgentContext,
+        *,
+        confirmed_action: tuple[str, dict[str, Any]] | None = None,
+    ) -> AutonomousResult:
         task = self.executor.tasks.get(context.task_id)
         if task is None:
             return AutonomousResult(False, "", error="Tarefa do contexto não encontrada")
@@ -115,10 +122,19 @@ class AutonomousLoop:
                 continue
 
             self._emit(EventType.TASK_STARTED, task_id=task.id, step=step_number, tool=tool)
-            result = self.executor.execute_step(task, tool, arguments, confirmed=confirmed, manage_task=False)
+            action_confirmed = confirmed_action is not None and tool == confirmed_action[0] and arguments == confirmed_action[1]
+            result = self.executor.execute_step(task, tool, arguments, confirmed=action_confirmed, manage_task=False)
             executions.append(result)
             if result.confirmation_required:
-                return AutonomousResult(False, "Preciso da sua confirmação antes de executar essa ação.", step_number, executions, result.error)
+                return AutonomousResult(
+                    False,
+                    "Preciso da sua confirmação antes de executar essa ação.",
+                    step_number,
+                    executions,
+                    result.error,
+                    pending_tool=tool,
+                    pending_arguments=arguments,
+                )
 
             if result.success:
                 had_successful_tool = True
