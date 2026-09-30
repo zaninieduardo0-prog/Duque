@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from enum import Enum
 
@@ -28,7 +29,7 @@ class SecurityPolicy:
         "web_search": RiskLevel.LOW,
         "read_file": RiskLevel.LOW,
         "list_files": RiskLevel.LOW,
-        "write_file": RiskLevel.MEDIUM,
+        "write_file": RiskLevel.HIGH,
         "delete_file": RiskLevel.HIGH,
         "run_python": RiskLevel.MEDIUM,
         "ui_click": RiskLevel.MEDIUM,
@@ -50,10 +51,13 @@ class SecurityPolicy:
     }
 
     def assess(self, action: str) -> ActionPolicy:
-        # Ferramentas registradas que ainda não possuem uma classificação
-        # explícita recebem risco médio. A confirmação fica reservada às
-        # ações realmente classificadas como HIGH/CRITICAL.
-        risk = self._DEFAULTS.get(action, RiskLevel.MEDIUM)
+        # Auto-modificação só pode ocorrer quando o usuário habilitou
+        # explicitamente o modo de desenvolvimento autônomo.
+        if action == "write_file" and os.getenv("DUQUE_ALLOW_SELF_MODIFICATION", "0").casefold() in {"1", "true", "yes", "on"}:
+            risk = RiskLevel.MEDIUM
+        else:
+            # Ferramentas sem classificação explícita recebem risco médio.
+            risk = self._DEFAULTS.get(action, RiskLevel.MEDIUM)
         return ActionPolicy(
             action=action,
             risk=risk,
