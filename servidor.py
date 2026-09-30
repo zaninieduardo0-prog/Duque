@@ -16,9 +16,14 @@ app = Flask(__name__)
 
 def _create_agent() -> AgentLoop:
     autonomous = os.getenv("DUQUE_AUTONOMOUS_AGENT", "0").casefold() in {"1", "true", "yes", "on"}
-    if autonomous:
-        model = OpenAIResponsesModel()
-        return AgentLoop(model=model)
+    api_key = os.getenv("OPENAI_API_KEY")
+
+    if autonomous and api_key:
+        return AgentLoop(model=OpenAIResponsesModel())
+
+    # Sem chave, o servidor continua abrindo a interface para diagnóstico.
+    # As tarefas que exigem raciocínio de modelo ficam indisponíveis até a chave
+    # ser configurada, em vez de derrubar o servidor inteiro na inicialização.
     return AgentLoop(model=NullModel())
 
 
@@ -201,6 +206,20 @@ def executar_comando():
             atividade="Processamento",
         )
 
+        if (
+            os.getenv("DUQUE_AUTONOMOUS_AGENT", "0").casefold() in {"1", "true", "yes", "on"}
+            and not os.getenv("OPENAI_API_KEY")
+        ):
+            _set_state(
+                DuqueState.ERROR,
+                tarefa="Configuração necessária",
+                atividade="OPENAI_API_KEY não configurada",
+            )
+            return jsonify({
+                "ok": False,
+                "erro": "OPENAI_API_KEY não configurada no ambiente do Duque.",
+            }), 503
+
         resultado = agent.handle(texto.strip())
 
         with state_lock:
@@ -230,6 +249,7 @@ def executar_comando():
             "text": resultado.text,
             "task_id": resultado.task_id,
             "attempts": resultado.attempts,
+            "autonomous": agent._autonomous_enabled(),
             "execution": (
                 {
                     "success": resultado.execution.success,
