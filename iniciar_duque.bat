@@ -61,4 +61,6 @@ echo.
 echo ==========================================
 echo       DUQUE INICIADO COM SUCESSO
 echo ==========================================
-echo.\necho O Duque fica disponivel pela interface.\necho.
+echo.
+echo O Duque fica disponivel pela interface.
+echo.
