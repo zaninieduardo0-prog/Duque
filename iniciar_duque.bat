@@ -12,7 +12,7 @@ rem Pode ser sobrescrito antes de iniciar para apontar para outra pasta.
 set DUQUE_WORKSPACE=%~dp0
 
 rem Desenvolvimento autonomo: o Duque pode ler, alterar e executar o proprio codigo.
-rem Deixe 0 para modo normal. Para autonomia de desenvolvimento, use 1 nos dois.
+rem O agente pode alterar e executar o proprio codigo neste modo.
 set DUQUE_AUTONOMOUS_AGENT=1
 set DUQUE_ALLOW_SELF_MODIFICATION=1
 set DUQUE_MODEL=gpt-5
@@ -61,7 +61,4 @@ echo.
 echo ==========================================
 echo       DUQUE INICIADO COM SUCESSO
 echo ==========================================
-echo.
-echo O Duque fica disponivel pela interface.
-echo.
-pause
+echo.\necho O Duque fica disponivel pela interface.\necho.
