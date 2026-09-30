@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
@@ -7,12 +8,21 @@ from threading import Lock
 from flask import Flask, jsonify, request, Response
 
 from brain.agent_loop import AgentLoop
+from brain.model import NullModel, OpenAIResponsesModel
 from core.events import Event, EventType
 from core.state import DuqueState
 
 app = Flask(__name__)
 
-agent = AgentLoop()
+def _create_agent() -> AgentLoop:
+    autonomous = os.getenv("DUQUE_AUTONOMOUS_AGENT", "0").casefold() in {"1", "true", "yes", "on"}
+    if autonomous:
+        model = OpenAIResponsesModel()
+        return AgentLoop(model=model)
+    return AgentLoop(model=NullModel())
+
+
+agent = _create_agent()
 state_lock = Lock()
 
 estado_duque = {
