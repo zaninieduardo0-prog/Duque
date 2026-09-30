@@ -196,8 +196,11 @@ class AgentLoop:
             )
         return []
 
-    def _autonomous_enabled(self) -> bool:
+    def autonomous_enabled(self) -> bool:
         return os.getenv("DUQUE_AUTONOMOUS_AGENT", "0").casefold() in {"1", "true", "yes", "on"} and not isinstance(self.model, NullModel)
+
+    def _autonomous_enabled(self) -> bool:
+        return self.autonomous_enabled()
 
     def _handle_autonomous(self, text: str, *, confirmed: bool = False, task_id: str | None = None) -> AgentResult:
         task = self.tasks.get(task_id) if task_id else None
