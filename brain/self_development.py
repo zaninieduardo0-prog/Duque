@@ -13,14 +13,13 @@ from computer.workspace import Workspace
 class DevelopmentReport:
     goal: str
     inspected_files: list[str] = field(default_factory=list)
-    tests_run: list[str] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
     changes: list[dict[str, Any]] = field(default_factory=list)
     success: bool = False
 
 
 class SelfDevelopment:
-    """Ferramentas controladas para o Duque analisar e testar seu workspace."""
+    """Ferramentas controladas para o Duque analisar e desenvolver seu workspace."""
 
     def __init__(self, workspace: Workspace) -> None:
         self.workspace = workspace
@@ -48,24 +47,6 @@ class SelfDevelopment:
             result[path] = self.tools.read_file(path)["content"]
         return result
 
-    def run_tests(self, path: str = "tests") -> dict[str, Any]:
-        target = self.workspace.resolve(path)
-        if target.is_dir():
-            import subprocess
-            import sys
-            completed = subprocess.run(
-                [sys.executable, "-m", "pytest", str(target)],
-                cwd=str(self.workspace.root), capture_output=True, text=True, timeout=120, shell=False,
-            )
-            return {
-                "target": str(target),
-                "return_code": completed.returncode,
-                "stdout": completed.stdout,
-                "stderr": completed.stderr,
-                "success": completed.returncode == 0,
-            }
-        return self.tools.run_python(path)
-
     def apply_change(self, path: str, content: str) -> dict[str, Any]:
         if not self.allow_changes:
             return {
@@ -77,5 +58,6 @@ class SelfDevelopment:
     def register(self, executor: Any) -> None:
         executor.register("inspect_workspace", self.inspect)
         executor.register("read_many_files", self.read_many)
-        executor.register("run_tests", self.run_tests)
-        executor.register("apply_code_change", self.apply_change)
+        # A ferramenta de auto-modificação só existe quando o modo foi explicitamente habilitado.
+        if self.allow_changes:
+            executor.register("apply_code_change", self.apply_change)
