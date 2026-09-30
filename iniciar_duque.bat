@@ -10,6 +10,12 @@ rem Workspace do agente: por padrao, o proprio projeto Duque.
 rem Pode ser sobrescrito antes de iniciar para apontar para outra pasta.
 set DUQUE_WORKSPACE=%~dp0
 
+rem Desenvolvimento autonomo: o Duque pode ler, alterar e executar o proprio codigo.
+rem Deixe 0 para modo normal. Para autonomia de desenvolvimento, use 1 nos dois.
+set DUQUE_AUTONOMOUS_AGENT=0
+set DUQUE_ALLOW_SELF_MODIFICATION=0
+set DUQUE_MODEL=gpt-5.6-luna
+
 rem Configuracao de voz: altere estas variaveis sem mexer no runtime.
 set DUQUE_VOICE=cedar
 set DUQUE_PITCH=-2.0
