@@ -246,25 +246,32 @@ def executar_comando():
         with state_lock:
             estado_duque["resposta"] = resultado.text or ""
 
-                if agent._pending_confirmation is not None or agent._pending_autonomous_confirmation is not None:
+        if (
+            agent._pending_confirmation is not None
+            or agent._pending_autonomous_confirmation is not None
+        ):
             _set_state(
                 DuqueState.SPEAKING,
                 tarefa="Aguardando confirmação",
                 atividade="Confirmação necessária",
             )
+
         elif resultado.execution is not None and not resultado.execution.success:
             _set_state(
                 DuqueState.ERROR,
                 tarefa="",
                 atividade=resultado.execution.error or "Falha na execução",
             )
+
         else:
             _set_state(
                 DuqueState.SPEAKING,
                 tarefa=(resultado.text or "")[:120],
                 atividade="Resposta pronta",
             )
+
             _return_to_standby()
+
         return jsonify({
             "ok": True,
             "text": resultado.text,
@@ -281,7 +288,6 @@ def executar_comando():
                 else None
             ),
         })
-
     except Exception as exc:
         _set_state(
             DuqueState.ERROR,
