@@ -76,6 +76,8 @@ class AutonomousLoop:
         executions: list[ExecutionResult] = []
         had_successful_tool = False
         last_tool_succeeded = False
+        code_change_seen = False
+        code_change_verified = False
 
         for step_number in range(1, self.max_steps + 1):
             if self.observer is not None:
@@ -99,6 +101,9 @@ class AutonomousLoop:
                 message = str(action.get("message", "Tarefa finalizada.")).strip()
                 if not message:
                     messages.append({"role": "user", "content": "AÇÃO REJEITADA: a mensagem de conclusão está vazia. Continue trabalhando."})
+                    continue
+                if context.goal.strip() and code_change_seen and not code_change_verified:
+                    messages.append({"role": "user", "content": "AÇÃO REJEITADA: uma alteração de código foi feita, mas o git_diff ainda não foi usado para verificar o resultado. Consulte git_diff antes de concluir."})
                     continue
                 if context.goal.strip() and (not had_successful_tool or not last_tool_succeeded):
                     reason = (
@@ -140,6 +145,10 @@ class AutonomousLoop:
 
             if result.success:
                 had_successful_tool = True
+                if tool == "apply_code_change":
+                    code_change_seen = True
+                elif tool == "git_diff" and code_change_seen:
+                    code_change_verified = True
                 last_tool_succeeded = True
                 safe_result = self._safe_result(result.value)
                 context.record_step(tool=tool, arguments=arguments, result=safe_result)
