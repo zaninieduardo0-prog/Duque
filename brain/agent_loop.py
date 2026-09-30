@@ -215,8 +215,10 @@ class AgentLoop:
                 self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "mode": "autonomous", "steps": result.steps})
                 return AgentResult(result.message, task.id, result.executions[-1] if result.executions else None, result.steps or 1)
             if result.error and result.error.startswith("Ação '") and "exige confirmação" in result.error:
+                prompt = "Preciso da sua confirmação antes de continuar essa ação."
+                self.tasks.await_confirmation(task.id, prompt)
                 self._pending_autonomous_confirmation = PendingAutonomousConfirmation(task.id, text)
-                return AgentResult("Preciso da sua confirmação antes de continuar essa ação.", task.id, result.executions[-1] if result.executions else None, result.steps or 1)
+                return AgentResult(prompt, task.id, result.executions[-1] if result.executions else None, result.steps or 1)
             if task.status.value == "running":
                 self.tasks.fail(task.id, result.error or result.message or "Falha no agente autônomo")
             return AgentResult(result.message or f"Não consegui concluir a tarefa: {result.error}", task.id, result.executions[-1] if result.executions else None, result.steps or 1)
