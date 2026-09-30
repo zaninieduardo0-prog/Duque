@@ -147,6 +147,14 @@ body{
   color:var(--warm-white);font-family:inherit;font-size:12.5px;letter-spacing:.2em;padding:7px 2px;text-align:center;
   transition:border-color .3s ease;
 }
+#commandRow{display:flex;align-items:center;justify-content:center;gap:14px}
+#sendCmd{
+  margin-top:14px;background:none;border:0;color:rgba(246,234,214,.38);cursor:pointer;
+  font-family:inherit;font-size:10px;letter-spacing:.25em;text-transform:uppercase;
+  transition:color .25s ease,text-shadow .25s ease;
+}
+#sendCmd:hover,#sendCmd:focus-visible{color:var(--gold-hot);text-shadow:0 0 14px rgba(232,168,56,.55);outline:none}
+#sendCmd:disabled{opacity:.25;cursor:default}
 #cmd::placeholder{color:rgba(246,234,214,.2);letter-spacing:.3em;text-transform:uppercase;font-size:10.5px}
 #cmd:focus{outline:none;border-color:rgba(232,168,56,.55)}
 #response{margin:16px auto 0;width:min(560px,78vw);min-height:18px;font-size:11px;line-height:1.6;letter-spacing:.12em;color:rgba(246,234,214,.58);text-transform:none;opacity:0;transform:translateY(4px);transition:opacity .35s ease,transform .35s ease}
@@ -258,7 +266,10 @@ body{
       <span class="label" style="letter-spacing:.42em">Canal de voz</span>
       <span class="value sm" id="micState" style="font-size:12px">Inativo</span>
     </div>
-    <input id="cmd" autocomplete="off" spellcheck="false" placeholder="Digite um comando">
+    <div id="commandRow">
+      <input id="cmd" autocomplete="off" spellcheck="false" placeholder="Digite o que você quer que eu faça">
+      <button id="sendCmd" type="button">Enviar</button>
+    </div>
     <div id="response" aria-live="polite"></div>
     <div id="keys">1–5 estados · M microfone · Enter comando</div>
   </div>
@@ -733,7 +744,15 @@ async function syncServerState(){
       state:data.estado,
       currentTask:data.tarefa||'',
       serverActivity:data.atividade||''
-    });
+});
+
+if(data.resposta){
+  showResponse(data.resposta);
+}
+
+if(data.resposta){
+      showResponse(data.resposta);
+}
   }catch(e){
     // O HUD continua funcional mesmo se o servidor estiver indisponível.
   }finally{
@@ -913,10 +932,16 @@ function showResponse(text){
   box.classList.add('show');
 }
 
+function setCommandBusy(busy){
+  $('cmd').disabled=busy;
+  $('sendCmd').disabled=busy;
+  $('sendCmd').textContent=busy?'Executando':'Enviar';
+}
+
 async function runCommand(text){
   const q=text.trim(); if(!q) return;
   const input=$('cmd');
-  input.disabled=true;
+  setCommandBusy(true);
   showResponse('');
   say('processing','Enviando ao núcleo');
   DUQUE.telemetry([{k:'Comando recebido',v:q.length>26?q.slice(0,26)+'…':q}],3600);
@@ -930,7 +955,7 @@ async function runCommand(text){
     if(!response.ok) throw new Error(data.erro||'Falha ao processar comando');
 
     showResponse(data.text||'Concluído.');
-    DUQUE.activity('RESPONSE');
+    DUQUE.activity(data.execution?.success === false ? 'ERROR' : (data.autonomous ? 'EXECUTION' : 'RESPONSE'));
 
     // O estado final vem do servidor; não criamos uma transição
     // local que possa atropelar o AgentLoop.
@@ -942,10 +967,17 @@ async function runCommand(text){
     DUQUE.setState({state:'erro',currentTask:'Falha de comunicação'});
     setTimeout(()=>syncServerState(),900);
   }finally{
-    input.disabled=false;
+    setCommandBusy(false);
     input.focus();
   }
 }
+
+$('sendCmd').addEventListener('click', ()=>{
+  const value=$('cmd').value;
+  if(!value.trim()) return;
+  $('cmd').value='';
+  runCommand(value);
+});
 
 $('cmd').addEventListener('keydown', e=>{
   if(e.key==='Enter' && !e.shiftKey){

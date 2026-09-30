@@ -18,6 +18,8 @@ class AutonomousResult:
     steps: int = 0
     executions: list[ExecutionResult] = field(default_factory=list)
     error: str | None = None
+    pending_tool: str | None = None
+    pending_arguments: dict[str, Any] | None = None
 
 
 class AutonomousLoop:
@@ -32,6 +34,7 @@ class AutonomousLoop:
         "Analise todos os resultados antes da próxima ação. Se algo falhar, corrija ou escolha outra abordagem. "
         "Nunca invente resultados e nunca declare sucesso sem evidência. "
         "Quando a tarefa envolver interface, prefira observar/localizar antes de clicar ou digitar. "
+        "Quando a tarefa envolver desenvolvimento do próprio projeto, inspecione o código, faça uma alteração por vez, execute o código afetado, analise o resultado e use git_diff para verificar o que realmente mudou antes de concluir. "
         "Só finalize depois que os resultados das ferramentas fornecerem evidência suficiente de conclusão."
     )
 
@@ -56,7 +59,12 @@ class AutonomousLoop:
         if self.event_sink:
             self.event_sink(event, **data)
 
-    def run(self, context: AgentContext, *, confirmed: bool = False) -> AutonomousResult:
+    def run(
+        self,
+        context: AgentContext,
+        *,
+        confirmed_action: tuple[str, dict[str, Any]] | None = None,
+    ) -> AutonomousResult:
         task = self.executor.tasks.get(context.task_id)
         if task is None:
             return AutonomousResult(False, "", error="Tarefa do contexto não encontrada")
@@ -68,6 +76,8 @@ class AutonomousLoop:
         executions: list[ExecutionResult] = []
         had_successful_tool = False
         last_tool_succeeded = False
+        code_change_seen = False
+        code_change_verified = False
 
         for step_number in range(1, self.max_steps + 1):
             if self.observer is not None:
@@ -92,6 +102,9 @@ class AutonomousLoop:
                 if not message:
                     messages.append({"role": "user", "content": "AÇÃO REJEITADA: a mensagem de conclusão está vazia. Continue trabalhando."})
                     continue
+                if context.goal.strip() and code_change_seen and not code_change_verified:
+                    messages.append({"role": "user", "content": "AÇÃO REJEITADA: uma alteração de código foi feita, mas o git_diff ainda não foi usado para verificar o resultado. Consulte git_diff antes de concluir."})
+                    continue
                 if context.goal.strip() and (not had_successful_tool or not last_tool_succeeded):
                     reason = (
                         "ainda não existe evidência de execução"
@@ -114,13 +127,28 @@ class AutonomousLoop:
                 continue
 
             self._emit(EventType.TASK_STARTED, task_id=task.id, step=step_number, tool=tool)
-            result = self.executor.execute_step(task, tool, arguments, confirmed=confirmed, manage_task=False)
+            action_confirmed = confirmed_action is not None and tool == confirmed_action[0] and arguments == confirmed_action[1]
+            if action_confirmed:
+                confirmed_action = None
+            result = self.executor.execute_step(task, tool, arguments, confirmed=action_confirmed, manage_task=False)
             executions.append(result)
             if result.confirmation_required:
-                return AutonomousResult(False, "Preciso da sua confirmação antes de executar essa ação.", step_number, executions, result.error)
+                return AutonomousResult(
+                    False,
+                    "Preciso da sua confirmação antes de executar essa ação.",
+                    step_number,
+                    executions,
+                    result.error,
+                    pending_tool=tool,
+                    pending_arguments=arguments,
+                )
 
             if result.success:
                 had_successful_tool = True
+                if tool == "apply_code_change":
+                    code_change_seen = True
+                elif tool == "git_diff" and code_change_seen:
+                    code_change_verified = True
                 last_tool_succeeded = True
                 safe_result = self._safe_result(result.value)
                 context.record_step(tool=tool, arguments=arguments, result=safe_result)

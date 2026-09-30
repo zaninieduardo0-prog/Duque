@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 from dataclasses import dataclass
@@ -48,8 +48,16 @@ class PendingConfirmation:
     steps: list[tuple[str, dict[str, object]]]
 
 
+@dataclass(slots=True)
+class PendingAutonomousConfirmation:
+    task_id: str
+    text: str
+    tool: str
+    arguments: dict[str, object]
+
+
 class AgentLoop:
-    """Orquestra entendimento, planejamento, execução, verificação, correção, memória e agenda."""
+    """Orquestra entendimento, planejamento, execuÃ§Ã£o, verificaÃ§Ã£o, correÃ§Ã£o, memÃ³ria e agenda."""
 
     def __init__(self, engine: DuqueEngine | None = None, tasks: TaskManager | None = None, executor: Executor | None = None, workspace: Workspace | None = None, ui_tools: UITools | None = None, model: ModelAdapter | None = None, model_planner: ModelPlanner | None = None, memory: Memory | None = None) -> None:
         self.engine = engine or DuqueEngine()
@@ -58,7 +66,7 @@ class AgentLoop:
         self.tasks = tasks or TaskManager()
         self.verification = create_verification()
         self.executor = executor or Executor(self.tasks, verification=self.verification, event_sink=self.engine.emit)
-        self.workspace = workspace or Workspace("duque_workspace")
+        self.workspace = workspace or Workspace(os.getenv("DUQUE_WORKSPACE", "duque_workspace"))
         ComputerTools().register(self.executor)
         CodeTools(self.workspace).register(self.executor)
         self.self_development = SelfDevelopment(self.workspace)
@@ -83,6 +91,7 @@ class AgentLoop:
         self.autonomous = AutonomousLoop(self.model, self.executor, self.schemas, observer=self._observe_screen, event_sink=self.engine.emit)
         self.memory = memory or Memory()
         self._pending_confirmation: PendingConfirmation | None = None
+        self._pending_autonomous_confirmation: PendingAutonomousConfirmation | None = None
 
         self.scheduler = Scheduler(database=self.tasks.database)
         self.scheduled_runner = ScheduledTaskRunner(self.scheduler, self.task_engine, self.tasks, event_sink=self.engine.emit)
@@ -102,30 +111,30 @@ class AgentLoop:
     def _register_tool_schemas(self) -> None:
         specs = [
             ToolSpec("open_app", "Abre um aplicativo", ("name",), {"name": str}),
-            ToolSpec("open_url", "Abre uma URL no navegador; pode ser usada para serviços web como WhatsApp Web", ("url",), {"url": str}),
+            ToolSpec("open_url", "Abre uma URL no navegador; pode ser usada para serviÃ§os web como WhatsApp Web", ("url",), {"url": str}),
             ToolSpec("open_path", "Abre um caminho existente", ("path",), {"path": str}),
             ToolSpec("web_search", "Pesquisa na web", ("query",), {"query": str}),
-            ToolSpec("read_file", "Lê um arquivo do workspace", ("path",), {"path": str}),
-            ToolSpec("read_many_files", "Lê vários arquivos do workspace", ("paths",), {"paths": list}),
+            ToolSpec("read_file", "LÃª um arquivo do workspace", ("path",), {"path": str}),
+            ToolSpec("read_many_files", "LÃª vÃ¡rios arquivos do workspace", ("paths",), {"paths": list}),
             ToolSpec("write_file", "Escreve arquivo no workspace", ("path", "content"), {"path": str, "content": str}),
             ToolSpec("delete_file", "Exclui um arquivo do workspace", ("path",), {"path": str}),
-            ToolSpec("apply_code_change", "Aplica uma alteração de código somente quando a auto-modificação estiver explicitamente habilitada", ("path", "content"), {"path": str, "content": str}),
+            ToolSpec("apply_code_change", "Aplica uma alteraÃ§Ã£o de cÃ³digo somente quando a auto-modificaÃ§Ã£o estiver explicitamente habilitada", ("path", "content"), {"path": str, "content": str}),
             ToolSpec("list_files", "Lista arquivos do workspace"),
             ToolSpec("inspect_workspace", "Inspeciona a estrutura do workspace"),
-            ToolSpec("run_tests", "Executa a suíte de testes do workspace", (), {"path": str}),
+            ToolSpec("validate_python", "Valida a sintaxe de um arquivo Python sem executÃ¡-lo", ("path",), {"path": str}),
             ToolSpec("run_python", "Executa Python no workspace", ("path",), {"path": str}),
-            ToolSpec("git_status", "Consulta o estado do repositório Git sem alterar arquivos"),
-            ToolSpec("git_diff", "Consulta diferenças locais do repositório Git", (), {"path": str}),
+            ToolSpec("git_status", "Consulta o estado do repositÃ³rio Git sem alterar arquivos"),
+            ToolSpec("git_diff", "Consulta diferenÃ§as locais do repositÃ³rio Git", (), {"path": str}),
             ToolSpec("ui_click", "Clica na tela", ("x", "y"), {"x": int, "y": int}),
             ToolSpec("ui_type_text", "Digita texto", ("text",), {"text": str}),
             ToolSpec("ui_press", "Pressiona uma tecla", ("key",), {"key": str}),
-            ToolSpec("ui_hotkey", "Pressiona combinação de teclas", ("keys",), {"keys": list}),
+            ToolSpec("ui_hotkey", "Pressiona combinaÃ§Ã£o de teclas", ("keys",), {"keys": list}),
             ToolSpec("screenshot", "Captura a tela"),
-            ToolSpec("screen_snapshot", "Observa a tela com contexto semântico"),
+            ToolSpec("screen_snapshot", "Observa a tela com contexto semÃ¢ntico"),
             ToolSpec("screen_find", "Localiza um elemento visual por texto", ("text",), {"text": str}),
             ToolSpec("screen_click_text", "Localiza um texto na tela e clica no elemento; pode confirmar texto esperado", ("text",), {"text": str, "expected_text": str, "expected_not_text": str}),
-            ToolSpec("screen_contains_text", "Verifica se um texto está visível via OCR", ("text",), {"text": str}),
-            ToolSpec("schedule_task", "Agenda uma tarefa serializável", ("description", "delay_seconds", "steps"), {"description": str, "delay_seconds": (int, float), "steps": list, "repeat_seconds": (int, float)}),
+            ToolSpec("screen_contains_text", "Verifica se um texto estÃ¡ visÃ­vel via OCR", ("text",), {"text": str}),
+            ToolSpec("schedule_task", "Agenda uma tarefa serializÃ¡vel", ("description", "delay_seconds", "steps"), {"description": str, "delay_seconds": (int, float), "steps": list, "repeat_seconds": (int, float)}),
         ]
         registered = set(self.executor.tools.names())
         for spec in specs:
@@ -134,7 +143,7 @@ class AgentLoop:
 
     def _schedule_task(self, description: str, delay_seconds: int | float, steps: list[dict[str, object]], repeat_seconds: int | float | None = None) -> dict[str, object]:
         if not isinstance(description, str) or not description.strip():
-            raise ValueError("description não pode ser vazio")
+            raise ValueError("description nÃ£o pode ser vazio")
         if not isinstance(steps, list) or not steps:
             raise ValueError("steps deve conter pelo menos uma etapa")
         normalized: list[dict[str, object]] = []
@@ -149,7 +158,7 @@ class AgentLoop:
                 raise ValueError("arguments deve ser um objeto")
             validation = self.schemas.validate(tool, arguments)
             if not validation.valid:
-                raise ValueError(validation.error or f"Etapa inválida: {tool}")
+                raise ValueError(validation.error or f"Etapa invÃ¡lida: {tool}")
             normalized.append({"tool": tool, "arguments": arguments})
         task = self.tasks.create(description, source="scheduled", scheduled=True)
         job = self.scheduler.add_task_after(description, max(0, float(delay_seconds)), task_id=task.id, steps=normalized, repeat_seconds=float(repeat_seconds) if repeat_seconds is not None else None)
@@ -190,22 +199,44 @@ class AgentLoop:
             )
         return []
 
-    def _autonomous_enabled(self) -> bool:
+    def autonomous_enabled(self) -> bool:
         return os.getenv("DUQUE_AUTONOMOUS_AGENT", "0").casefold() in {"1", "true", "yes", "on"} and not isinstance(self.model, NullModel)
 
-    def _handle_autonomous(self, text: str, *, confirmed: bool = False) -> AgentResult:
-        task = self.tasks.create(text, mode="autonomous")
+    def _autonomous_enabled(self) -> bool:
+        return self.autonomous_enabled()
+
+    def _handle_autonomous(
+        self,
+        text: str,
+        *,
+        confirmed: bool = False,
+        task_id: str | None = None,
+        confirmed_action: tuple[str, dict[str, object]] | None = None,
+    ) -> AgentResult:
+        task = self.tasks.get(task_id) if task_id else None
+        if task is None:
+            task = self.tasks.create(text, mode="autonomous")
         context = AgentContext(goal=text, task_id=task.id)
         try:
             self.tasks.start(task.id)
-            result = self.autonomous.run(context, confirmed=confirmed)
+            result = self.autonomous.run(context, confirmed_action=confirmed_action if confirmed else None)
             if result.success:
                 self.tasks.complete(task.id, result.message)
                 self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "mode": "autonomous", "steps": result.steps})
                 return AgentResult(result.message, task.id, result.executions[-1] if result.executions else None, result.steps or 1)
+            if result.error and result.error.startswith("AÃ§Ã£o '") and "exige confirmaÃ§Ã£o" in result.error:
+                prompt = "Preciso da sua confirmaÃ§Ã£o antes de continuar essa aÃ§Ã£o."
+                self.tasks.await_confirmation(task.id, prompt)
+                self._pending_autonomous_confirmation = PendingAutonomousConfirmation(
+                    task.id,
+                    text,
+                    result.pending_tool or "",
+                    result.pending_arguments or {},
+                )
+                return AgentResult(prompt, task.id, result.executions[-1] if result.executions else None, result.steps or 1)
             if task.status.value == "running":
-                self.tasks.fail(task.id, result.error or result.message or "Falha no agente autônomo")
-            return AgentResult(result.message or f"Não consegui concluir a tarefa: {result.error}", task.id, result.executions[-1] if result.executions else None, result.steps or 1)
+                self.tasks.fail(task.id, result.error or result.message or "Falha no agente autÃ´nomo")
+            return AgentResult(result.message or f"NÃ£o consegui concluir a tarefa: {result.error}", task.id, result.executions[-1] if result.executions else None, result.steps or 1)
         except Exception as exc:
             if task.status.value == "running":
                 self.tasks.fail(task.id, f"{type(exc).__name__}: {exc}")
@@ -233,27 +264,27 @@ class AgentLoop:
     def _is_cancellation(text: str) -> bool:
         normalized = " ".join(text.casefold().strip().split())
         return normalized in {
-            "não",
+            "nÃ£o",
             "nao",
             "n",
             "cancela",
             "cancelar",
             "deixa",
-            "deixa pra lá",
+            "deixa pra lÃ¡",
             "deixa pra la",
-            "não pode",
+            "nÃ£o pode",
             "nao pode",
         }
 
     def _resume_pending_confirmation(self, *, confirmed: bool, max_attempts: int) -> AgentResult:
         pending = self._pending_confirmation
         if pending is None:
-            raise RuntimeError("Não há confirmação pendente")
+            raise RuntimeError("NÃ£o hÃ¡ confirmaÃ§Ã£o pendente")
 
         task = self.tasks.get(pending.task_id)
         if task is None:
             self._pending_confirmation = None
-            return AgentResult("A ação pendente não está mais disponível para confirmação.")
+            return AgentResult("A aÃ§Ã£o pendente nÃ£o estÃ¡ mais disponÃ­vel para confirmaÃ§Ã£o.")
 
         if not confirmed:
             self.tasks.cancel(task.id)
@@ -263,7 +294,7 @@ class AgentLoop:
                 f"task:{task.id}",
                 {"description": pending.text, "status": "cancelled", "reason": "user_confirmation_denied"},
             )
-            return AgentResult("Certo. Ação cancelada.", task.id)
+            return AgentResult("Certo. AÃ§Ã£o cancelada.", task.id)
 
         self._pending_confirmation = None
         report = self.correction.run(
@@ -282,14 +313,14 @@ class AgentLoop:
             failed = next((item.result for item in reversed(report.results) if not item.result.success), None)
             if failed and failed.confirmation_required:
                 self._pending_confirmation = pending
-                return AgentResult("A ação ainda exige confirmação antes de continuar.", task.id, failed, report.attempts)
+                return AgentResult("A aÃ§Ã£o ainda exige confirmaÃ§Ã£o antes de continuar.", task.id, failed, report.attempts)
             error = report.last_error or (failed.error if failed else "Falha desconhecida")
             self.memory.remember(
                 MemoryLayer.OPERATIONAL,
                 f"task:{task.id}",
                 {"description": pending.text, "status": "failed", "error": error, "attempts": report.attempts},
             )
-            return AgentResult(f"Não consegui executar a tarefa: {error}", task.id, failed, report.attempts)
+            return AgentResult(f"NÃ£o consegui executar a tarefa: {error}", task.id, failed, report.attempts)
 
         last = report.results[-1].result if report.results else None
         self.memory.remember(
@@ -297,7 +328,7 @@ class AgentLoop:
             f"task:{task.id}",
             {"description": pending.text, "status": "completed", "attempts": report.attempts},
         )
-        return AgentResult("Tarefa concluída.", task.id, last, report.attempts)
+        return AgentResult("Tarefa concluÃ­da.", task.id, last, report.attempts)
 
     def handle(self, text: str, *, confirmed: bool = False, max_attempts: int = 3) -> AgentResult:
         self.memory.remember(MemoryLayer.CONVERSATION, f"turn:{uuid4().hex}", {"role": "user", "text": text})
@@ -308,22 +339,48 @@ class AgentLoop:
                 return self._resume_pending_confirmation(confirmed=False, max_attempts=max_attempts)
             pending = self._pending_confirmation
             return AgentResult(
-                f"Tenho uma ação aguardando confirmação: {pending.text}. Responda 'confirmo' ou 'cancela'.",
+                f"Tenho uma aÃ§Ã£o aguardando confirmaÃ§Ã£o: {pending.text}. Responda 'confirmo' ou 'cancela'.",
+                pending.task_id,
+            )
+
+        if self._pending_autonomous_confirmation is not None:
+            pending = self._pending_autonomous_confirmation
+            if self._is_cancellation(text):
+                task = self.tasks.get(pending.task_id)
+                if task is not None:
+                    self.tasks.cancel(task.id)
+                self._pending_autonomous_confirmation = None
+                self.memory.remember(
+                    MemoryLayer.OPERATIONAL,
+                    f"task:{pending.task_id}",
+                    {"description": pending.text, "status": "cancelled", "reason": "user_confirmation_denied"},
+                )
+                return AgentResult("Certo. AÃ§Ã£o cancelada.", pending.task_id)
+            if self._is_confirmation(text):
+                self._pending_autonomous_confirmation = None
+                return self._handle_autonomous(
+                    pending.text,
+                    confirmed=True,
+                    task_id=pending.task_id,
+                    confirmed_action=(pending.tool, pending.arguments),
+                )
+            return AgentResult(
+                f"Tenho uma aÃ§Ã£o aguardando confirmaÃ§Ã£o: {pending.text}. Responda 'confirmo' ou 'cancela'.",
                 pending.task_id,
             )
 
         route = self.router.route(text)
         self.memory.remember(MemoryLayer.CONVERSATION, f"turn:{uuid4().hex}", {"role": "user", "text": text, "intent": route.intent.value})
-        if self._autonomous_enabled():
-            return self._handle_autonomous(text, confirmed=confirmed)
         plan = self._build_plan(text, route.intent.value)
+        if self._autonomous_enabled() and route.intent.value not in {"chat", "unknown"}:
+            return self._handle_autonomous(text, confirmed=confirmed)
         task = self.tasks.create(text, intent=route.intent.value, confidence=route.confidence)
         self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "created"})
         tool_steps = self._ensure_executable_plan(text, route.intent.value, plan)
         if not tool_steps:
             self.tasks.start(task.id)
             if route.intent.value in {"open_app", "search", "file_operation", "reminder", "system"}:
-                error = f"Nenhuma ferramenta disponível para a intenção: {route.intent.value}"
+                error = f"Nenhuma ferramenta disponÃ­vel para a intenÃ§Ã£o: {route.intent.value}"
                 self.tasks.fail(task.id, error)
                 self.memory.remember(
                     MemoryLayer.OPERATIONAL,
@@ -331,7 +388,7 @@ class AgentLoop:
                     {"description": text, "status": "failed", "error": error},
                 )
                 self.engine.emit(EventType.TASK_FAILED, task_id=task.id, error=error)
-                return AgentResult(f"Não consigo executar essa ação ainda: {error}.", task.id)
+                return AgentResult(f"NÃ£o consigo executar essa aÃ§Ã£o ainda: {error}.", task.id)
             self.tasks.complete(task.id, text)
             self.engine.emit(EventType.TASK_FINISHED, task_id=task.id)
             return AgentResult(text, task.id)
@@ -340,13 +397,13 @@ class AgentLoop:
             failed = next((item.result for item in reversed(report.results) if not item.result.success), None)
             if failed and failed.confirmation_required:
                 self._pending_confirmation = PendingConfirmation(task.id, text, route.intent.value, tool_steps)
-                return AgentResult("Preciso da sua confirmação antes de executar essa ação.", task.id, failed, report.attempts)
+                return AgentResult("Preciso da sua confirmaÃ§Ã£o antes de executar essa aÃ§Ã£o.", task.id, failed, report.attempts)
             error = report.last_error or (failed.error if failed else "Falha desconhecida")
             self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "failed", "error": error, "attempts": report.attempts})
-            return AgentResult(f"Não consegui executar a tarefa: {error}", task.id, failed, report.attempts)
+            return AgentResult(f"NÃ£o consegui executar a tarefa: {error}", task.id, failed, report.attempts)
         last = report.results[-1].result if report.results else None
         self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "attempts": report.attempts})
-        return AgentResult("Tarefa concluída.", task.id, last, report.attempts)
+        return AgentResult("Tarefa concluÃ­da.", task.id, last, report.attempts)
 
     def _correct_steps(self, goal: str, intent: str, original_steps, error: str | None, attempt: int):
         if not error:
@@ -359,8 +416,8 @@ class AgentLoop:
         )
         try:
             if isinstance(self.model, NullModel):
-                # O planner heurístico não possui contexto suficiente para reescrever
-                # uma ação a partir de uma mensagem de erro; preserve a etapa original.
+                # O planner heurÃ­stico nÃ£o possui contexto suficiente para reescrever
+                # uma aÃ§Ã£o a partir de uma mensagem de erro; preserve a etapa original.
                 return original_steps
             plan = self.model_planner.build(correction_goal, self.executor.tools.names())
             corrected = self._validated_tool_steps(
@@ -369,3 +426,4 @@ class AgentLoop:
             return corrected or original_steps
         except Exception:
             return original_steps
+
