@@ -332,7 +332,7 @@ class AgentLoop:
             pending = self._pending_autonomous_confirmation
             if self._is_cancellation(text):
                 task = self.tasks.get(pending.task_id)
-                if task is not None and task.status.value == "running":
+                if task is not None:
                     self.tasks.cancel(task.id)
                 self._pending_autonomous_confirmation = None
                 self.memory.remember(
