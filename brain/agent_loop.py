@@ -52,6 +52,8 @@ class PendingConfirmation:
 class PendingAutonomousConfirmation:
     task_id: str
     text: str
+    tool: str
+    arguments: dict[str, object]
 
 
 class AgentLoop:
@@ -202,14 +204,21 @@ class AgentLoop:
     def _autonomous_enabled(self) -> bool:
         return self.autonomous_enabled()
 
-    def _handle_autonomous(self, text: str, *, confirmed: bool = False, task_id: str | None = None) -> AgentResult:
+    def _handle_autonomous(
+        self,
+        text: str,
+        *,
+        confirmed: bool = False,
+        task_id: str | None = None,
+        confirmed_action: tuple[str, dict[str, object]] | None = None,
+    ) -> AgentResult:
         task = self.tasks.get(task_id) if task_id else None
         if task is None:
             task = self.tasks.create(text, mode="autonomous")
         context = AgentContext(goal=text, task_id=task.id)
         try:
             self.tasks.start(task.id)
-            result = self.autonomous.run(context, confirmed=confirmed)
+            result = self.autonomous.run(context, confirmed_action=confirmed_action if confirmed else None)
             if result.success:
                 self.tasks.complete(task.id, result.message)
                 self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "mode": "autonomous", "steps": result.steps})
@@ -217,7 +226,12 @@ class AgentLoop:
             if result.error and result.error.startswith("Ação '") and "exige confirmação" in result.error:
                 prompt = "Preciso da sua confirmação antes de continuar essa ação."
                 self.tasks.await_confirmation(task.id, prompt)
-                self._pending_autonomous_confirmation = PendingAutonomousConfirmation(task.id, text)
+                self._pending_autonomous_confirmation = PendingAutonomousConfirmation(
+                    task.id,
+                    text,
+                    result.pending_tool or "",
+                    result.pending_arguments or {},
+                )
                 return AgentResult(prompt, task.id, result.executions[-1] if result.executions else None, result.steps or 1)
             if task.status.value == "running":
                 self.tasks.fail(task.id, result.error or result.message or "Falha no agente autônomo")
@@ -343,7 +357,12 @@ class AgentLoop:
                 return AgentResult("Certo. Ação cancelada.", pending.task_id)
             if self._is_confirmation(text):
                 self._pending_autonomous_confirmation = None
-                return self._handle_autonomous(pending.text, confirmed=True, task_id=pending.task_id)
+                return self._handle_autonomous(
+                    pending.text,
+                    confirmed=True,
+                    task_id=pending.task_id,
+                    confirmed_action=(pending.tool, pending.arguments),
+                )
             return AgentResult(
                 f"Tenho uma ação aguardando confirmação: {pending.text}. Responda 'confirmo' ou 'cancela'.",
                 pending.task_id,
