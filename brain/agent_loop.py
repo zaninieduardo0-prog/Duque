@@ -48,6 +48,12 @@ class PendingConfirmation:
     steps: list[tuple[str, dict[str, object]]]
 
 
+@dataclass(slots=True)
+class PendingAutonomousConfirmation:
+    task_id: str
+    text: str
+
+
 class AgentLoop:
     """Orquestra entendimento, planejamento, execução, verificação, correção, memória e agenda."""
 
@@ -83,6 +89,7 @@ class AgentLoop:
         self.autonomous = AutonomousLoop(self.model, self.executor, self.schemas, observer=self._observe_screen, event_sink=self.engine.emit)
         self.memory = memory or Memory()
         self._pending_confirmation: PendingConfirmation | None = None
+        self._pending_autonomous_confirmation: PendingAutonomousConfirmation | None = None
 
         self.scheduler = Scheduler(database=self.tasks.database)
         self.scheduled_runner = ScheduledTaskRunner(self.scheduler, self.task_engine, self.tasks, event_sink=self.engine.emit)
@@ -192,8 +199,10 @@ class AgentLoop:
     def _autonomous_enabled(self) -> bool:
         return os.getenv("DUQUE_AUTONOMOUS_AGENT", "0").casefold() in {"1", "true", "yes", "on"} and not isinstance(self.model, NullModel)
 
-    def _handle_autonomous(self, text: str, *, confirmed: bool = False) -> AgentResult:
-        task = self.tasks.create(text, mode="autonomous")
+    def _handle_autonomous(self, text: str, *, confirmed: bool = False, task_id: str | None = None) -> AgentResult:
+        task = self.tasks.get(task_id) if task_id else None
+        if task is None:
+            task = self.tasks.create(text, mode="autonomous")
         context = AgentContext(goal=text, task_id=task.id)
         try:
             self.tasks.start(task.id)
@@ -202,6 +211,9 @@ class AgentLoop:
                 self.tasks.complete(task.id, result.message)
                 self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "mode": "autonomous", "steps": result.steps})
                 return AgentResult(result.message, task.id, result.executions[-1] if result.executions else None, result.steps or 1)
+            if result.error and result.error.startswith("Ação '") and "exige confirmação" in result.error:
+                self._pending_autonomous_confirmation = PendingAutonomousConfirmation(task.id, text)
+                return AgentResult("Preciso da sua confirmação antes de continuar essa ação.", task.id, result.executions[-1] if result.executions else None, result.steps or 1)
             if task.status.value == "running":
                 self.tasks.fail(task.id, result.error or result.message or "Falha no agente autônomo")
             return AgentResult(result.message or f"Não consegui concluir a tarefa: {result.error}", task.id, result.executions[-1] if result.executions else None, result.steps or 1)
@@ -306,6 +318,27 @@ class AgentLoop:
             if self._is_cancellation(text):
                 return self._resume_pending_confirmation(confirmed=False, max_attempts=max_attempts)
             pending = self._pending_confirmation
+            return AgentResult(
+                f"Tenho uma ação aguardando confirmação: {pending.text}. Responda 'confirmo' ou 'cancela'.",
+                pending.task_id,
+            )
+
+        if self._pending_autonomous_confirmation is not None:
+            pending = self._pending_autonomous_confirmation
+            if self._is_cancellation(text):
+                task = self.tasks.get(pending.task_id)
+                if task is not None and task.status.value == "running":
+                    self.tasks.cancel(task.id)
+                self._pending_autonomous_confirmation = None
+                self.memory.remember(
+                    MemoryLayer.OPERATIONAL,
+                    f"task:{pending.task_id}",
+                    {"description": pending.text, "status": "cancelled", "reason": "user_confirmation_denied"},
+                )
+                return AgentResult("Certo. Ação cancelada.", pending.task_id)
+            if self._is_confirmation(text):
+                self._pending_autonomous_confirmation = None
+                return self._handle_autonomous(pending.text, confirmed=True, task_id=pending.task_id)
             return AgentResult(
                 f"Tenho uma ação aguardando confirmação: {pending.text}. Responda 'confirmo' ou 'cancela'.",
                 pending.task_id,
