@@ -29,6 +29,23 @@ class CodeTools:
     def list_files(self) -> dict[str, Any]:
         return {"files": self.workspace.list_files()}
 
+    def inspect_workspace(self) -> dict[str, Any]:
+        """Retorna uma visão curta e segura da estrutura do workspace."""
+        root = self.workspace.root
+        directories = sorted(
+            str(path.relative_to(root))
+            for path in root.rglob("*")
+            if path.is_dir()
+        )
+        files = self.workspace.list_files()
+        return {
+            "root": str(root),
+            "directories": directories,
+            "files": files,
+            "file_count": len(files),
+            "directory_count": len(directories),
+        }
+
     def run_python(self, path: str, timeout: int = 30) -> dict[str, Any]:
         target = self.workspace.resolve(path)
         if target.suffix.lower() != ".py":
@@ -62,6 +79,7 @@ class CodeTools:
         executor.register("write_file", self.write_file)
         executor.register("delete_file", self.delete_file)
         executor.register("list_files", self.list_files)
+        executor.register("inspect_workspace", self.inspect_workspace)
         executor.register("run_python", self.run_python)
         executor.register("run_tests", self.run_tests)
         executor.register("git_status", self.git_status)
