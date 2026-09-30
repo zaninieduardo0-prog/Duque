@@ -32,6 +32,7 @@ class AutonomousLoop:
         "Analise todos os resultados antes da próxima ação. Se algo falhar, corrija ou escolha outra abordagem. "
         "Nunca invente resultados e nunca declare sucesso sem evidência. "
         "Quando a tarefa envolver interface, prefira observar/localizar antes de clicar ou digitar. "
+        "Quando a tarefa envolver desenvolvimento do próprio projeto, inspecione o código, faça uma alteração por vez, execute o código afetado, analise o resultado e use git_diff para verificar o que realmente mudou antes de concluir. "
         "Só finalize depois que os resultados das ferramentas fornecerem evidência suficiente de conclusão."
     )
 
