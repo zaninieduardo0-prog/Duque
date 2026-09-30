@@ -53,11 +53,12 @@ class CodeTools:
         try:
             source = target.read_text(encoding="utf-8")
             compile(source, str(target), "exec")
-            return {"path": str(target), "valid": True, "error": None}
+            return {"path": str(target), "valid": True, "success": True, "error": None}
         except SyntaxError as exc:
             return {
                 "path": str(target),
                 "valid": False,
+                "success": False,
                 "error": f"{exc.msg} (linha {exc.lineno}, coluna {exc.offset})",
             }
 
