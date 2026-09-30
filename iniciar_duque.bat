@@ -6,6 +6,10 @@ cd /d "%~dp0"
 
 set PYTHON=python
 
+rem Workspace do agente: por padrao, o proprio projeto Duque.
+rem Pode ser sobrescrito antes de iniciar para apontar para outra pasta.
+set DUQUE_WORKSPACE=%~dp0
+
 rem Configuracao de voz: altere estas variaveis sem mexer no runtime.
 set DUQUE_VOICE=cedar
 set DUQUE_PITCH=-2.0
