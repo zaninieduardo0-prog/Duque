@@ -42,7 +42,7 @@ class AutonomousLoop:
         executor: Executor,
         schemas: ToolSchemaRegistry,
         *,
-        max_steps: int = 60,
+        max_steps: int = 500,
         observer: Callable[[], dict[str, Any]] | None = None,
         event_sink: Callable[..., Any] | None = None,
     ) -> None:
