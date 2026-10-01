@@ -47,6 +47,11 @@ class SecurityPolicy:
         "schedule_task": RiskLevel.MEDIUM,
         "reminder": RiskLevel.MEDIUM,
         "system_control": RiskLevel.HIGH,
+        "git_push": RiskLevel.HIGH,
+        "git_commit": RiskLevel.MEDIUM,
+        "git_pull": RiskLevel.MEDIUM,
+        "git_fetch": RiskLevel.LOW,
+        "git_log": RiskLevel.LOW,
     }
 
     def assess(self, action: str) -> ActionPolicy:
