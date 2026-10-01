@@ -281,7 +281,7 @@ class AgentLoop:
             if result.executions and result.executions[-1].confirmation_required:
                 prompt = "Preciso da sua confirmação antes de executar essa ação."
                 self.tasks.await_confirmation(task.id, prompt)
-                task.metadata["confirmation_intent"] = "autonomous"
+                self.tasks.set_confirmation_context(task.id, confirmation_intent="autonomous")
                 self._pending_confirmation = PendingConfirmation(task.id, text, "autonomous", [])
                 return AgentResult(prompt, task.id, result.executions[-1], result.steps or 1)
             if task.status.value == "running":
@@ -483,10 +483,13 @@ class AgentLoop:
         if not report.success:
             failed = next((item.result for item in reversed(report.results) if not item.result.success), None)
             if failed and failed.confirmation_required:
-                task.metadata["confirmation_intent"] = route.intent.value
-                task.metadata["confirmation_steps"] = [
-                    {"tool": tool, "arguments": arguments} for tool, arguments in tool_steps
-                ]
+                self.tasks.set_confirmation_context(
+                    task.id,
+                    confirmation_intent=route.intent.value,
+                    confirmation_steps=[
+                        {"tool": tool, "arguments": arguments} for tool, arguments in tool_steps
+                    ],
+                )
                 self._pending_confirmation = PendingConfirmation(task.id, text, route.intent.value, tool_steps)
                 return AgentResult("Preciso da sua confirmação antes de executar essa ação.", task.id, failed, report.attempts)
             error = report.last_error or (failed.error if failed else "Falha desconhecida")
