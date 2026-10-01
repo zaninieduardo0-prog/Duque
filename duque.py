@@ -25,9 +25,6 @@ LOG_FILE = LOG_PATH.open("a", encoding="utf-8", buffering=1)
 sys.stdout = LOG_FILE
 sys.stderr = LOG_FILE
 
-from servidor import app  # noqa: E402
-import duque_wake_v3 as voice_runtime  # noqa: E402
-
 
 URL = "http://127.0.0.1:5000"
 
@@ -72,6 +69,12 @@ def main() -> None:
         return
 
     already_running = False
+
+    # Só carregamos o servidor/agente depois da checagem de instância única.
+    # Assim uma segunda abertura não cria outro AgentLoop nem outro scheduler.
+    global app, voice_runtime
+    from servidor import app
+    import duque_wake_v3 as voice_runtime
 
     print("=" * 64, flush=True)
     print("DUQUE — SISTEMA INTEGRADO", flush=True)
