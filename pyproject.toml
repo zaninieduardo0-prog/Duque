@@ -31,12 +31,13 @@ typeCheckingMode = "basic"
 reportMissingImports = "none"
 
 [tool.setuptools.packages.find]
+where = "."
 include = [
-    "core*",
-    "voice*",
-    "brain*",
-    "memory*",
-    "computer*",
-    "interface*",
-    "automation*",
+    "core",
+    "voice",
+    "brain",
+    "memory",
+    "computer",
+    "interface",
+    "automation",
 ]
