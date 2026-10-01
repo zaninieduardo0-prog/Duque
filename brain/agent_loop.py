@@ -268,8 +268,8 @@ class AgentLoop:
             return str(value.get("stdout") or value.get("stderr") or fallback).strip()
         return fallback
 
-    def _handle_autonomous(self, text: str, *, confirmed: bool = False) -> AgentResult:
-        task = self.tasks.create(text, mode="autonomous")
+    def _handle_autonomous(self, text: str, *, confirmed: bool = False, task=None) -> AgentResult:
+        task = task or self.tasks.create(text, mode="autonomous")
         context = AgentContext(goal=text, task_id=task.id)
         try:
             self.tasks.start(task.id)
@@ -279,8 +279,10 @@ class AgentLoop:
                 self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "mode": "autonomous", "steps": result.steps})
                 return AgentResult(result.message, task.id, result.executions[-1] if result.executions else None, result.steps or 1)
             if result.executions and result.executions[-1].confirmation_required:
+                prompt = "Preciso da sua confirmação antes de executar essa ação."
+                self.tasks.await_confirmation(task.id, prompt)
                 self._pending_confirmation = PendingConfirmation(task.id, text, "autonomous", [])
-                return AgentResult("Preciso da sua confirmação antes de executar essa ação.", task.id, result.executions[-1], result.steps or 1)
+                return AgentResult(prompt, task.id, result.executions[-1], result.steps or 1)
             if task.status.value == "running":
                 self.tasks.fail(task.id, result.error or result.message or "Falha no agente autônomo")
             return AgentResult(result.message or f"Não consegui concluir a tarefa: {result.error}", task.id, result.executions[-1] if result.executions else None, result.steps or 1)
@@ -343,7 +345,7 @@ class AgentLoop:
                     {"description": pending.text, "status": "cancelled", "reason": "user_confirmation_denied"},
                 )
                 return AgentResult("Certo. Ação cancelada.", task.id)
-            return self._handle_autonomous(pending.text, confirmed=True)
+            return self._handle_autonomous(pending.text, confirmed=True, task=task)
 
         if not confirmed:
             self.tasks.cancel(task.id)
