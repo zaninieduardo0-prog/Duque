@@ -30,9 +30,8 @@ pythonVersion = "3.13"
 typeCheckingMode = "basic"
 reportMissingImports = "none"
 
-[tool.setuptools.packages.find]
-where = "."
-include = [
+[tool.setuptools]
+packages = [
     "core",
     "voice",
     "brain",
