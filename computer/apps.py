@@ -14,6 +14,20 @@ KNOWN_APPS: dict[str, list[str]] = {
     "whatsapp desktop": ["cmd.exe", "/c", "start", "", "whatsapp:"],
 }
 
+# Adiciona atalhos comuns do Windows e nomes em português
+KNOWN_APPS.update({
+    "calculadora": ["calc.exe"],
+    "calculadora do windows": ["calc.exe"],
+    "calc": ["calc.exe"],
+    "explorador": ["explorer.exe"],
+    "explorer": ["explorer.exe"],
+    "chrome": ["cmd.exe", "/c", "start", "", "chrome"],
+    "google chrome": ["cmd.exe", "/c", "start", "", "chrome"],
+    "edge": ["cmd.exe", "/c", "start", "", "microsoft-edge:"] ,
+    "microsoft edge": ["cmd.exe", "/c", "start", "", "microsoft-edge:"] ,
+    "paint": ["mspaint.exe"],
+})
+
 
 def resolve_app(name: str) -> list[str] | None:
     normalized = name.casefold().strip()

@@ -929,6 +929,33 @@ async function speakResponse(text){
   say('speaking','Falando');
   audioTarget=.45;
 
+  // Helper: fallback to browser TTS
+  const browserSpeak = (txt)=>{
+    try{
+      if('speechSynthesis' in window){
+        const voices = window.speechSynthesis.getVoices() || [];
+        const preferred = [/jarvis/i, /david/i, /mark/i, /daniel/i, /male/i, /alloy/i, /br/i];
+        let chosen = null;
+        for(const v of voices){
+          const n = (v.name||v.voiceURI||'').toString();
+          if(preferred.some(r=>r.test(n))){ chosen = v; break; }
+        }
+        if(!chosen && voices.length) chosen = voices.find(v=>/pt-BR|portuguese|brazil/i.test(v.lang||v.name||'')) || voices[0];
+        const u = new SpeechSynthesisUtterance(txt);
+        u.lang = 'pt-BR';
+        if(chosen) u.voice = chosen;
+        u.rate = 1.0;
+        u.volume = 1.0;
+        u.onend = ()=>{ speechBusy=false; audioTarget=0; syncServerState(); };
+        u.onerror = ()=>{ speechBusy=false; audioTarget=0; syncServerState(); };
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(u);
+        return true;
+      }
+    }catch(e){ /* ignore */ }
+    return false;
+  };
+
   try{
     const response=await fetch('/api/fala',{
       method:'POST',
@@ -953,22 +980,32 @@ async function speakResponse(text){
       audioTarget=0;
       syncServerState();
     };
-    audioEl.onerror=()=>{
-      speechBusy=false;
-      currentSpeech=null;
+    audioEl.onerror=async()=>{
+      // If server TTS fails to play, try browser TTS as fallback
       URL.revokeObjectURL(url);
+      currentSpeech=null;
       audioTarget=0;
-      syncServerState();
+      const ok = browserSpeak(value);
+      if(!ok){
+        speechBusy=false;
+        DUQUE.activity('VOICE ERROR');
+        syncServerState();
+      }
     };
 
     await audioEl.play();
   }catch(error){
-    speechBusy=false;
-    currentSpeech=null;
-    audioTarget=0;
-    DUQUE.activity('VOICE ERROR');
-    console.warn('TTS:', error);
-    syncServerState();
+    // Server TTS failed: try browser TTS fallback
+    console.warn('TTS server error:', error);
+    const ok = browserSpeak(value);
+    if(!ok){
+      speechBusy=false;
+      currentSpeech=null;
+      audioTarget=0;
+      DUQUE.activity('VOICE ERROR');
+      console.warn('TTS fallback failed');
+      syncServerState();
+    }
   }
 }
 

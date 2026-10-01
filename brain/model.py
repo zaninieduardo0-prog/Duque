@@ -33,7 +33,8 @@ class OpenAIResponsesModel(ModelAdapter):
 
     def __init__(self, model: str | None = None, api_key: str | None = None) -> None:
         import os
-        self.model = model or os.getenv("DUQUE_MODEL", "gpt-5")
+        # Use a lower-latency default model; can be overridden with DUQUE_MODEL env var
+        self.model = model or os.getenv("DUQUE_MODEL", "gpt-4o-mini")
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
             raise RuntimeError("OPENAI_API_KEY não configurada")
