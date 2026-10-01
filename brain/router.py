@@ -69,7 +69,13 @@ class IntentRouter:
         if any(x in value for x in ("me lembre", "lembrete", "lembrar", "agenda", "agende")):
             return Route(Intent.REMINDER, 0.85, "pedido de lembrete/agendamento")
 
-        if any(x in value for x in ("desligue", "reinicie", "volume", "computador", "sistema")):
-            return Route(Intent.SYSTEM, 0.75, "ação de sistema")
+        if any(x in value for x in (
+            "desligue o computador", "desligar o computador", "desligue o pc",
+            "desligar o pc", "reinicie o computador", "reiniciar o computador",
+            "reinicie o pc", "reiniciar o pc", "aumente o volume", "aumentar o volume",
+            "diminua o volume", "diminuir o volume", "mute o computador",
+            "mutar o computador", "desative o som", "ative o som",
+        )):
+            return Route(Intent.SYSTEM, 0.9, "ação explícita de sistema")
 
         return Route(Intent.CHAT, 0.6, "conversa geral")
