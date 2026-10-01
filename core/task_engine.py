@@ -27,7 +27,7 @@ class TaskEngine:
         if self.event_sink:
             self.event_sink(event, **data)
 
-    def run(self, task: Task, steps: list[tuple[str, dict[str, Any] | None]], *, confirmed: bool = False) -> list[StepResult]:
+    def run(self, task: Task, steps: list[tuple[str, dict[str, Any]]], *, confirmed: bool = False) -> list[StepResult]:
         self.tasks.start(task.id)
         results: list[StepResult] = []
 
