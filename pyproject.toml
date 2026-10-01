@@ -12,6 +12,17 @@ dependencies = [
     "openai>=1.0",
 ]
 
+[tool.setuptools.packages.find]
+include = [
+    "brain*",
+    "core*",
+    "voice*",
+    "memory*",
+    "computer*",
+    "interface*",
+    "automation*",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
