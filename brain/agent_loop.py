@@ -23,7 +23,7 @@ from computer.workspace import Workspace
 from memory.memory import Memory, MemoryLayer
 from .agent_state import AgentContext
 from .autonomous_loop import AutonomousLoop
-from .model import ModelAdapter, NullModel
+from .model import ModelAdapter, NullModel, OpenAIResponsesModel
 from .model_planner import ModelPlanner
 from .planner import Planner, StepKind
 from .router import IntentRouter
@@ -75,7 +75,7 @@ class AgentLoop:
             self.visual_workflow = None
         self.task_engine = TaskEngine(self.executor, self.tasks, self.engine.emit)
         self.correction = SelfCorrection(self.task_engine)
-        self.model = model or NullModel()
+        self.model = model or self._create_default_model()
         self.schemas = ToolSchemaRegistry()
         self.executor.register("schedule_task", self._schedule_task)
         self._register_tool_schemas()
@@ -154,6 +154,31 @@ class AgentLoop:
         task = self.tasks.create(description, source="scheduled", scheduled=True)
         job = self.scheduler.add_task_after(description, max(0, float(delay_seconds)), task_id=task.id, steps=normalized, repeat_seconds=float(repeat_seconds) if repeat_seconds is not None else None)
         return {"job_id": job.id, "task_id": task.id, "description": description, "run_at": job.run_at}
+
+    @staticmethod
+    def _create_default_model() -> ModelAdapter:
+        """Usa o modelo da API quando a chave estiver configurada; caso contrário, permanece offline."""
+        if os.getenv("OPENAI_API_KEY"):
+            try:
+                return OpenAIResponsesModel()
+            except RuntimeError:
+                pass
+        return NullModel()
+
+    def _chat_response(self, text: str) -> str:
+        """Gera a resposta conversacional usando o modelo configurado."""
+        response = self.model.respond([
+            {
+                "role": "system",
+                "content": (
+                    "Você é o Duque, assistente pessoal do usuário. "
+                    "Responda em português do Brasil, de forma natural, direta e útil. "
+                    "Não diga que é um modelo de linguagem."
+                ),
+            },
+            {"role": "user", "content": text},
+        ])
+        return response.text.strip() or "Não consegui formular uma resposta agora."
 
     def _build_plan(self, text: str, intent: str):
         if isinstance(self.model, NullModel):
@@ -316,8 +341,30 @@ class AgentLoop:
         self.memory.remember(MemoryLayer.CONVERSATION, f"turn:{uuid4().hex}", {"role": "user", "text": text, "intent": route.intent.value})
         if self._autonomous_enabled():
             return self._handle_autonomous(text, confirmed=confirmed)
-        plan = self._build_plan(text, route.intent.value)
         task = self.tasks.create(text, intent=route.intent.value, confidence=route.confidence)
+        if route.intent.value in {"chat", "unknown"}:
+            self.tasks.start(task.id)
+            try:
+                answer = self._chat_response(text)
+            except Exception as exc:
+                error = f"Não consegui gerar uma resposta: {type(exc).__name__}: {exc}"
+                self.tasks.fail(task.id, error)
+                self.memory.remember(
+                    MemoryLayer.OPERATIONAL,
+                    f"task:{task.id}",
+                    {"description": text, "status": "failed", "error": error},
+                )
+                return AgentResult(error, task.id)
+            self.tasks.complete(task.id, answer)
+            self.memory.remember(
+                MemoryLayer.OPERATIONAL,
+                f"task:{task.id}",
+                {"description": text, "status": "completed", "response": answer},
+            )
+            self.engine.emit(EventType.RESPONSE_STARTED, task_id=task.id)
+            self.engine.emit(EventType.RESPONSE_FINISHED, task_id=task.id)
+            return AgentResult(answer, task.id)
+        plan = self._build_plan(text, route.intent.value)
         self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "created"})
         tool_steps = self._ensure_executable_plan(text, route.intent.value, plan)
         if not tool_steps:
