@@ -26,22 +26,37 @@ class Plan:
 
 
 class Planner:
-    """Planejador heurístico seguro até o planejador orientado por modelo entrar."""
+    """Planejador heurístico determinístico para ações operacionais comuns."""
 
     @staticmethod
     def _app_name(goal: str) -> str:
         value = goal.strip()
+        lowered = value.casefold()
+        # Remove o nome de chamada quando ele vier no início da frase.
+        if lowered.startswith("duque,"):
+            value = value[len("duque,"):].strip()
+            lowered = value.casefold()
         prefixes = (
             "abrir o aplicativo ",
             "abrir aplicativo ",
+            "abrir a aplicação ",
+            "abrir aplicação ",
             "abrir o ",
+            "abrir a ",
             "abrir ",
+            "abra o aplicativo ",
+            "abra aplicativo ",
+            "abra o ",
+            "abra a ",
+            "abra ",
+            "inicie o ",
+            "inicie a ",
+            "inicie ",
         )
-        lowered = value.casefold()
         for prefix in prefixes:
             if lowered.startswith(prefix):
-                return value[len(prefix):].strip()
-        return value
+                return value[len(prefix):].strip().rstrip(".,!?")
+        return value.rstrip(".,!?")
 
     def build(
         self,
@@ -73,6 +88,11 @@ class Planner:
             )])
         if intent == "file_operation":
             lowered = goal.casefold()
+            if any(marker in lowered for marker in ("liste os arquivos", "listar os arquivos", "liste os ficheiros", "listar arquivos", "mostre os arquivos", "mostra os arquivos")):
+                if tool_available("list_files"):
+                    return Plan(goal, [PlanStep("Listar os arquivos do workspace", StepKind.TOOL, "list_files", {})])
+                if tool_available("inspect_workspace"):
+                    return Plan(goal, [PlanStep("Inspecionar o workspace", StepKind.TOOL, "inspect_workspace", {})])
             for marker_text in ("leia o arquivo ", "ler o arquivo ", "abra o arquivo "):
                 if marker_text in lowered:
                     path = goal[lowered.index(marker_text) + len(marker_text):].strip()
@@ -113,11 +133,7 @@ class Planner:
         if intent == "code":
             steps = [PlanStep("Entender o objetivo e os requisitos", StepKind.THINK)]
             if tool_available("list_files"):
-                steps.append(PlanStep(
-                    "Listar o workspace antes da alteração",
-                    StepKind.TOOL,
-                    "list_files",
-                ))
+                steps.append(PlanStep("Listar o workspace antes da alteração", StepKind.TOOL, "list_files"))
             steps.extend([
                 PlanStep("Escrever ou modificar o código", StepKind.THINK),
                 PlanStep("Executar o código ou teste solicitado", StepKind.THINK),
