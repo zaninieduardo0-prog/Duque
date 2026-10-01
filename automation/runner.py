@@ -72,7 +72,7 @@ class ScheduledTaskRunner:
         return task
 
     @staticmethod
-    def _steps(job: ScheduledJob) -> list[tuple[str, dict[str, Any] | None]]:
+    def _steps(job: ScheduledJob) -> list[tuple[str, dict[str, Any]]]:
         raw_steps = job.metadata.get("steps") or []
         if not isinstance(raw_steps, list):
             raise ValueError("steps deve ser uma lista")
