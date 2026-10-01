@@ -5,7 +5,7 @@ import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from io import BytesIO
-from typing import Any
+from typing import Any, cast
 
 
 @dataclass(slots=True)
@@ -53,7 +53,7 @@ class OpenAIResponsesVisionAdapter(VisionAdapter):
         client = OpenAI(api_key=self.api_key)
         response = client.responses.create(
             model=self.model,
-            input=[
+            input=cast(Any, [
                 {
                     "role": "user",
                     "content": [
@@ -61,7 +61,7 @@ class OpenAIResponsesVisionAdapter(VisionAdapter):
                         {"type": "input_image", "image_url": data_url},
                     ],
                 }
-            ],
+            ]),
         )
         text = getattr(response, "output_text", "") or ""
         return VisionResponse(text=text, raw=response)
