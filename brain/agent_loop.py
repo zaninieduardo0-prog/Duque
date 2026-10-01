@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from typing import Any
 from uuid import uuid4
 
 from automation.runner import ScheduledTaskRunner
@@ -197,8 +198,8 @@ class AgentLoop:
         except Exception:
             return self.planner.build(text, intent, set(self.schemas.names()))
 
-    def _validated_tool_steps(self, steps):
-        validated: list[tuple[str, dict[str, object]]] = []
+    def _validated_tool_steps(self, steps) -> list[tuple[str, dict[str, Any]]]:
+        validated: list[tuple[str, dict[str, Any]]] = []
         for step in steps:
             tool = step.tool or ""
             arguments = step.arguments or {}
@@ -452,7 +453,14 @@ class AgentLoop:
         self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "attempts": report.attempts, "result": last})
         return AgentResult(self._execution_message(last), task.id, last, report.attempts)
 
-    def _correct_steps(self, goal: str, intent: str, original_steps, error: str | None, attempt: int):
+    def _correct_steps(
+        self,
+        goal: str,
+        intent: str,
+        original_steps: list[tuple[str, dict[str, Any]]],
+        error: str | None,
+        attempt: int,
+    ) -> list[tuple[str, dict[str, Any]]]:
         if not error:
             return original_steps
 
