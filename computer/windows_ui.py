@@ -14,7 +14,7 @@ class WindowsUIController(UIController):
     def __init__(self) -> None:
         if platform.system() != "Windows":
             raise RuntimeError("WindowsUIController requer Windows")
-        self._user32 = ctypes.windll.user32
+        self._user32 = getattr(ctypes, "windll").user32
 
     def click(self, x: int, y: int, *, button: str = "left") -> None:
         self._user32.SetCursorPos(int(x), int(y))
