@@ -181,14 +181,16 @@ class AgentLoop:
         return response.text.strip() or "Não consegui formular uma resposta agora."
 
     def _build_plan(self, text: str, intent: str):
-        if isinstance(self.model, NullModel):
+        # Ações operacionais simples devem ser determinísticas. O modelo fica
+        # para tarefas ambíguas/complexas, evitando que um pedido claro vire "chat".
+        if isinstance(self.model, NullModel) or intent in {"open_app", "file_operation", "system", "reminder"}:
             return self.planner.build(text, intent, set(self.schemas.names()))
         if intent in {"chat", "unknown"}:
             return self.planner.build(text, intent)
         try:
             return self.model_planner.build(text, self.executor.tools.names())
         except Exception:
-            return self.planner.build(text, intent)
+            return self.planner.build(text, intent, set(self.schemas.names()))
 
     def _validated_tool_steps(self, steps):
         validated: list[tuple[str, dict[str, object]]] = []
@@ -217,6 +219,48 @@ class AgentLoop:
 
     def _autonomous_enabled(self) -> bool:
         return os.getenv("DUQUE_AUTONOMOUS_AGENT", "0").casefold() in {"1", "true", "yes", "on"} and not isinstance(self.model, NullModel)
+
+    @staticmethod
+    def _autonomous_requested(text: str) -> bool:
+        value = " ".join(text.casefold().strip().split())
+        markers = (
+            "analise o projeto", "analisa o projeto", "analise o código", "analisa o código",
+            "revise o projeto", "revisar o projeto", "investigue o projeto", "investiga o projeto",
+            "verifique o projeto", "verifica o projeto", "melhore o projeto", "melhora o projeto",
+            "corrija o projeto", "corrige o projeto", "encontre os problemas", "procure os problemas",
+            "veja o que está errado", "veja o que esta errado", "trabalhe no projeto",
+            "continue o projeto", "trabalhe nisso", "faça o que for necessário", "faca o que for necessario",
+            "no github", "no repositório", "no repositorio",
+        )
+        return any(marker in value for marker in markers)
+
+    @staticmethod
+    def _execution_message(value: object, fallback: str = "Tarefa concluída.") -> str:
+        if not isinstance(value, dict):
+            return fallback
+        if "files" in value and isinstance(value["files"], list):
+            files = [str(item) for item in value["files"]]
+            if not files:
+                return "O workspace está vazio."
+            shown = files[:40]
+            suffix = f" ... e mais {len(files) - 40}" if len(files) > 40 else ""
+            return f"Encontrei {len(files)} arquivo(s):\n" + "\n".join(f"- {item}" for item in shown) + suffix
+        if "content" in value and "path" in value:
+            content = str(value["content"])
+            if len(content) > 6000:
+                content = content[:6000] + "\n...[conteúdo truncado]"
+            return f"Arquivo: {value['path']}\n\n{content}"
+        if value.get("opened") is True:
+            return f"Abri o aplicativo {value.get('app', 'solicitado')}."
+        if value.get("created") is True:
+            return f"Criei o arquivo {value.get('path', 'solicitado')}."
+        if value.get("deleted") is True:
+            return f"Excluí o arquivo {value.get('path', 'solicitado')}."
+        if "workspace" in value and "file_count" in value:
+            return f"Workspace: {value['workspace']}\nArquivos encontrados: {value['file_count']}."
+        if "success" in value and "stdout" in value:
+            return str(value.get("stdout") or value.get("stderr") or fallback).strip()
+        return fallback
 
     def _handle_autonomous(self, text: str, *, confirmed: bool = False) -> AgentResult:
         task = self.tasks.create(text, mode="autonomous")
@@ -339,7 +383,7 @@ class AgentLoop:
 
         route = self.router.route(text)
         self.memory.remember(MemoryLayer.CONVERSATION, f"turn:{uuid4().hex}", {"role": "user", "text": text, "intent": route.intent.value})
-        if self._autonomous_enabled():
+        if self._autonomous_enabled() or self._autonomous_requested(text):
             return self._handle_autonomous(text, confirmed=confirmed)
         task = self.tasks.create(text, intent=route.intent.value, confidence=route.confidence)
 
@@ -397,8 +441,8 @@ class AgentLoop:
             self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "failed", "error": error, "attempts": report.attempts})
             return AgentResult(f"Não consegui executar a tarefa: {error}", task.id, failed, report.attempts)
         last = report.results[-1].result if report.results else None
-        self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "attempts": report.attempts})
-        return AgentResult("Tarefa concluída.", task.id, last, report.attempts)
+        self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "attempts": report.attempts, "result": last})
+        return AgentResult(self._execution_message(last), task.id, last, report.attempts)
 
     def _correct_steps(self, goal: str, intent: str, original_steps, error: str | None, attempt: int):
         if not error:
