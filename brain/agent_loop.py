@@ -342,7 +342,15 @@ class AgentLoop:
         if self._autonomous_enabled():
             return self._handle_autonomous(text, confirmed=confirmed)
         task = self.tasks.create(text, intent=route.intent.value, confidence=route.confidence)
-        if route.intent.value in {"chat", "unknown"}:
+
+        plan = self._build_plan(text, route.intent.value)
+        self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "created"})
+        tool_steps = self._ensure_executable_plan(text, route.intent.value, plan)
+
+        # Mesmo quando o roteador classifica uma mensagem como conversa ou desconhecida,
+        # o modelo pode reconhecer que o pedido exige uma ferramenta (ex.: "abra o Chrome").
+        # Só cai para a resposta conversacional quando nenhum passo executável foi planejado.
+        if not tool_steps and route.intent.value in {"chat", "unknown"}:
             self.tasks.start(task.id)
             try:
                 answer = self._chat_response(text)
@@ -364,9 +372,6 @@ class AgentLoop:
             self.engine.emit(EventType.RESPONSE_STARTED, task_id=task.id)
             self.engine.emit(EventType.RESPONSE_FINISHED, task_id=task.id)
             return AgentResult(answer, task.id)
-        plan = self._build_plan(text, route.intent.value)
-        self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "created"})
-        tool_steps = self._ensure_executable_plan(text, route.intent.value, plan)
         if not tool_steps:
             self.tasks.start(task.id)
             if route.intent.value in {"open_app", "search", "file_operation", "reminder", "system"}:
