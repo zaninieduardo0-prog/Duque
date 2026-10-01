@@ -388,7 +388,10 @@ class AgentLoop:
 
         route = self.router.route(text)
         self.memory.remember(MemoryLayer.CONVERSATION, f"turn:{uuid4().hex}", {"role": "user", "text": text, "intent": route.intent.value})
-        if self._autonomous_enabled() or self._autonomous_requested(text):
+        # Autonomia é uma capacidade disponível, não um modo obrigatório para toda mensagem.
+        # Conversas simples devem responder normalmente; o loop autônomo entra quando o pedido
+        # realmente solicita trabalho autônomo no projeto/sistema.
+        if self._autonomous_requested(text):
             return self._handle_autonomous(text, confirmed=confirmed)
         task = self.tasks.create(text, intent=route.intent.value, confidence=route.confidence)
 
