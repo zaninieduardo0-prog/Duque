@@ -7,6 +7,10 @@ name = "duque"
 version = "0.1.0"
 description = "Duque - assistente pessoal local"
 requires-python = ">=3.13"
+dependencies = [
+    "flask>=3.1",
+    "openai>=1.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
