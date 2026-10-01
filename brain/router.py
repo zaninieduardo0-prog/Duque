@@ -23,41 +23,17 @@ class Route:
 
 
 class IntentRouter:
-    """Roteador heurístico inicial; futuramente pode ser substituído pelo LLM."""
+    """Roteador heurístico inicial para identificar ações operacionais claras."""
 
     OPEN_APP_PHRASES = (
-        "abrir o navegador",
-        "abrir navegador",
-        "abrir chrome",
-        "abrir o chrome",
-        "abrir edge",
-        "abrir o edge",
-        "abrir bloco de notas",
-        "abrir o bloco de notas",
-        "abrir notepad",
-        "abrir calculadora",
-        "abrir a calculadora",
-        "abrir whatsapp",
-        "abrir o whatsapp",
-        "abra o navegador",
-        "abra navegador",
-        "abra chrome",
-        "abra o chrome",
-        "abra edge",
-        "abra o edge",
-        "abra bloco de notas",
-        "abra o bloco de notas",
-        "abra notepad",
-        "abra calculadora",
-        "abra a calculadora",
-        "abra whatsapp",
-        "abra o whatsapp",
-        "abra o explorador",
-        "abra explorador",
-        "abra paint",
-        "inicie o chrome",
-        "inicie o whatsapp",
-        "inicie a calculadora",
+        "abrir o navegador", "abrir navegador", "abrir chrome", "abrir o chrome",
+        "abrir edge", "abrir o edge", "abrir bloco de notas", "abrir o bloco de notas",
+        "abrir notepad", "abrir calculadora", "abrir a calculadora", "abrir whatsapp",
+        "abrir o whatsapp", "abra o navegador", "abra navegador", "abra chrome",
+        "abra o chrome", "abra edge", "abra o edge", "abra bloco de notas",
+        "abra o bloco de notas", "abra notepad", "abra calculadora", "abra a calculadora",
+        "abra whatsapp", "abra o whatsapp", "abra o explorador", "abra explorador",
+        "abra paint", "inicie o chrome", "inicie o whatsapp", "inicie a calculadora",
     )
 
     def route(self, text: str) -> Route:
@@ -67,12 +43,18 @@ class IntentRouter:
 
         if any(phrase in value for phrase in self.OPEN_APP_PHRASES):
             return Route(Intent.OPEN_APP, 0.95, "pedido explícito para abrir aplicativo")
+        if any(x in value for x in (
+            "liste os arquivos", "listar os arquivos", "listar arquivos",
+            "mostre os arquivos", "mostra os arquivos", "leia o arquivo",
+            "ler o arquivo", "crie o arquivo", "criar o arquivo", "exclua o arquivo",
+            "apague o arquivo", "delete o arquivo", "salve o arquivo", "abra o arquivo",
+            "arquivo", "pasta",
+        )):
+            return Route(Intent.FILE_OPERATION, 0.9, "operação explícita sobre arquivos")
         if any(x in value for x in ("pesquise", "pesquisar", "procure na internet", "busque na internet", "google")):
             return Route(Intent.SEARCH, 0.9, "pedido explícito de pesquisa")
         if any(x in value for x in ("crie um código", "criar código", "escreva um código", "programa", "programar", "debug", "corrija o código", "implemente")):
             return Route(Intent.CODE, 0.9, "pedido relacionado a programação")
-        if any(x in value for x in ("arquivo", "pasta", "leia o arquivo", "crie o arquivo", "salve o arquivo")):
-            return Route(Intent.FILE_OPERATION, 0.8, "operação de arquivo")
         if any(x in value for x in ("me lembre", "lembrete", "lembrar", "agenda", "agende")):
             return Route(Intent.REMINDER, 0.85, "pedido de lembrete/agendamento")
         if any(x in value for x in ("desligue", "reinicie", "volume", "computador", "sistema")):
