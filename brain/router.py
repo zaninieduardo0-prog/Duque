@@ -43,20 +43,33 @@ class IntentRouter:
 
         if any(phrase in value for phrase in self.OPEN_APP_PHRASES):
             return Route(Intent.OPEN_APP, 0.95, "pedido explícito para abrir aplicativo")
+
         if any(x in value for x in (
             "liste os arquivos", "listar os arquivos", "listar arquivos",
-            "mostre os arquivos", "mostra os arquivos", "leia o arquivo",
-            "ler o arquivo", "crie o arquivo", "criar o arquivo", "exclua o arquivo",
-            "apague o arquivo", "delete o arquivo", "salve o arquivo", "abra o arquivo",
+            "mostre os arquivos", "mostra os arquivos", "listar a pasta",
+            "mostre a pasta", "leia o arquivo", "ler o arquivo", "abra o arquivo",
+            "leia arquivo", "ler arquivo", "abra arquivo", "analise o arquivo",
+            "analisa o arquivo", "analise arquivo", "analisa arquivo",
+            "mostre o conteúdo", "mostre o conteudo", "crie o arquivo",
+            "criar o arquivo", "escreva o arquivo", "salve o arquivo",
+            "exclua o arquivo", "apague o arquivo", "delete o arquivo",
             "arquivo", "pasta",
         )):
-            return Route(Intent.FILE_OPERATION, 0.9, "operação explícita sobre arquivos")
+            return Route(Intent.FILE_OPERATION, 0.92, "operação explícita sobre arquivos")
+
         if any(x in value for x in ("pesquise", "pesquisar", "procure na internet", "busque na internet", "google")):
             return Route(Intent.SEARCH, 0.9, "pedido explícito de pesquisa")
-        if any(x in value for x in ("crie um código", "criar código", "escreva um código", "programa", "programar", "debug", "corrija o código", "implemente")):
+
+        if any(x in value for x in (
+            "crie um código", "criar código", "escreva um código", "programa",
+            "programar", "debug", "corrija o código", "implemente",
+        )):
             return Route(Intent.CODE, 0.9, "pedido relacionado a programação")
+
         if any(x in value for x in ("me lembre", "lembrete", "lembrar", "agenda", "agende")):
             return Route(Intent.REMINDER, 0.85, "pedido de lembrete/agendamento")
+
         if any(x in value for x in ("desligue", "reinicie", "volume", "computador", "sistema")):
             return Route(Intent.SYSTEM, 0.75, "ação de sistema")
+
         return Route(Intent.CHAT, 0.6, "conversa geral")
