@@ -76,15 +76,15 @@ class ScheduledTaskRunner:
         raw_steps = job.metadata.get("steps") or []
         if not isinstance(raw_steps, list):
             raise ValueError("steps deve ser uma lista")
-        steps: list[tuple[str, dict[str, Any] | None]] = []
+        steps: list[tuple[str, dict[str, Any]]] = []
         for item in raw_steps:
             if not isinstance(item, dict):
                 raise ValueError("Cada etapa deve ser um objeto")
             tool = item.get("tool")
-            arguments = item.get("arguments")
+            arguments = item.get("arguments") or {}
             if not isinstance(tool, str) or not tool.strip():
                 raise ValueError("Cada etapa precisa de uma ferramenta")
-            if arguments is not None and not isinstance(arguments, dict):
+            if not isinstance(arguments, dict):
                 raise ValueError("arguments deve ser um objeto")
             steps.append((tool, arguments))
         return steps
