@@ -27,5 +27,5 @@ class ComputerController:
         A camada de segurança/autorizações deverá validar comandos antes de
         chegar aqui. Não usamos shell=True por padrão.
         """
-        args = command if isinstance(command, (list, tuple)) else [command]
+        args: list[str] = list(command) if isinstance(command, (list, tuple)) else [command]
         return subprocess.Popen(args, shell=False)
