@@ -5,6 +5,7 @@ from pathlib import Path
 from threading import Lock
 
 from flask import Flask, jsonify, request, Response
+from openai import OpenAI
 
 from brain.agent_loop import AgentLoop
 from core.events import Event, EventType
@@ -13,6 +14,7 @@ from core.state import DuqueState
 app = Flask(__name__)
 
 agent = AgentLoop()
+openai_client = OpenAI() if __import__('os').getenv('OPENAI_API_KEY') else None
 state_lock = Lock()
 
 estado_duque = {
@@ -142,6 +144,36 @@ def inicio():
     # A própria HUD já sincroniza estado e envia comandos pela API.
     # Mantemos esta rota simples para evitar injetar JavaScript duplicado.
     return Response(html, mimetype="text/html")
+
+
+@app.route("/api/fala", methods=["POST"])
+def gerar_fala():
+    dados = request.get_json(silent=True) or {}
+    texto = dados.get("text")
+
+    if not isinstance(texto, str) or not texto.strip():
+        return jsonify({"erro": "O texto para fala não pode ser vazio."}), 400
+
+    if openai_client is None:
+        return jsonify({"erro": "OPENAI_API_KEY não configurada."}), 503
+
+    try:
+        audio = openai_client.audio.speech.create(
+            model="gpt-4o-mini-tts",
+            voice="cedar",
+            input=texto.strip(),
+            instructions=(
+                "Fale em português do Brasil. "
+                "Voz masculina, natural, calma e confiante, "
+                "como um assistente pessoal futurista. "
+                "Não leia símbolos de formatação nem descreva a instrução."
+            ),
+            response_format="mp3",
+            speed=0.96,
+        )
+        return Response(audio.content, mimetype="audio/mpeg")
+    except Exception as exc:
+        return jsonify({"erro": f"{type(exc).__name__}: {exc}"}), 500
 
 
 @app.route("/api/estado", methods=["GET"])
