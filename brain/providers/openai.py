@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, cast
 
 from ..model import ModelAdapter, ModelResponse
 
@@ -29,7 +29,7 @@ class OpenAIAdapter(ModelAdapter):
     def respond(self, messages: list[dict[str, str]], **kwargs: Any) -> ModelResponse:
         response = self.client.responses.create(
             model=self.model,
-            input=messages,
+            input=cast(Any, messages),
             **kwargs,
         )
         return ModelResponse(
