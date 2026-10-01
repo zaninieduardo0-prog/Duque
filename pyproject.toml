@@ -1,8 +1,37 @@
-[build-system] requires = ["setuptools>=68"] build-backend = "setuptools.build_meta"
-[project] name = "duque" version = "0.1.0" description = "Duque - assistente pessoal local" requires-python = ">=3.11" dependencies = [ "flask>=3.1", "openai>=1.0", "openai-agents>=0.6", ]
-[tool.ruff] line-length = 100 exclude = [".venv", "lixeira"]
-[tool.ruff.lint] select = ["E", "F", "I"]
-[tool.pyright] include = ["automation", "brain", "computer", "core", "memory", "voice", "duque.py", "servidor.py"] exclude = [".venv", "lixeira"] pythonVersion = "3.13" typeCheckingMode = "basic" reportMissingImports = "none"
-Nota: a seção [tool.setuptools] foi omitida intencionalmente para evitar
-conflitos e problemas com instalação editável na CI. O workflow usa PYTHONPATH
-para executar testes enquanto estabilizamos o packaging.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "duque"
+version = "0.1.0"
+description = "Duque - assistente pessoal local"
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.1",
+    "openai>=1.0",
+    "openai-agents>=0.6",
+]
+
+[tool.ruff]
+line-length = 100
+exclude = [".venv", "lixeira"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.pyright]
+include = [
+    "automation",
+    "brain",
+    "computer",
+    "core",
+    "memory",
+    "voice",
+    "duque.py",
+    "servidor.py",
+]
+exclude = [".venv", "lixeira"]
+pythonVersion = "3.13"
+typeCheckingMode = "basic"
+reportMissingImports = "none"
