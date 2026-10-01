@@ -502,6 +502,7 @@ def wake_loop() -> None:
     log("[WAKE] modelo carregado com sucesso.")
     hud("standby", "Sistema online")
 
+    last_wake = 0.0
     while True:
         recorder = None
         try:
