@@ -45,7 +45,7 @@ def open_interface() -> None:
         print(f"[DUQUE] Não consegui abrir a interface automaticamente: {exc}", flush=True)
 
 
-def start_voice() -> None:
+def start_voice(voice_runtime) -> None:
     try:
         voice_runtime.log("Duque integrado: iniciando wake word + conversa de voz.")
         voice_runtime.wake_loop()
@@ -72,7 +72,6 @@ def main() -> None:
 
     # Só carregamos o servidor/agente depois da checagem de instância única.
     # Assim uma segunda abertura não cria outro AgentLoop nem outro scheduler.
-    global app, voice_runtime
     from servidor import app
     import duque_wake_v3 as voice_runtime
 
@@ -97,6 +96,7 @@ def main() -> None:
 
     voice_thread = threading.Thread(
         target=start_voice,
+        args=(voice_runtime,),
         name="duque-voice",
         daemon=True,
     )
