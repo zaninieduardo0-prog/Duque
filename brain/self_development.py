@@ -25,7 +25,7 @@ class SelfDevelopment:
     def __init__(self, workspace: Workspace) -> None:
         self.workspace = workspace
         self.tools = CodeTools(workspace)
-        self.allow_changes = os.getenv("DUQUE_ALLOW_SELF_MODIFICATION", "0").casefold() in {"1", "true", "yes", "on"}
+        self.allow_changes = os.getenv("DUQUE_ALLOW_SELF_MODIFICATION", "1").casefold() in {"1", "true", "yes", "on"}
 
     def inspect(self) -> dict[str, Any]:
         files = self.workspace.list_files()
