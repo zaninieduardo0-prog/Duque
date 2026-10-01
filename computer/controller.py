@@ -21,7 +21,7 @@ class ComputerController:
         else:
             subprocess.Popen(["xdg-open", target])
 
-    def launch(self, command: str | Sequence[str]) -> subprocess.Popen:
+    def launch(self, command: str | list[str] | tuple[str, ...]) -> subprocess.Popen:
         """Executa um programa explicitamente solicitado.
 
         A camada de segurança/autorizações deverá validar comandos antes de
