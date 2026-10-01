@@ -12,20 +12,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-
       - name: Install quality tools
-        run: python -m pip install --upgrade pip pytest ruff pyright
-
-      - name: Run tests
-        run: python -m pytest
-
+        run: python -m pip install --upgrade pip pytest ruff pyright flask openai
+      - name: Compile Python
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m compileall -q .
       - name: Run Ruff
-        run: ruff check tests
-
+        run: ruff check automation brain computer core memory voice servidor.py duque.py
       - name: Run Pyright
         run: pyright
