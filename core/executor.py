@@ -109,9 +109,10 @@ class Executor:
             return ExecutionResult(False, value=value, error=error)
 
         verification = None
-        if before is not None:
+        verification_service = self.verification
+        if before is not None and verification_service is not None:
             self._emit(EventType.VERIFICATION_STARTED, task_id=task.id, tool=tool_name)
-            verification = self.verification.verify_change(before)
+            verification = verification_service.verify_change(before)
             self._emit(EventType.VERIFICATION_FINISHED, task_id=task.id, tool=tool_name, status=verification.status.value, changed=verification.changed, confidence=verification.confidence)
             if not verification.changed:
                 error = f"Ação executada, mas a verificação não detectou mudança: {verification.reason}"
