@@ -48,6 +48,24 @@ _TTS_ENGINE = pyttsx3.init()
 _TTS_ENGINE.setProperty("rate", 175)
 _TTS_ENGINE.setProperty("volume", 1.0)
 
+# Tenta selecionar uma voz masculina/estilizada parecida com 'Jarvis' quando disponível
+try:
+    preferred = ["jarvis", "david", "mark", "matt", "daniel", "alloy", "male", "voice"]
+    voices = _TTS_ENGINE.getProperty("voices") or []
+    selected = None
+    for v in voices:
+        name = getattr(v, 'name', '') or getattr(v, 'id', '')
+        lname = name.casefold()
+        if any(p in lname for p in preferred):
+            selected = v
+            break
+    if selected is None and voices:
+        selected = voices[0]
+    if selected is not None:
+        _TTS_ENGINE.setProperty("voice", selected.id)
+except Exception:
+    pass
+
 
 def falar(texto: str) -> None:
     print(f"\nDuque: {texto}")
