@@ -236,7 +236,6 @@ class AgentLoop:
             "corrija o projeto", "corrige o projeto", "encontre os problemas", "procure os problemas",
             "veja o que está errado", "veja o que esta errado", "trabalhe no projeto",
             "continue o projeto", "trabalhe nisso", "faça o que for necessário", "faca o que for necessario",
-            "no github", "no repositório", "no repositorio",
         )
         return any(marker in value for marker in markers)
 
@@ -268,7 +267,7 @@ class AgentLoop:
             return str(value.get("stdout") or value.get("stderr") or fallback).strip()
         return fallback
 
-    def _handle_autonomous(self, text: str, *, confirmed: bool = False, task=None) -> AgentResult:
+    def _handle_autonomous(self, text: str, *, confirmed: bool = False, task: Any | None = None) -> AgentResult:
         task = task or self.tasks.create(text, mode="autonomous")
         context = AgentContext(goal=text, task_id=task.id)
         try:
