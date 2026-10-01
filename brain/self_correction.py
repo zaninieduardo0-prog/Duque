@@ -24,7 +24,7 @@ class SelfCorrection:
     def run(
         self,
         task: Task,
-        steps_factory: Callable[[str | None, int], list[tuple[str, dict[str, Any] | None]]],
+        steps_factory: Callable[[str | None, int], list[tuple[str, dict[str, Any]]]],
         *,
         max_attempts: int = 3,
         confirmed: bool = False,
