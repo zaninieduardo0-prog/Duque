@@ -58,7 +58,7 @@ class AgentLoop:
         self.tasks = tasks or TaskManager()
         self.verification = create_verification()
         self.executor = executor or Executor(self.tasks, verification=self.verification, event_sink=self.engine.emit)
-        self.workspace = workspace or Workspace("duque_workspace")
+        self.workspace = workspace or Workspace(os.getenv("DUQUE_WORKSPACE_ROOT", "."))
         ComputerTools().register(self.executor)
         CodeTools(self.workspace).register(self.executor)
         self.self_development = SelfDevelopment(self.workspace)
