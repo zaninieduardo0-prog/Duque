@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import threading
@@ -63,7 +64,14 @@ def keep_process_alive() -> None:
 
 
 def main() -> None:
-    already_running = server_online()
+    # Se o servidor já está ativo, esta é uma segunda tentativa de inicialização.
+    # Não importamos o servidor/agente novamente para evitar duplicar scheduler e estado.
+    if server_online():
+        print("[DUQUE] Instância já ativa; abrindo a interface.", flush=True)
+        open_interface()
+        return
+
+    already_running = False
 
     print("=" * 64, flush=True)
     print("DUQUE — SISTEMA INTEGRADO", flush=True)
@@ -100,6 +108,8 @@ def main() -> None:
     if already_running:
         keep_process_alive()
         return
+
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
     app.run(
         host="127.0.0.1",
