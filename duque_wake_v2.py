@@ -6,6 +6,7 @@ import os
 import threading
 import time
 import urllib.request
+from typing import Any, cast
 from collections import deque
 from pathlib import Path
 
@@ -14,7 +15,8 @@ import openwakeword
 import sounddevice as sd
 from openwakeword.model import Model
 from pvrecorder import PvRecorder
-from pedalboard import Pedalboard, Compressor, Gain, HighpassFilter, LowShelfFilter, time_stretch
+from pedalboard import Compressor, Gain, HighpassFilter, LowShelfFilter, time_stretch
+from pedalboard._pedalboard import Pedalboard
 from agents.realtime import OpenAIRealtimeWebSocketModel, RealtimeRunner, RealtimePlaybackTracker
 from agent.duque_realtime import duque_realtime
 from voice.session import PlaybackFence
@@ -532,7 +534,7 @@ def wake_loop() -> None:
 
             while True:
                 frame = np.asarray(recorder.read(), dtype=np.int16)
-                predictions = wake_model.predict(frame) or {}
+                predictions = cast(dict[str, float], wake_model.predict(frame))
                 confidence = predictions.get(
                     WAKEWORD,
                     predictions.get(WAKEWORD_MODEL_NAME, 0.0),
