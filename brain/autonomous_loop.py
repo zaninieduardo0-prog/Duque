@@ -33,7 +33,7 @@ class AutonomousLoop:
         "Use git_fetch/pull quando precisar sincronizar o projeto. Faça commit quando uma alteração estiver validada. Push é uma ação separada e só deve ser feito quando autorizado. "
         "Se algo falhar, corrija ou escolha outra abordagem. Nunca invente resultados e nunca declare sucesso sem evidência. "
         "Quando a tarefa envolver interface, prefira observar/localizar antes de clicar ou digitar. "
-        "Só finalize depois que os resultados das ferramentas fornecerem evidência suficiente de conclusão."
+        "Evite repetir a mesma ferramenta com os mesmos argumentos quando o estado não mudou. Para ler código, prefira read_many_files em vez de várias leituras isoladas. Em tarefas de desenvolvimento, mantenha foco no objetivo, faça progresso verificável e não fique rechecando o mesmo estado indefinidamente. Só finalize depois que os resultados das ferramentas fornecerem evidência suficiente de conclusão."
     )
 
     def __init__(
@@ -69,9 +69,12 @@ class AutonomousLoop:
         executions: list[ExecutionResult] = []
         had_successful_tool = False
         last_tool_succeeded = False
+        last_action_key: str | None = None
+        repeated_action_count = 0
+        repeat_limit = 3
 
         for step_number in range(1, self.max_steps + 1):
-            if self.observer is not None:
+            if self.observer is not None and self._should_observe(context.goal):
                 try:
                     observation = self.observer()
                     context.observe(observation)
@@ -106,6 +109,19 @@ class AutonomousLoop:
 
             tool = str(action.get("tool", "")).strip()
             arguments = action.get("arguments") or {}
+            action_key = self._safe_json({"tool": tool, "arguments": arguments})
+            if action_key == last_action_key:
+                repeated_action_count += 1
+            else:
+                last_action_key = action_key
+                repeated_action_count = 1
+            if repeated_action_count > repeat_limit:
+                error = (
+                    f"Loop detectado: a ferramenta {tool} foi solicitada com os mesmos argumentos "
+                    f"{repeated_action_count} vezes seguidas sem mudança de estado."
+                )
+                context.record_failure(error)
+                return AutonomousResult(False, "", step_number, executions, error)
             validation = self.schemas.validate(tool, arguments)
             if not validation.valid:
                 error = validation.error or "Ação inválida"
@@ -148,6 +164,17 @@ class AutonomousLoop:
             messages.append({"role": "user", "content": "RESULTADO DA FERRAMENTA: " + self._safe_json(feedback)})
 
         return AutonomousResult(False, "", self.max_steps, executions, f"Limite de {self.max_steps} passos atingido")
+
+    @staticmethod
+    def _should_observe(goal: str) -> bool:
+        """Observação de tela só é necessária quando a tarefa depende da interface gráfica."""
+        normalized = " ".join(goal.casefold().split())
+        markers = (
+            "tela", "interface", "janela", "clique", "clicar", "digite",
+            "navegador", "chrome", "edge", "firefox", "whatsapp", "instagram",
+            "spotify", "youtube", "aplicativo", "app", "site",
+        )
+        return any(marker in normalized for marker in markers)
 
     def _initial_prompt(self, context: AgentContext) -> str:
         return (
