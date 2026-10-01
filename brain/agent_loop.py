@@ -278,6 +278,9 @@ class AgentLoop:
                 self.tasks.complete(task.id, result.message)
                 self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "mode": "autonomous", "steps": result.steps})
                 return AgentResult(result.message, task.id, result.executions[-1] if result.executions else None, result.steps or 1)
+            if result.executions and result.executions[-1].confirmation_required:
+                self._pending_confirmation = PendingConfirmation(task.id, text, "autonomous", [])
+                return AgentResult("Preciso da sua confirmação antes de executar essa ação.", task.id, result.executions[-1], result.steps or 1)
             if task.status.value == "running":
                 self.tasks.fail(task.id, result.error or result.message or "Falha no agente autônomo")
             return AgentResult(result.message or f"Não consegui concluir a tarefa: {result.error}", task.id, result.executions[-1] if result.executions else None, result.steps or 1)
@@ -329,6 +332,18 @@ class AgentLoop:
         if task is None:
             self._pending_confirmation = None
             return AgentResult("A ação pendente não está mais disponível para confirmação.")
+
+        if pending.intent == "autonomous":
+            self._pending_confirmation = None
+            if not confirmed:
+                self.tasks.cancel(task.id)
+                self.memory.remember(
+                    MemoryLayer.OPERATIONAL,
+                    f"task:{task.id}",
+                    {"description": pending.text, "status": "cancelled", "reason": "user_confirmation_denied"},
+                )
+                return AgentResult("Certo. Ação cancelada.", task.id)
+            return self._handle_autonomous(pending.text, confirmed=True)
 
         if not confirmed:
             self.tasks.cancel(task.id)
@@ -392,7 +407,7 @@ class AgentLoop:
         # Autonomia é uma capacidade disponível, não um modo obrigatório para toda mensagem.
         # Conversas simples devem responder normalmente; o loop autônomo entra quando o pedido
         # realmente solicita trabalho autônomo no projeto/sistema.
-        if self._autonomous_requested(text):
+        if self._autonomous_enabled() and self._autonomous_requested(text):
             return self._handle_autonomous(text, confirmed=confirmed)
         task = self.tasks.create(text, intent=route.intent.value, confidence=route.confidence)
 
