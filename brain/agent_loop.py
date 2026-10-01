@@ -84,6 +84,7 @@ class AgentLoop:
         self.autonomous = AutonomousLoop(self.model, self.executor, self.schemas, observer=self._observe_screen, event_sink=self.engine.emit)
         self.memory = memory or Memory()
         self._pending_confirmation: PendingConfirmation | None = None
+        self._restore_pending_confirmation()
 
         self.scheduler = Scheduler(database=self.tasks.database)
         self.scheduled_runner = ScheduledTaskRunner(self.scheduler, self.task_engine, self.tasks, event_sink=self.engine.emit)
@@ -280,6 +281,7 @@ class AgentLoop:
             if result.executions and result.executions[-1].confirmation_required:
                 prompt = "Preciso da sua confirmação antes de executar essa ação."
                 self.tasks.await_confirmation(task.id, prompt)
+                task.metadata["confirmation_intent"] = "autonomous"
                 self._pending_confirmation = PendingConfirmation(task.id, text, "autonomous", [])
                 return AgentResult(prompt, task.id, result.executions[-1], result.steps or 1)
             if task.status.value == "running":
@@ -289,6 +291,27 @@ class AgentLoop:
             if task.status.value == "running":
                 self.tasks.fail(task.id, f"{type(exc).__name__}: {exc}")
             return AgentResult(f"O agente encontrou um erro: {type(exc).__name__}: {exc}", task.id)
+
+    def _restore_pending_confirmation(self) -> None:
+        """Recupera uma única confirmação pendente persistida antes de um reinício."""
+        pending_tasks = [task for task in self.tasks.list() if task.status.value == "awaiting_confirmation"]
+        if len(pending_tasks) != 1:
+            return
+        task = pending_tasks[0]
+        metadata = task.metadata
+        if metadata.get("mode") == "autonomous":
+            self._pending_confirmation = PendingConfirmation(task.id, task.description, "autonomous", [])
+            return
+        raw_steps = metadata.get("confirmation_steps")
+        intent = metadata.get("confirmation_intent")
+        if not isinstance(intent, str) or not isinstance(raw_steps, list):
+            return
+        steps: list[tuple[str, dict[str, object]]] = []
+        for item in raw_steps:
+            if not isinstance(item, dict) or not isinstance(item.get("tool"), str) or not isinstance(item.get("arguments", {}), dict):
+                return
+            steps.append((item["tool"], item.get("arguments", {})))
+        self._pending_confirmation = PendingConfirmation(task.id, task.description, intent, steps)
 
     @staticmethod
     def _is_confirmation(text: str) -> bool:
@@ -460,6 +483,10 @@ class AgentLoop:
         if not report.success:
             failed = next((item.result for item in reversed(report.results) if not item.result.success), None)
             if failed and failed.confirmation_required:
+                task.metadata["confirmation_intent"] = route.intent.value
+                task.metadata["confirmation_steps"] = [
+                    {"tool": tool, "arguments": arguments} for tool, arguments in tool_steps
+                ]
                 self._pending_confirmation = PendingConfirmation(task.id, text, route.intent.value, tool_steps)
                 return AgentResult("Preciso da sua confirmação antes de executar essa ação.", task.id, failed, report.attempts)
             error = report.last_error or (failed.error if failed else "Falha desconhecida")
