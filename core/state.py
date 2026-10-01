@@ -32,7 +32,7 @@ class InvalidTransition(ValueError):
 
 class StateManager:
     _TRANSITIONS: dict[DuqueState, set[DuqueState]] = {
-        DuqueState.STANDBY: {DuqueState.LISTENING, DuqueState.SLEEPING, DuqueState.ERROR},
+        DuqueState.STANDBY: {DuqueState.LISTENING, DuqueState.PROCESSING, DuqueState.SLEEPING, DuqueState.ERROR},
         DuqueState.LISTENING: {DuqueState.PROCESSING, DuqueState.STANDBY, DuqueState.SLEEPING, DuqueState.ERROR},
         DuqueState.PROCESSING: {DuqueState.EXECUTING, DuqueState.SPEAKING, DuqueState.STANDBY, DuqueState.SLEEPING, DuqueState.ERROR},
         DuqueState.EXECUTING: {DuqueState.PROCESSING, DuqueState.SPEAKING, DuqueState.STANDBY, DuqueState.ERROR},
