@@ -12,7 +12,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 os.chdir(ROOT)
 
-# Defaults for the complete local Duque runtime.
 os.environ.setdefault("DUQUE_WORKSPACE_ROOT", str(ROOT))
 os.environ.setdefault("DUQUE_AUTONOMOUS_AGENT", "1")
 os.environ.setdefault("DUQUE_VOICE", "cedar")
@@ -53,14 +52,18 @@ def start_voice() -> None:
         voice_runtime.log("Duque integrado: iniciando wake word + conversa de voz.")
         voice_runtime.wake_loop()
     except Exception as exc:
-        voice_runtime.log(f"Falha no runtime de voz: {type(exc).__name__}: {exc!r}")
+        voice_runtime.log(
+            f"Falha fatal no runtime de voz: {type(exc).__name__}: {exc!r}"
+        )
+
+
+def keep_process_alive() -> None:
+    while True:
+        time.sleep(60)
 
 
 def main() -> None:
-    if server_online():
-        print("[DUQUE] Instância já ativa; abrindo interface.", flush=True)
-        webbrowser.open_new_tab(URL)
-        return
+    already_running = server_online()
 
     print("=" * 64, flush=True)
     print("DUQUE — SISTEMA INTEGRADO", flush=True)
@@ -69,6 +72,16 @@ def main() -> None:
     print("Texto: interface + /api/comando", flush=True)
     print('Voz: wake word "Hey Jarvis" + conversa Realtime', flush=True)
     print("Autonomia: habilitada", flush=True)
+
+    if already_running:
+        print(
+            "[DUQUE] Servidor já estava ativo; esta instância será usada para iniciar "
+            "o runtime de voz.",
+            flush=True,
+        )
+    else:
+        print("[DUQUE] Servidor ainda não estava ativo; iniciando agora.", flush=True)
+
     print("=" * 64, flush=True)
 
     voice_thread = threading.Thread(
@@ -83,6 +96,10 @@ def main() -> None:
         name="duque-interface",
         daemon=True,
     ).start()
+
+    if already_running:
+        keep_process_alive()
+        return
 
     app.run(
         host="127.0.0.1",
