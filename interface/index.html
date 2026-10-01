@@ -913,6 +913,65 @@ function showResponse(text){
   box.classList.toggle('show', Boolean(text));
 }
 
+let currentSpeech=null;
+let speechBusy=false;
+
+async function speakResponse(text){
+  const value=(text||'').trim();
+  if(!value) return;
+
+  if(currentSpeech){
+    try{ currentSpeech.pause(); currentSpeech.currentTime=0; }catch(e){}
+    currentSpeech=null;
+  }
+
+  speechBusy=true;
+  say('speaking','Falando');
+  audioTarget=.45;
+
+  try{
+    const response=await fetch('/api/fala',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:value})
+    });
+    if(!response.ok){
+      let message='Falha ao gerar voz.';
+      try{ const data=await response.json(); message=data.erro||message; }catch(e){}
+      throw new Error(message);
+    }
+
+    const blob=await response.blob();
+    const url=URL.createObjectURL(blob);
+    const audioEl=new Audio(url);
+    currentSpeech=audioEl;
+
+    audioEl.onended=()=>{
+      speechBusy=false;
+      currentSpeech=null;
+      URL.revokeObjectURL(url);
+      audioTarget=0;
+      syncServerState();
+    };
+    audioEl.onerror=()=>{
+      speechBusy=false;
+      currentSpeech=null;
+      URL.revokeObjectURL(url);
+      audioTarget=0;
+      syncServerState();
+    };
+
+    await audioEl.play();
+  }catch(error){
+    speechBusy=false;
+    currentSpeech=null;
+    audioTarget=0;
+    DUQUE.activity('VOICE ERROR');
+    console.warn('TTS:', error);
+    syncServerState();
+  }
+}
+
 async function runCommand(text){
   const q=text.trim(); if(!q) return;
   const input=$('cmd');
@@ -929,12 +988,12 @@ async function runCommand(text){
     const data=await response.json();
     if(!response.ok) throw new Error(data.erro||'Falha ao processar comando');
 
-    showResponse(data.text || data.resposta || 'Concluído.');
+    const answer=data.text || data.resposta || 'Concluído.';
+    showResponse(answer);
     DUQUE.activity('RESPONSE');
 
-    // O estado final vem do servidor; não criamos uma transição
-    // local que possa atropelar o AgentLoop.
-    await syncServerState();
+    // O texto vem do AgentLoop; agora a mesma resposta é enviada ao TTS.
+    await speakResponse(answer);
     DUQUE.telemetry([{k:'Resposta',v:'<em>Pronta</em>'}],2600);
   }catch(error){
     showResponse(error instanceof Error ? error.message : 'Não foi possível falar com o Duque.');
