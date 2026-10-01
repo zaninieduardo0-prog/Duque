@@ -24,6 +24,7 @@ estado_duque = {
     "resposta": "",
     "coerencia": 100,
     "ultima_atualizacao": None,
+    "modo": "texto",
 }
 
 
@@ -66,8 +67,25 @@ def _handle_event(event: Event) -> None:
                 estado_duque.update(_snapshot_to_dict(snapshot))
         return
 
-    # TASK_STARTED/TASK_FINISHED descrevem o ciclo interno da tarefa.
-    # O estado visual principal é controlado pelo fluxo do comando.
+    if event.type == EventType.TASK_STARTED:
+        tool = str(event.data.get("tool", ""))
+        step = event.data.get("step", "")
+        _set_state(
+            DuqueState.EXECUTING,
+            tarefa=f"Etapa {step}: {tool}"[:120],
+            atividade=f"Executando {tool}"[:120],
+        )
+        return
+
+    if event.type == EventType.TASK_FINISHED and event.data.get("tool"):
+        tool = str(event.data.get("tool", ""))
+        _set_state(
+            DuqueState.EXECUTING,
+            tarefa=f"Concluído: {tool}"[:120],
+            atividade="Resultado recebido",
+        )
+        return
+
     if event.type == EventType.TASK_FAILED:
         error = str(event.data.get("error", "Falha na tarefa"))
         _set_state(
@@ -121,6 +139,7 @@ def atualizar_estado(
     tarefa: str | None = None,
     atividade: str | None = None,
     coerencia: int | None = None,
+    modo: str | None = None,
 ) -> bool:
     try:
         target = DuqueState(estado)
@@ -173,8 +192,9 @@ def gerar_fala():
             input=texto.strip(),
             instructions=(
                 "Fale em português do Brasil. "
-                "Voz masculina, natural, calma e confiante, "
-                "como um assistente pessoal futurista. "
+                "Voz masculina, grave e encorpada, com timbre mais baixo, natural, calma e confiante, "
+                "como um assistente pessoal futurista. Fale em ritmo controlado, com presença e autoridade, "
+                "sem soar robótico ou exagerado. "
                 "Não leia símbolos de formatação nem descreva a instrução."
             ),
             response_format="mp3",
@@ -210,6 +230,7 @@ def alterar_estado():
             tarefa=dados.get("tarefa"),
             atividade=dados.get("atividade"),
             coerencia=dados.get("coerencia"),
+            modo=dados.get("modo"),
         )
     except Exception as exc:
         return jsonify({"erro": f"{type(exc).__name__}: {exc}"}), 500
@@ -231,6 +252,8 @@ def executar_comando():
             tarefa="Interpretando comando",
             atividade="Processamento",
         )
+        with state_lock:
+            estado_duque["modo"] = "texto"
 
         resultado = agent.handle(texto.strip())
 
