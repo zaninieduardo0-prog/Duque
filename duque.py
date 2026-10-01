@@ -68,8 +68,6 @@ def main() -> None:
         open_interface()
         return
 
-    already_running = False
-
     # Só carregamos o servidor/agente depois da checagem de instância única.
     # Assim uma segunda abertura não cria outro AgentLoop nem outro scheduler.
     from servidor import app
@@ -83,14 +81,7 @@ def main() -> None:
     print('Voz: wake word "Hey Jarvis" + conversa Realtime', flush=True)
     print("Autonomia: habilitada", flush=True)
 
-    if already_running:
-        print(
-            "[DUQUE] Servidor já estava ativo; esta instância será usada para iniciar "
-            "o runtime de voz.",
-            flush=True,
-        )
-    else:
-        print("[DUQUE] Servidor ainda não estava ativo; iniciando agora.", flush=True)
+    print("[DUQUE] Servidor ainda não estava ativo; iniciando agora.", flush=True)
 
     print("=" * 64, flush=True)
 
@@ -107,10 +98,6 @@ def main() -> None:
         name="duque-interface",
         daemon=True,
     ).start()
-
-    if already_running:
-        keep_process_alive()
-        return
 
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
