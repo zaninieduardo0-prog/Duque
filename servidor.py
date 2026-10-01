@@ -91,10 +91,19 @@ def _handle_event(event: Event) -> None:
         return
 
     if event.type == EventType.RESPONSE_STARTED:
-        _set_state(
-            DuqueState.SPEAKING,
-            atividade="Gerando resposta",
-        )
+        # Forçar transição visual para SPEAKING mesmo que o estado atual tenha sido
+        # alterado por outro evento (evita InvalidTransition quando race ocorrer).
+        try:
+            _set_state(
+                DuqueState.SPEAKING,
+                atividade="Gerando resposta",
+            )
+        except Exception:
+            _set_state(
+                DuqueState.SPEAKING,
+                atividade="Gerando resposta",
+                force=True,
+            )
         return
 
     if event.type == EventType.RESPONSE_FINISHED:
@@ -229,11 +238,19 @@ def executar_comando():
             estado_duque["resposta"] = resultado.text or ""
 
         if agent._pending_confirmation is not None:
-            _set_state(
-                DuqueState.SPEAKING,
-                tarefa="Aguardando confirmação",
-                atividade="Confirmação necessária",
-            )
+            try:
+                _set_state(
+                    DuqueState.SPEAKING,
+                    tarefa="Aguardando confirmação",
+                    atividade="Confirmação necessária",
+                )
+            except Exception:
+                _set_state(
+                    DuqueState.SPEAKING,
+                    tarefa="Aguardando confirmação",
+                    atividade="Confirmação necessária",
+                    force=True,
+                )
         elif resultado.execution is not None and not resultado.execution.success:
             _set_state(
                 DuqueState.ERROR,
@@ -241,11 +258,19 @@ def executar_comando():
                 atividade=resultado.execution.error or "Falha na execução",
             )
         else:
-            _set_state(
-                DuqueState.SPEAKING,
-                tarefa=(resultado.text or "")[:120],
-                atividade="Resposta pronta",
-            )
+            try:
+                _set_state(
+                    DuqueState.SPEAKING,
+                    tarefa=(resultado.text or "")[:120],
+                    atividade="Resposta pronta",
+                )
+            except Exception:
+                _set_state(
+                    DuqueState.SPEAKING,
+                    tarefa=(resultado.text or "")[:120],
+                    atividade="Resposta pronta",
+                    force=True,
+                )
 
         return jsonify({
             "ok": True,
