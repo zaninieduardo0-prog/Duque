@@ -721,7 +721,7 @@ DUQUE.on(renderState); renderState();
 
 let serverSyncBusy=false;
 async function syncServerState(){
-  if(serverSyncBusy) return;
+  if(serverSyncBusy || speechBusy) return;
   serverSyncBusy=true;
   try{
     const response=await fetch('/api/estado',{cache:'no-store'});
@@ -907,14 +907,14 @@ load();
 */
 function say(state, task=''){ DUQUE.setState({state, currentTask:task}); }
 
+let currentSpeech=null;
+let speechBusy=false;
+
 function showResponse(text){
   const box=$('response');
   box.textContent=text||'';
   box.classList.toggle('show', Boolean(text));
 }
-
-let currentSpeech=null;
-let speechBusy=false;
 
 async function speakResponse(text){
   const value=(text||'').trim();
