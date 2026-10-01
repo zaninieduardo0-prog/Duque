@@ -23,6 +23,6 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m compileall -q .
       - name: Run Ruff
-        run: ruff check automation brain computer core memory voice servidor.py duque.py
+        run: ruff check automation brain computer core memory voice agent servidor.py duque.py duque_wake_v2.py duque_wake_v3.py --select E,F --ignore E501
       - name: Run Pyright
         run: pyright
