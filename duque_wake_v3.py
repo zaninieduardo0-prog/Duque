@@ -4,6 +4,8 @@ import asyncio
 
 import duque_wake_v2 as runtime
 
+log = runtime.log
+
 
 # Ajuste de identidade do Realtime: o usuário é tratado por "Du".
 def patch_identity() -> None:
