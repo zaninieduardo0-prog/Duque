@@ -13,6 +13,20 @@ dependencies = [
     "openai-agents>=0.6",
 ]
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "automation*",
+    "agent*",
+    "brain*",
+    "computer*",
+    "core*",
+    "memory*",
+    "voice*",
+]
+exclude = ["interface*", "tests*", "lixeira*", ".venv*"]
+namespaces = true
+
 [tool.ruff]
 line-length = 100
 exclude = [".venv", "lixeira"]
@@ -23,6 +37,7 @@ select = ["E", "F", "I"]
 [tool.pyright]
 include = [
     "automation",
+    "agent",
     "brain",
     "computer",
     "core",
