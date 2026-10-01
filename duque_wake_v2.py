@@ -6,7 +6,7 @@ import os
 import threading
 import time
 import urllib.request
-from typing import Any, cast
+from typing import cast
 from collections import deque
 from pathlib import Path
 
