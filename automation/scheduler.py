@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from dataclasses import dataclass, field
@@ -9,6 +10,9 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from memory.database import MemoryDatabase
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -133,7 +137,7 @@ class Scheduler:
             elif job.callback:
                 job.callback()
         except Exception:
-            pass
+            LOGGER.exception("Falha ao executar tarefa agendada: %s", job.description)
 
     def _save(self, job: ScheduledJob) -> None:
         self.database.upsert_job(job, job.created_at, job.last_run_at, job.run_count)
