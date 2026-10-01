@@ -279,9 +279,12 @@ def request_shutdown() -> None:
 
 
 async def send_microphone(session) -> None:
+    queue = MIC_QUEUE
+    if queue is None:
+        return
     while REALTIME:
         try:
-            audio = await asyncio.wait_for(MIC_QUEUE.get(), timeout=0.1)
+            audio = await asyncio.wait_for(queue.get(), timeout=0.1)
         except asyncio.TimeoutError:
             continue
         if MIC_ACTIVE and REALTIME and not SHUTTING_DOWN:
@@ -423,7 +426,13 @@ async def realtime_session() -> None:
             done, pending = await asyncio.wait((mic_task, event_task, shutdown_task), return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
                 task.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
+            for task in pending:
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:
+                    log(f"[REALTIME] tarefa pendente terminou com erro: {exc}")
             for task in done:
                 try:
                     task.result()
@@ -466,8 +475,12 @@ def wake_loop() -> None:
     if not os.getenv("OPENAI_API_KEY"):
         raise SystemExit("OPENAI_API_KEY não encontrada")
 
+    openwakeword_file = openwakeword.__file__
+    if not openwakeword_file:
+        raise SystemExit("Arquivo do openwakeword não foi localizado")
+
     wake_model_path = (
-        Path(openwakeword.__file__).resolve().parent
+        Path(openwakeword_file).resolve().parent
         / "resources"
         / "models"
         / "hey_jarvis_v0.1.onnx"
@@ -519,7 +532,7 @@ def wake_loop() -> None:
 
             while True:
                 frame = np.asarray(recorder.read(), dtype=np.int16)
-                predictions = wake_model.predict(frame)
+                predictions = wake_model.predict(frame) or {}
                 confidence = predictions.get(
                     WAKEWORD,
                     predictions.get(WAKEWORD_MODEL_NAME, 0.0),
