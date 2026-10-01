@@ -218,6 +218,7 @@ def executar_comando():
         return jsonify({
             "ok": True,
             "text": resultado.text,
+            "resposta": resultado.text,
             "task_id": resultado.task_id,
             "attempts": resultado.attempts,
             "execution": (
