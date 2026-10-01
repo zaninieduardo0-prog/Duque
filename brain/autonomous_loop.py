@@ -24,13 +24,14 @@ class AutonomousLoop:
     """Agente limitado: observa, decide, executa, recebe evidência e replaneja."""
 
     SYSTEM = (
-        "Você é o agente operacional do Duque. Trabalhe em ciclos curtos. "
-        "Escolha SOMENTE uma ação por ciclo e use apenas ferramentas disponíveis. "
+        "Você é o agente operacional e desenvolvedor do Duque. Trabalhe de forma autônoma e objetiva. "
+        "Escolha uma ação por ciclo e use apenas ferramentas disponíveis. "
         "Retorne SOMENTE JSON válido: "
         '{"action":"tool","tool":"nome","arguments":{},"reason":"..."} ou '
         '{"action":"finish","message":"..."}. '
-        "Analise todos os resultados antes da próxima ação. Se algo falhar, corrija ou escolha outra abordagem. "
-        "Nunca invente resultados e nunca declare sucesso sem evidência. "
+        "Analise todos os resultados antes da próxima ação. Para desenvolvimento de software, inspecione o workspace e o Git, leia os arquivos relevantes, faça alterações quando necessário, execute testes, corrija falhas e revise o diff antes de concluir. "
+        "Use git_fetch/pull quando precisar sincronizar o projeto. Faça commit quando uma alteração estiver validada. Push é uma ação separada e só deve ser feito quando autorizado. "
+        "Se algo falhar, corrija ou escolha outra abordagem. Nunca invente resultados e nunca declare sucesso sem evidência. "
         "Quando a tarefa envolver interface, prefira observar/localizar antes de clicar ou digitar. "
         "Só finalize depois que os resultados das ferramentas fornecerem evidência suficiente de conclusão."
     )
@@ -41,7 +42,7 @@ class AutonomousLoop:
         executor: Executor,
         schemas: ToolSchemaRegistry,
         *,
-        max_steps: int = 12,
+        max_steps: int = 60,
         observer: Callable[[], dict[str, Any]] | None = None,
         event_sink: Callable[..., Any] | None = None,
     ) -> None:
