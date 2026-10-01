@@ -53,6 +53,29 @@ class CodeTools:
         result["path"] = path
         return result
 
+    def git_log(self, limit: int = 10) -> dict[str, Any]:
+        return self._git(["log", "--oneline", f"-{max(1, min(int(limit), 50))}"])
+
+    def git_fetch(self) -> dict[str, Any]:
+        return self._git(["fetch", "--all", "--prune"])
+
+    def git_pull(self) -> dict[str, Any]:
+        return self._git(["pull", "--ff-only"])
+
+    def git_commit(self, message: str) -> dict[str, Any]:
+        if not isinstance(message, str) or not message.strip():
+            raise ValueError("message não pode ser vazio")
+        add = self._git(["add", "-A"])
+        if not add["success"]:
+            return add
+        return self._git(["commit", "-m", message.strip()])
+
+    def git_push(self, remote: str = "origin", branch: str | None = None) -> dict[str, Any]:
+        args = ["push", remote]
+        if branch:
+            args.append(branch)
+        return self._git(args)
+
     def _git(self, args: list[str]) -> dict[str, Any]:
         completed = subprocess.run(["git", *args], cwd=str(self.workspace.root), capture_output=True, text=True, timeout=30, shell=False)
         return {"return_code": completed.returncode, "stdout": completed.stdout, "stderr": completed.stderr, "success": completed.returncode == 0}
@@ -66,3 +89,8 @@ class CodeTools:
         executor.register("run_tests", self.run_tests)
         executor.register("git_status", self.git_status)
         executor.register("git_diff", self.git_diff)
+        executor.register("git_log", self.git_log)
+        executor.register("git_fetch", self.git_fetch)
+        executor.register("git_pull", self.git_pull)
+        executor.register("git_commit", self.git_commit)
+        executor.register("git_push", self.git_push)
