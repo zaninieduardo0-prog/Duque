@@ -6,6 +6,9 @@ import duque_wake_v2 as runtime
 
 log = runtime.log
 
+# Exporta o loop de wake word para o launcher, que importa este módulo.
+wake_loop = runtime.wake_loop
+
 
 # Ajuste de identidade do Realtime: o usuário é tratado por "Du".
 def patch_identity() -> None:
