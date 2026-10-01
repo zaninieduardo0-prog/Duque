@@ -32,31 +32,28 @@ class Planner:
     def _app_name(goal: str) -> str:
         value = goal.strip()
         lowered = value.casefold()
-        # Remove o nome de chamada quando ele vier no início da frase.
         if lowered.startswith("duque,"):
             value = value[len("duque,"):].strip()
             lowered = value.casefold()
         prefixes = (
-            "abrir o aplicativo ",
-            "abrir aplicativo ",
-            "abrir a aplicação ",
-            "abrir aplicação ",
-            "abrir o ",
-            "abrir a ",
-            "abrir ",
-            "abra o aplicativo ",
-            "abra aplicativo ",
-            "abra o ",
-            "abra a ",
-            "abra ",
-            "inicie o ",
-            "inicie a ",
-            "inicie ",
+            "abrir o aplicativo ", "abrir aplicativo ", "abrir a aplicação ",
+            "abrir aplicação ", "abrir o ", "abrir a ", "abrir ",
+            "abra o aplicativo ", "abra aplicativo ", "abra o ", "abra a ",
+            "abra ", "inicie o ", "inicie a ", "inicie ",
         )
         for prefix in prefixes:
             if lowered.startswith(prefix):
                 return value[len(prefix):].strip().rstrip(".,!?")
         return value.rstrip(".,!?")
+
+    @staticmethod
+    def _extract_path(goal: str, markers: tuple[str, ...]) -> str:
+        lowered = goal.casefold()
+        for marker in markers:
+            index = lowered.find(marker)
+            if index >= 0:
+                return goal[index + len(marker):].strip().rstrip(".,!?")
+        return ""
 
     def build(
         self,
@@ -73,46 +70,65 @@ class Planner:
                 return Plan(goal)
             return Plan(goal, [PlanStep(
                 f"Abrir o aplicativo solicitado: {app_name}",
-                StepKind.TOOL,
-                "open_app",
-                {"name": app_name},
+                StepKind.TOOL, "open_app", {"name": app_name},
             )])
+
         if intent == "search":
             if not tool_available("web_search"):
                 return Plan(goal)
             return Plan(goal, [PlanStep(
-                f"Pesquisar: {goal}",
-                StepKind.TOOL,
-                "web_search",
-                {"query": goal},
+                f"Pesquisar: {goal}", StepKind.TOOL, "web_search", {"query": goal},
             )])
+
         if intent == "file_operation":
             lowered = goal.casefold()
-            if any(marker in lowered for marker in ("liste os arquivos", "listar os arquivos", "liste os ficheiros", "listar arquivos", "mostre os arquivos", "mostra os arquivos")):
+            if any(marker in lowered for marker in (
+                "liste os arquivos", "listar os arquivos", "liste os ficheiros",
+                "listar arquivos", "mostre os arquivos", "mostra os arquivos",
+                "mostre os ficheiros", "listar a pasta", "mostre a pasta",
+            )):
                 if tool_available("list_files"):
-                    return Plan(goal, [PlanStep("Listar os arquivos do workspace", StepKind.TOOL, "list_files", {})])
+                    return Plan(goal, [PlanStep(
+                        "Listar os arquivos do workspace", StepKind.TOOL, "list_files", {}
+                    )])
                 if tool_available("inspect_workspace"):
-                    return Plan(goal, [PlanStep("Inspecionar o workspace", StepKind.TOOL, "inspect_workspace", {})])
-            for marker_text in ("leia o arquivo ", "ler o arquivo ", "abra o arquivo "):
-                if marker_text in lowered:
-                    path = goal[lowered.index(marker_text) + len(marker_text):].strip()
-                    if tool_available("read_file") and path:
-                        return Plan(goal, [PlanStep(
-                            f"Ler o arquivo solicitado: {path}",
-                            StepKind.TOOL,
-                            "read_file",
-                            {"path": path},
-                        )])
-            for marker_text in ("apague o arquivo ", "delete o arquivo ", "exclua o arquivo "):
-                if marker_text in lowered:
-                    path = goal[lowered.index(marker_text) + len(marker_text):].strip()
-                    if tool_available("delete_file") and path:
-                        return Plan(goal, [PlanStep(
-                            f"Excluir o arquivo solicitado: {path}",
-                            StepKind.TOOL,
-                            "delete_file",
-                            {"path": path},
-                        )])
+                    return Plan(goal, [PlanStep(
+                        "Inspecionar o workspace", StepKind.TOOL, "inspect_workspace", {}
+                    )])
+
+            path = self._extract_path(goal, (
+                "leia o arquivo ", "ler o arquivo ", "abra o arquivo ",
+                "leia arquivo ", "ler arquivo ", "abra arquivo ",
+                "analise o arquivo ", "analisa o arquivo ",
+                "analise arquivo ", "analisa arquivo ",
+                "mostre o conteúdo de ", "mostre o conteudo de ",
+            ))
+            if path and tool_available("read_file"):
+                return Plan(goal, [PlanStep(
+                    f"Ler o arquivo solicitado: {path}",
+                    StepKind.TOOL, "read_file", {"path": path},
+                )])
+
+            if any(marker in lowered for marker in (
+                "analise o projeto", "analisa o projeto", "verifique o projeto",
+                "verifica o projeto", "inspecione o projeto", "inspeciona o projeto",
+                "estrutura do projeto", "estrutura do repositório",
+            )):
+                if tool_available("inspect_workspace"):
+                    return Plan(goal, [PlanStep(
+                        "Inspecionar o workspace", StepKind.TOOL, "inspect_workspace", {}
+                    )])
+
+            path = self._extract_path(goal, (
+                "apague o arquivo ", "delete o arquivo ", "exclua o arquivo ",
+                "apague arquivo ", "delete arquivo ", "exclua arquivo ",
+            ))
+            if path and tool_available("delete_file"):
+                return Plan(goal, [PlanStep(
+                    f"Excluir o arquivo solicitado: {path}",
+                    StepKind.TOOL, "delete_file", {"path": path},
+                )])
+
             for marker_text in ("crie o arquivo ", "criar o arquivo ", "escreva o arquivo ", "salve o arquivo "):
                 if marker_text in lowered and tool_available("write_file"):
                     remainder = goal[lowered.index(marker_text) + len(marker_text):].strip()
@@ -124,8 +140,7 @@ class Planner:
                         if path and content:
                             return Plan(goal, [PlanStep(
                                 f"Criar o arquivo solicitado: {path}",
-                                StepKind.TOOL,
-                                "write_file",
+                                StepKind.TOOL, "write_file",
                                 {"path": path, "content": content},
                             )])
             return Plan(goal)
@@ -136,10 +151,12 @@ class Planner:
                 steps.append(PlanStep("Listar o workspace antes da alteração", StepKind.TOOL, "list_files"))
             steps.extend([
                 PlanStep("Escrever ou modificar o código", StepKind.THINK),
-                PlanStep("Executar o código ou teste solicitado", StepKind.THINK),
+                PlanStep("Executar a verificação disponível", StepKind.THINK),
                 PlanStep("Relatar o resultado", StepKind.RESPOND),
             ])
             return Plan(goal, steps)
+
         if intent in {"reminder", "system"}:
             return Plan(goal)
+
         return Plan(goal, [PlanStep("Responder à solicitação", StepKind.RESPOND)])
