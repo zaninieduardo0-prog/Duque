@@ -22,6 +22,7 @@ from voice.session import PlaybackFence
 MODEL = os.getenv("DUQUE_REALTIME_MODEL", "gpt-realtime-2.1")
 VOICE = os.getenv("DUQUE_VOICE", "cedar")
 MICROFONE = int(os.getenv("DUQUE_MIC", "1"))
+WAKE_MICROFONE = int(os.getenv("DUQUE_WAKE_MIC", os.getenv("DUQUE_MIC", "1")))
 SAMPLE_RATE = 24000
 CANAIS = 1
 BLOCKSIZE = 480
@@ -477,9 +478,9 @@ def wake_loop() -> None:
     last_wake = 0.0
     hud("standby", "Sistema online")
     try:
-        recorder = PvRecorder(frame_length=FRAME_LENGTH, device_index=0)
+        recorder = PvRecorder(frame_length=FRAME_LENGTH, device_index=WAKE_MICROFONE)
         recorder.start()
-        log(f'Wake word ativo: "Hey Jarvis" | modelo={WAKEWORD_MODEL_NAME} | threshold={WAKE_THRESHOLD}')
+        log(f'Wake word ativo: "Hey Jarvis" | modelo={WAKEWORD_MODEL_NAME} | threshold={WAKE_THRESHOLD} | mic={WAKE_MICROFONE}')
         while True:
             frame = np.asarray(recorder.read(), dtype=np.int16)
             predictions = wake_model.predict(frame)
@@ -492,7 +493,7 @@ def wake_loop() -> None:
                 recorder.delete()
                 recorder = None
                 asyncio.run(realtime_session())
-                recorder = PvRecorder(frame_length=FRAME_LENGTH, device_index=0)
+                recorder = PvRecorder(frame_length=FRAME_LENGTH, device_index=WAKE_MICROFONE)
                 recorder.start()
     except KeyboardInterrupt:
         pass
