@@ -97,6 +97,17 @@ class TaskManager:
         self._save(task)
         return task
 
+    def set_confirmation_context(self, task_id: str, **metadata: Any) -> Task:
+        """Persiste os dados necessários para retomar uma confirmação após reinício."""
+        task = self._tasks[task_id]
+        if task.status != TaskStatus.AWAITING_CONFIRMATION:
+            raise RuntimeError(
+                f"Tarefa {task_id} não está aguardando confirmação em estado {task.status.value}"
+            )
+        task.metadata.update(metadata)
+        self._save(task)
+        return task
+
     def complete(self, task_id: str, result: Any = None) -> Task:
         task = self._tasks[task_id]
         if task.status != TaskStatus.RUNNING:
