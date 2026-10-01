@@ -50,6 +50,8 @@ include = [
     "voice",
     "duque.py",
     "servidor.py",
+    "duque_wake_v2.py",
+    "duque_wake_v3.py",
 ]
 exclude = [".venv", "lixeira"]
 pythonVersion = "3.13"
