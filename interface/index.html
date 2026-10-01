@@ -910,7 +910,7 @@ function say(state, task=''){ DUQUE.setState({state, currentTask:task}); }
 function showResponse(text){
   const box=$('response');
   box.textContent=text||'';
-  box.classList.add('show');
+  box.classList.toggle('show', Boolean(text));
 }
 
 async function runCommand(text){
@@ -929,7 +929,7 @@ async function runCommand(text){
     const data=await response.json();
     if(!response.ok) throw new Error(data.erro||'Falha ao processar comando');
 
-    showResponse(data.text||'Concluído.');
+    showResponse(data.text || data.resposta || 'Concluído.');
     DUQUE.activity('RESPONSE');
 
     // O estado final vem do servidor; não criamos uma transição
@@ -958,6 +958,7 @@ $('cmd').addEventListener('keydown', e=>{
 });
 
 /* sequência de inicialização */
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 (async()=>{
   await wait(900);
   DUQUE.telemetry([{k:'Núcleo neural',v:'<em>Online</em>'},{k:'Memória',v:'Sincronizada'}],3400);
