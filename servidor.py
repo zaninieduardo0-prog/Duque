@@ -281,19 +281,11 @@ def executar_comando():
                 atividade=resultado.execution.error or "Falha na execução",
             )
         else:
-            try:
-                _set_state(
-                    DuqueState.SPEAKING,
-                    tarefa=(resultado.text or "")[:120],
-                    atividade="Resposta pronta",
-                )
-            except Exception:
-                _set_state(
-                    DuqueState.SPEAKING,
-                    tarefa=(resultado.text or "")[:120],
-                    atividade="Resposta pronta",
-                    force=True,
-                )
+            _set_state(
+                DuqueState.STANDBY,
+                tarefa="",
+                atividade="Resposta pronta",
+            )
 
         return jsonify({
             "ok": True,
