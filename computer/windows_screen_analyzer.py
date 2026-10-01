@@ -27,7 +27,7 @@ class WindowsScreenAnalyzer:
         import ctypes
         from ctypes import wintypes
 
-        user32 = ctypes.windll.user32
+        user32 = getattr(ctypes, "windll").user32
         hwnd = user32.GetForegroundWindow()
         if not hwnd:
             return None
