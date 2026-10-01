@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 
 @dataclass(slots=True)
@@ -46,6 +46,6 @@ class OpenAIResponsesModel(ModelAdapter):
             raise RuntimeError("Pacote openai não instalado") from exc
 
         client = OpenAI(api_key=self.api_key)
-        response = client.responses.create(model=self.model, input=messages, **kwargs)
+        response = client.responses.create(model=self.model, input=cast(Any, messages), **kwargs)
         text = getattr(response, "output_text", "") or ""
         return ModelResponse(text=text, raw=response)
