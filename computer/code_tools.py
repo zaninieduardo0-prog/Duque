@@ -33,13 +33,53 @@ class CodeTools:
         target = self.workspace.resolve(path)
         if target.suffix.lower() != ".py":
             raise ValueError("run_python aceita apenas arquivos .py")
-        completed = subprocess.run([sys.executable, str(target)], cwd=str(self.workspace.root), capture_output=True, text=True, timeout=max(1, min(timeout, 120)), shell=False)
-        return {"path": str(target), "return_code": completed.returncode, "stdout": completed.stdout, "stderr": completed.stderr, "success": completed.returncode == 0}
+        completed = subprocess.run(
+            [sys.executable, str(target)],
+            cwd=str(self.workspace.root),
+            capture_output=True,
+            text=True,
+            timeout=max(1, min(timeout, 120)),
+            shell=False,
+        )
+        return {
+            "path": str(target),
+            "return_code": completed.returncode,
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+            "success": completed.returncode == 0,
+        }
 
-    def run_tests(self, path: str = "tests", timeout: int = 120) -> dict[str, Any]:
+    def run_tests(self, path: str = ".", timeout: int = 120) -> dict[str, Any]:
+        """Valida o workspace sem depender de uma pasta tests."""
         target = self.workspace.resolve(path)
-        completed = subprocess.run([sys.executable, "-m", "pytest", str(target)], cwd=str(self.workspace.root), capture_output=True, text=True, timeout=max(1, min(timeout, 300)), shell=False)
-        return {"target": str(target), "return_code": completed.returncode, "stdout": completed.stdout, "stderr": completed.stderr, "success": completed.returncode == 0}
+        tests_dir = self.workspace.root / "tests"
+        if tests_dir.is_dir():
+            command = [sys.executable, "-m", "pytest", str(tests_dir)]
+            target_label = "tests"
+        else:
+            command = [
+                sys.executable,
+                "-m",
+                "compileall",
+                "-q",
+                str(target),
+            ]
+            target_label = str(target)
+        completed = subprocess.run(
+            command,
+            cwd=str(self.workspace.root),
+            capture_output=True,
+            text=True,
+            timeout=max(1, min(timeout, 300)),
+            shell=False,
+        )
+        return {
+            "target": target_label,
+            "return_code": completed.returncode,
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+            "success": completed.returncode == 0,
+        }
 
     def git_status(self) -> dict[str, Any]:
         return self._git(["status", "--short", "--branch"])
@@ -77,8 +117,20 @@ class CodeTools:
         return self._git(args)
 
     def _git(self, args: list[str]) -> dict[str, Any]:
-        completed = subprocess.run(["git", *args], cwd=str(self.workspace.root), capture_output=True, text=True, timeout=30, shell=False)
-        return {"return_code": completed.returncode, "stdout": completed.stdout, "stderr": completed.stderr, "success": completed.returncode == 0}
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=str(self.workspace.root),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            shell=False,
+        )
+        return {
+            "return_code": completed.returncode,
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+            "success": completed.returncode == 0,
+        }
 
     def register(self, executor: Any) -> None:
         executor.register("read_file", self.read_file)
