@@ -466,42 +466,87 @@ def wake_loop() -> None:
     if not os.getenv("OPENAI_API_KEY"):
         raise SystemExit("OPENAI_API_KEY não encontrada")
 
-    wake_model_path = Path(openwakeword.__file__).resolve().parent / "resources" / "models" / "hey_jarvis_v0.1.onnx"
+    wake_model_path = (
+        Path(openwakeword.__file__).resolve().parent
+        / "resources"
+        / "models"
+        / "hey_jarvis_v0.1.onnx"
+    )
     if not wake_model_path.exists():
         raise SystemExit(f"Modelo wake word não encontrado: {wake_model_path}")
+
+    log(
+        f"[WAKE] inicializando | modelo={wake_model_path.name} | "
+        f"threshold={WAKE_THRESHOLD} | frame={FRAME_LENGTH} | wake_mic={WAKE_MICROFONE}"
+    )
+
+    devices = PvRecorder.get_available_devices()
+    log(f"[WAKE] dispositivos PvRecorder: {devices}")
+    if not devices:
+        raise RuntimeError("Nenhum dispositivo de entrada foi encontrado pelo PvRecorder.")
+    if WAKE_MICROFONE >= len(devices):
+        raise RuntimeError(
+            f"DUQUE_WAKE_MIC={WAKE_MICROFONE} inválido; "
+            f"existem apenas {len(devices)} dispositivo(s) no PvRecorder."
+        )
+
+    selected_name = (
+        devices[WAKE_MICROFONE] if WAKE_MICROFONE >= 0 else "padrão do sistema"
+    )
+    log(f"[WAKE] dispositivo selecionado: {selected_name!r}")
 
     wake_model = Model(
         wakeword_models=[str(wake_model_path)],
         inference_framework="onnx",
     )
-    recorder = None
-    last_wake = 0.0
+    log("[WAKE] modelo carregado com sucesso.")
     hud("standby", "Sistema online")
-    try:
-        recorder = PvRecorder(frame_length=FRAME_LENGTH, device_index=WAKE_MICROFONE)
-        recorder.start()
-        log(f'Wake word ativo: "Hey Jarvis" | modelo={WAKEWORD_MODEL_NAME} | threshold={WAKE_THRESHOLD} | mic={WAKE_MICROFONE}')
-        while True:
-            frame = np.asarray(recorder.read(), dtype=np.int16)
-            predictions = wake_model.predict(frame)
-            confidence = predictions.get(WAKEWORD, predictions.get(WAKEWORD_MODEL_NAME, 0.0))
-            now = time.perf_counter()
-            if confidence >= WAKE_THRESHOLD and now - last_wake >= WAKE_COOLDOWN:
-                last_wake = now
-                log(f"Wake word detectado (confiança={confidence:.2f})")
-                recorder.stop()
-                recorder.delete()
-                recorder = None
-                asyncio.run(realtime_session())
-                recorder = PvRecorder(frame_length=FRAME_LENGTH, device_index=WAKE_MICROFONE)
-                recorder.start()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        if recorder:
-            try:
-                recorder.stop()
-                recorder.delete()
-            except Exception:
-                pass
-        hud("standby", "Sistema offline")
+
+    while True:
+        recorder = None
+        try:
+            recorder = PvRecorder(
+                frame_length=FRAME_LENGTH,
+                device_index=WAKE_MICROFONE,
+            )
+            recorder.start()
+            log(
+                f'[WAKE] ativo: "Hey Jarvis" | modelo={WAKEWORD_MODEL_NAME} | '
+                f"threshold={WAKE_THRESHOLD} | mic={WAKE_MICROFONE} | "
+                f"dispositivo={recorder.selected_device!r}"
+            )
+
+            while True:
+                frame = np.asarray(recorder.read(), dtype=np.int16)
+                predictions = wake_model.predict(frame)
+                confidence = predictions.get(
+                    WAKEWORD,
+                    predictions.get(WAKEWORD_MODEL_NAME, 0.0),
+                )
+                now = time.perf_counter()
+
+                if confidence >= WAKE_THRESHOLD and now - last_wake >= WAKE_COOLDOWN:
+                    last_wake = now
+                    log(f"[WAKE] detectado (confiança={confidence:.2f})")
+                    recorder.stop()
+                    recorder.delete()
+                    recorder = None
+                    asyncio.run(realtime_session())
+                    break
+
+        except KeyboardInterrupt:
+            return
+        except Exception as exc:
+            log(
+                f"[WAKE] loop falhou: {type(exc).__name__}: {exc!r}. "
+                "Tentando novamente em 2s."
+            )
+            hud("erro", "Wake word temporariamente indisponível")
+            time.sleep(2.0)
+        finally:
+            if recorder:
+                try:
+                    recorder.stop()
+                    recorder.delete()
+                except Exception:
+                    pass
