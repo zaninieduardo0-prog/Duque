@@ -9,6 +9,7 @@ from openai import OpenAI
 
 from brain.agent_loop import AgentLoop
 from core.events import Event, EventType
+from core.voice_bridge import bridge
 from core.state import DuqueState
 
 app = Flask(__name__)
@@ -134,6 +135,18 @@ def _handle_event(event: Event) -> None:
 agent.engine.events.subscribe(None, _handle_event)
 
 
+def _execute_for_voice(pedido: str) -> str:
+    """Ferramenta da voz: executa pelo mesmo cérebro, sem duplicar o turno na conversa."""
+    return agent.handle(pedido, channel="voz", record=False).text
+
+
+bridge.attach_core(
+    executor=_execute_for_voice,
+    recorder=lambda role, text, channel: agent.conversation.add(role, text, channel),
+    context=lambda: agent.conversation.transcript(12),
+)
+
+
 def atualizar_estado(
     estado: str,
     tarefa: str | None = None,
@@ -242,9 +255,18 @@ def alterar_estado():
 def executar_comando():
     dados = request.get_json(silent=True) or {}
     texto = dados.get("text")
+    canal = str(dados.get("canal")) if dados.get("canal") in {"texto", "voz"} else "texto"
+    registrar = dados.get("registrar", True) is not False
 
     if not isinstance(texto, str) or not texto.strip():
         return jsonify({"erro": "O comando não pode ser vazio."}), 400
+
+    # Conversa por voz em andamento: o texto digitado entra na mesma sessão e a
+    # resposta sai falada por ela, mantendo um único fluxo de conversa.
+    if canal == "texto" and registrar and bridge.voice_active:
+        agent.conversation.add("user", texto.strip(), "texto")
+        if bridge.send_to_voice(texto.strip()):
+            return jsonify({"ok": True, "via": "voz", "text": "", "resposta": ""})
 
     try:
         _set_state(
@@ -255,7 +277,7 @@ def executar_comando():
         with state_lock:
             estado_duque["modo"] = "texto"
 
-        resultado = agent.handle(texto.strip())
+        resultado = agent.handle(texto.strip(), channel=canal, record=registrar)
 
         with state_lock:
             estado_duque["resposta"] = resultado.text or ""
@@ -313,6 +335,31 @@ def executar_comando():
             "ok": False,
             "erro": f"{type(exc).__name__}: {exc}",
         }), 500
+
+
+@app.route("/api/conversa", methods=["GET"])
+def conversa():
+    if request.args.get("formato") == "texto":
+        return jsonify({"texto": agent.conversation.transcript(12)})
+    try:
+        desde = int(request.args.get("desde", "0"))
+    except ValueError:
+        desde = 0
+    turnos = agent.conversation.since(desde) if desde else agent.conversation.recent(30)
+    return jsonify({
+        "turnos": [turno.to_dict() for turno in turnos],
+        "ultimo": agent.conversation.last_id(),
+        "voz_ativa": bridge.voice_active,
+    })
+
+
+@app.route("/api/conversa", methods=["POST"])
+def registrar_conversa():
+    dados = request.get_json(silent=True) or {}
+    turno = agent.conversation.add(str(dados.get("role", "")), str(dados.get("text", "")), str(dados.get("canal", "voz")))
+    if turno is None:
+        return jsonify({"erro": "Turno inválido."}), 400
+    return jsonify({"ok": True, "id": turno.id})
 
 
 @app.route("/api/forja", methods=["GET"])

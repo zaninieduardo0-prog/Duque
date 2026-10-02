@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+from computer.apps import find_app_in_text
+
+_UNITS = {"segundo": 1, "segundos": 1, "minuto": 60, "minutos": 60, "hora": 3600, "horas": 3600}
+_DURATION = re.compile(r"(\d+(?:[.,]\d+)?)\s*(segundos?|minutos?|horas?)")
 
 
 class StepKind(str, Enum):
@@ -85,7 +91,7 @@ class Planner:
             )
             app_name = next((name for marker_text, name in names if marker_text in lowered), "")
             if not app_name:
-                app_name = self._app_name(goal)
+                app_name = find_app_in_text(goal) or self._app_name(goal)
             if not tool_available("close_app"):
                 return Plan(goal)
             return Plan(goal, [PlanStep(
@@ -103,7 +109,7 @@ class Planner:
             )
             app_name = next((name for marker_text, name in names if marker_text in lowered), "")
             if not app_name:
-                app_name = context_app or self._app_name(goal)
+                app_name = find_app_in_text(goal) or context_app or self._app_name(goal)
             if not tool_available("is_app_running"):
                 return Plan(goal)
             return Plan(goal, [PlanStep(
@@ -143,6 +149,9 @@ class Planner:
 
         if intent == "file_operation":
             lowered = goal.casefold()
+            folder_plan = self._folder_or_search_plan(goal, tool_available)
+            if folder_plan is not None:
+                return folder_plan
             if any(marker in lowered for marker in (
                 "liste os arquivos", "listar os arquivos", "liste os ficheiros",
                 "listar arquivos", "mostre os arquivos", "mostra os arquivos",
@@ -217,7 +226,89 @@ class Planner:
             ])
             return Plan(goal, steps)
 
+        assistant_plan = self._assistant_plan(goal, intent, tool_available)
+        if assistant_plan is not None:
+            return assistant_plan
+
         if intent in {"reminder", "system"}:
             return Plan(goal)
 
         return Plan(goal, [PlanStep("Responder à solicitação", StepKind.RESPOND)])
+
+    @staticmethod
+    def parse_duration(text: str) -> float | None:
+        """Soma durações como "1 hora e 30 minutos" em segundos."""
+        total = 0.0
+        for amount, unit in _DURATION.findall(text.casefold()):
+            total += float(amount.replace(",", ".")) * _UNITS[unit]
+        return total or None
+
+    @staticmethod
+    def _folder_or_search_plan(goal: str, tool_available) -> Plan | None:
+        """"abre a pasta downloads" e "procura arquivos chamados X" no computador do Du."""
+        from computer.assistant_tools import KNOWN_FOLDERS
+
+        lowered = " ".join(goal.casefold().split())
+        if re.search(r"\b(?:abr[ae]|abrir|mostr[ae])\b", lowered) and "pasta" in lowered and tool_available("open_folder"):
+            for name in sorted(KNOWN_FOLDERS, key=len, reverse=True):
+                if re.search(rf"\b{re.escape(name)}\b", lowered):
+                    return Plan(goal, [PlanStep(f"Abrir a pasta {name}", StepKind.TOOL, "open_folder", {"name": name})])
+        if re.search(r"\b(?:procur[ae]|procurar|encontr[ae]|encontrar|ach[ae]|localiz[ae])\b", lowered) and "arquivo" in lowered and tool_available("find_files"):
+            quoted = re.search(r"[\"'“]([^\"'”]+)[\"'”]", goal)
+            named = re.search(r"(?:chamad[oa]s?|com o nome|nomead[oa]s?|de nome)\s+(.+?)(?:\s+na pasta.*)?[?.!]*$", goal, flags=re.IGNORECASE)
+            name = (quoted.group(1) if quoted else named.group(1) if named else "").strip()
+            if name:
+                return Plan(goal, [PlanStep(f"Procurar arquivos: {name}", StepKind.TOOL, "find_files", {"name": name})])
+        return None
+
+    def _assistant_plan(self, goal: str, intent: str, tool_available) -> Plan | None:
+        """Planos determinísticos para as ferramentas do dia a dia."""
+        lowered = " ".join(goal.casefold().split())
+
+        def single(description: str, tool: str, arguments: dict[str, Any]) -> Plan | None:
+            if not tool_available(tool):
+                return None
+            return Plan(goal, [PlanStep(description, StepKind.TOOL, tool, arguments)])
+
+        if intent == "time":
+            return single("Consultar data e hora", "current_time", {})
+        if intent == "weather":
+            match = re.search(r"\b(?:em|de|para)\s+([a-zà-ú][a-zà-ú\s]+?)(?:\?|$|\s+(?:hoje|agora|amanhã|amanha))", lowered)
+            city = match.group(1).strip() if match and match.group(1).strip() not in {"hoje", "agora"} else ""
+            return single("Consultar o clima", "weather", {"city": city} if city else {})
+        if intent == "media":
+            if any(word in lowered for word in ("próxima", "proxima", "pula")):
+                action = "next"
+            elif any(word in lowered for word in ("anterior", "volta a")):
+                action = "previous"
+            else:
+                action = "play_pause"
+            return single("Controlar a mídia", "media", {"action": action})
+        if intent == "note":
+            if any(word in lowered for word in ("minhas notas", "minhas anotações", "minhas anotacoes", "leia as notas")):
+                return single("Listar notas", "notes_list", {})
+            text = re.sub(r"^(?:duque[,!]?\s+)?(?:anote|anota|faça uma nota|faz uma nota)\s*(?:que|:)?\s*", "", goal.strip(), flags=re.IGNORECASE)
+            return single("Guardar nota", "note_add", {"text": text or goal})
+        if intent == "calc":
+            expression = re.sub(r"^(?:duque[,!]?\s+)?(?:quanto é|quanto e|calcule|calcula)\s*", "", goal.strip(), flags=re.IGNORECASE).rstrip("?! ")
+            return single("Calcular", "calculate", {"expression": expression})
+        if intent == "reminder":
+            seconds = self.parse_duration(goal)
+            if seconds:
+                label = re.sub(r"\b(?:em|daqui a|daqui)\s+\d+.*$", "", goal, flags=re.IGNORECASE)
+                label = re.sub(r"^(?:duque[,!]?\s+)?(?:me lembre|me lembra|me avise|me avisa|crie um timer|cria um timer|timer)\s*(?:de|para|que)?\s*", "", label.strip(), flags=re.IGNORECASE)
+                arguments: dict[str, Any] = {"seconds": seconds}
+                if label.strip(" .,!?"):
+                    arguments["label"] = label.strip(" .,!?")
+                return single("Criar timer", "timer_set", arguments)
+            return None
+        if intent == "system":
+            if any(word in lowered for word in ("aumente o volume", "aumentar o volume", "aumenta o volume", "sobe o volume")):
+                return single("Aumentar volume", "volume", {"direction": "up"})
+            if any(word in lowered for word in ("diminua o volume", "diminuir o volume", "diminui o volume", "abaixa o volume", "abaixe o volume")):
+                return single("Diminuir volume", "volume", {"direction": "down"})
+            if any(word in lowered for word in ("mute", "mutar", "desative o som", "ative o som", "silencie")):
+                return single("Alternar mudo", "volume", {"direction": "mute"})
+            if any(word in lowered for word in ("bloqueie", "bloquear", "bloqueia")) and "tela" in lowered:
+                return single("Bloquear a tela", "lock_screen", {})
+        return None

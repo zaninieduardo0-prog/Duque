@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from threading import RLock
 from typing import Any
 from uuid import uuid4
 
@@ -22,10 +23,13 @@ from computer.verification_tools import VerificationTools
 from computer.verified_ui import VerifiedScreenActions
 from computer.visual_workflow import VisualWorkflow
 from computer.workspace import Workspace
+from computer.assistant_tools import AssistantTools
+from memory.conversation import ConversationStore
 from memory.memory import Memory, MemoryLayer
 from .agent_state import AgentContext
 from .autonomous_loop import AutonomousLoop
 from .model import ModelAdapter, NullModel, OpenAIResponsesModel
+from .persona import text_system_prompt
 from .model_planner import ModelPlanner
 from .planner import Planner, StepKind
 from .router import IntentRouter
@@ -85,6 +89,10 @@ class AgentLoop:
         self.model_planner = model_planner or ModelPlanner(self.model, self.schemas)
         self.autonomous = AutonomousLoop(self.model, self.executor, self.schemas, observer=self._observe_screen, event_sink=self.engine.emit)
         self.memory = memory or Memory()
+        self.conversation = ConversationStore(self.memory)
+        self._handle_lock = RLock()
+        self.assistant_tools = AssistantTools(self.memory, notify=self.announce)
+        self.assistant_tools.register(self.executor, self.schemas)
         self._pending_confirmation: PendingConfirmation | None = None
         self._last_app: str | None = None
         self._restore_pending_confirmation()
@@ -136,6 +144,26 @@ class AgentLoop:
         if self.forge_service is None:
             return {"success": False, "error": "A Forja não está ativa"}
         return {"queued": True, **self.forge_service.submit(goal)}
+
+    @staticmethod
+    def _forge_status_requested(text: str) -> bool:
+        value = " ".join(text.casefold().split())
+        return "forja" in value and any(word in value for word in ("status", "andamento", "como está", "como esta", "progresso", "terminou", "o que está fazendo", "o que esta fazendo"))
+
+    def _forge_status_text(self) -> str:
+        if self.forge_service is None:
+            return "A Forja não está ativa."
+        status = self.forge_service.status()
+        current = status.get("current")
+        parts = []
+        if current:
+            parts.append(f"Trabalhando em: {current.get('goal')} (etapa: {current.get('step', 'iniciando')}).")
+        if status.get("queued"):
+            parts.append(f"{status['queued']} pedido(s) na fila.")
+        history = status.get("history") or []
+        if history:
+            parts.append("Último resultado: " + str(history[-1].get("summary", "")).splitlines()[0])
+        return " ".join(parts) or "A Forja está parada, sem pedidos."
 
     @staticmethod
     def _forge_requested(text: str) -> bool:
@@ -246,25 +274,22 @@ class AgentLoop:
                 pass
         return NullModel()
 
+    def announce(self, text: str) -> None:
+        """Aviso espontâneo do Duque (timer, Forja...): entra na conversa e o HUD fala."""
+        self.conversation.add("assistant", text, "aviso")
+
     def _chat_response(self, text: str) -> str:
-        """Gera a resposta conversacional usando o modelo configurado."""
-        response = self.model.respond([
-            {
-                "role": "system",
-                "content": (
-                    "Você é o Duque, assistente pessoal do usuário. "
-                    "Responda em português do Brasil, de forma natural, direta e útil. "
-                    "Não diga que é um modelo de linguagem."
-                ),
-            },
-            {"role": "user", "content": text},
-        ])
+        """Responde usando a persona e o histórico compartilhado de texto e voz."""
+        history = self.conversation.as_messages(16)
+        if not history or history[-1]["role"] != "user" or history[-1]["content"] != text.strip():
+            history.append({"role": "user", "content": text})
+        response = self.model.respond([{"role": "system", "content": text_system_prompt()}, *history])
         return response.text.strip() or "Não consegui formular uma resposta agora."
 
     def _build_plan(self, text: str, intent: str):
         # Ações operacionais simples devem ser determinísticas. O modelo fica
         # para tarefas ambíguas/complexas, evitando que um pedido claro vire "chat".
-        if isinstance(self.model, NullModel) or intent in {"open_app", "close_app", "check_app", "file_operation", "system", "reminder", "open_search_result"}:
+        if isinstance(self.model, NullModel) or intent in {"open_app", "close_app", "check_app", "file_operation", "system", "reminder", "open_search_result", "time", "weather", "media", "note", "calc"}:
             return self.planner.build(text, intent, set(self.schemas.names()), self._last_app)
         if intent in {"chat", "unknown"}:
             try:
@@ -294,7 +319,7 @@ class AgentLoop:
         )
         if tool_steps:
             return tool_steps
-        if intent in {"open_app", "close_app", "check_app", "search", "file_operation", "reminder", "system"}:
+        if intent in {"open_app", "close_app", "check_app", "search", "file_operation", "reminder", "system", "time", "weather", "media", "note", "calc"}:
             fallback = self.planner.build(text, intent, set(self.schemas.names()), self._last_app)
             return self._validated_tool_steps(
                 step for step in fallback.steps if step.kind == StepKind.TOOL
@@ -327,6 +352,8 @@ class AgentLoop:
             value = value.value
         if not isinstance(value, dict):
             return fallback
+        if isinstance(value.get("message"), str) and value["message"].strip():
+            return value["message"].strip()
         if "files" in value and isinstance(value["files"], list):
             files = [str(item) for item in value["files"]]
             if not files:
@@ -515,7 +542,25 @@ class AgentLoop:
         )
         return AgentResult(self._execution_message(last), task.id, last, report.attempts)
 
-    def handle(self, text: str, *, confirmed: bool = False, max_attempts: int = 3) -> AgentResult:
+    def handle(
+        self,
+        text: str,
+        *,
+        confirmed: bool = False,
+        max_attempts: int = 3,
+        channel: str = "texto",
+        record: bool = True,
+    ) -> AgentResult:
+        """Ponto de entrada único para texto e voz; registra a conversa compartilhada."""
+        with self._handle_lock:
+            if record:
+                self.conversation.add("user", text, channel)
+            result = self._handle(text, confirmed=confirmed, max_attempts=max_attempts)
+            if record:
+                self.conversation.add("assistant", result.text, channel)
+            return result
+
+    def _handle(self, text: str, *, confirmed: bool = False, max_attempts: int = 3) -> AgentResult:
         self.memory.remember(MemoryLayer.CONVERSATION, f"turn:{uuid4().hex}", {"role": "user", "text": text})
         if self._pending_confirmation is not None:
             if self._is_confirmation(text):
@@ -527,6 +572,9 @@ class AgentLoop:
                 f"Tenho uma ação aguardando confirmação: {pending.text}. Responda 'confirmo' ou 'cancela'.",
                 pending.task_id,
             )
+
+        if self.forge_service is not None and self._forge_status_requested(text):
+            return AgentResult(self._forge_status_text())
 
         if self.forge_service is not None and self._forge_requested(text):
             job = self.forge_service.submit(text)
@@ -578,7 +626,7 @@ class AgentLoop:
             return AgentResult(answer, task.id)
         if not tool_steps:
             self.tasks.start(task.id)
-            if route.intent.value in {"open_app", "close_app", "check_app", "search", "file_operation", "reminder", "system", "open_search_result"}:
+            if route.intent.value in {"open_app", "close_app", "check_app", "search", "file_operation", "reminder", "system", "open_search_result", "time", "weather", "media", "note", "calc"}:
                 error = f"Nenhuma ferramenta disponível para a intenção: {route.intent.value}"
                 self.tasks.fail(task.id, error)
                 self.memory.remember(

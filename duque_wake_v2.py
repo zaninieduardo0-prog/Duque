@@ -17,7 +17,8 @@ from openwakeword.model import Model
 from pvrecorder import PvRecorder
 from pedalboard import Compressor, Gain, HighpassFilter, LowShelfFilter, Pedalboard, time_stretch  # pyright: ignore[reportPrivateImportUsage]
 from agents.realtime import OpenAIRealtimeWebSocketModel, RealtimeRunner, RealtimePlaybackTracker
-from agent.duque_realtime import duque_realtime
+from agent.duque_realtime import duque_realtime, refresh_instructions
+from core.voice_bridge import bridge
 from voice.session import PlaybackFence
 
 MODEL = os.getenv("DUQUE_REALTIME_MODEL", "gpt-realtime-2.1")
@@ -296,6 +297,30 @@ async def send_microphone(session) -> None:
                 return
 
 
+def send_text_to_session(text: str) -> bool:
+    """Texto digitado no HUD durante a conversa de voz: entra na mesma sessão."""
+    loop, session = LOOP, SESSION
+    if loop is None or session is None or SHUTTING_DOWN:
+        return False
+
+    async def deliver() -> None:
+        if DUQUE_SPEAKING:
+            await interrupt_session()
+        try:
+            await session.send_message(text)
+        except Exception as exc:
+            log(f"[REALTIME] envio de texto falhou: {exc}")
+
+    loop.call_soon_threadsafe(lambda: asyncio.create_task(deliver()))
+    return True
+
+
+def stop_speech_from_core() -> None:
+    loop = LOOP
+    if loop is not None:
+        loop.call_soon_threadsafe(lambda: asyncio.create_task(interrupt_session()))
+
+
 async def wait_playback() -> None:
     await asyncio.to_thread(PLAYBACK_DRAINED.wait)
     await asyncio.sleep(0.15)
@@ -415,9 +440,14 @@ async def realtime_session() -> None:
         player = sd.RawOutputStream(samplerate=SAMPLE_RATE, channels=CANAIS, dtype="int16", blocksize=BLOCKSIZE, callback=output_callback)
         player.start()
         TRACKER = RealtimePlaybackTracker()
+        try:
+            await asyncio.to_thread(refresh_instructions)
+        except Exception as exc:
+            log(f"[REALTIME] contexto da conversa indisponível: {exc}")
         session = await runner.run(model_config={"playback_tracker": TRACKER})
         async with session:
             SESSION = session
+            bridge.attach_session(send_text_to_session, stop_speech_from_core)
             input_stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=CANAIS, dtype=np.int16, device=MICROFONE, blocksize=BLOCKSIZE, callback=microphone_callback)
             input_stream.start()
             MIC_ACTIVE = True
@@ -442,6 +472,7 @@ async def realtime_session() -> None:
     except Exception as exc:
         log(f"[REALTIME] sessão falhou: {exc!r}")
     finally:
+        bridge.detach_session()
         MIC_ACTIVE = False
         if input_stream:
             try:

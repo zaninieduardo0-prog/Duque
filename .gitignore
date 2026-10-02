@@ -4,3 +4,7 @@ __pycache__/
 *.egg-info/
 duque.log
 duque_data/
+
+# bancos locais (dados pessoais) nunca vão para o GitHub
+*.db
+*.db-journal

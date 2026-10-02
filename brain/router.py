@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import Enum
+
+from computer.apps import find_app_in_text
+
+_PREFIX = r"^(?:duque[,!]?\s+)?(?:por favor[,]?\s+)?"
+OPEN_VERB = re.compile(_PREFIX + r"(?:abr[ae]|abrir|inici[ae]|iniciar|execut[ae]|executar|liga|ligue)\b")
+CLOSE_VERB = re.compile(_PREFIX + r"(?:fech[ae]|fechar|encerr[ae]|encerrar|mat[ae])\b")
 
 
 class Intent(str, Enum):
@@ -15,6 +22,11 @@ class Intent(str, Enum):
     FILE_OPERATION = "file_operation"
     SYSTEM = "system"
     REMINDER = "reminder"
+    TIME = "time"
+    WEATHER = "weather"
+    MEDIA = "media"
+    NOTE = "note"
+    CALC = "calc"
     UNKNOWN = "unknown"
 
 
@@ -46,6 +58,12 @@ class IntentRouter:
 
         if any(phrase in value for phrase in self.OPEN_APP_PHRASES):
             return Route(Intent.OPEN_APP, 0.95, "pedido explícito para abrir aplicativo")
+
+        mentions_file = any(word in value for word in ("arquivo", "pasta"))
+        if OPEN_VERB.search(value) and not mentions_file and find_app_in_text(value):
+            return Route(Intent.OPEN_APP, 0.93, "verbo de abrir + aplicativo conhecido")
+        if CLOSE_VERB.search(value) and not mentions_file and find_app_in_text(value):
+            return Route(Intent.CLOSE_APP, 0.93, "verbo de fechar + aplicativo conhecido")
 
         if any(phrase in value for phrase in (
             "feche o chrome", "fechar o chrome", "fecha o chrome",
@@ -98,7 +116,27 @@ class IntentRouter:
         )):
             return Route(Intent.CODE, 0.9, "pedido relacionado a programação")
 
-        if any(x in value for x in ("me lembre", "lembrete", "lembrar", "agenda", "agende")):
+        if any(x in value for x in ("que horas", "que hora é", "que dia é hoje", "que dia e hoje", "data de hoje", "dia da semana")):
+            return Route(Intent.TIME, 0.95, "pergunta de data/hora")
+
+        if any(x in value for x in ("clima", "previsão do tempo", "previsao do tempo", "vai chover", "temperatura lá fora", "temperatura agora", "como está o tempo", "como esta o tempo")):
+            return Route(Intent.WEATHER, 0.9, "pergunta sobre o clima")
+
+        if any(x in value for x in (
+            "pausa a música", "pause a música", "pausar a música", "pausa a musica", "pause a musica",
+            "próxima música", "proxima musica", "próxima faixa", "proxima faixa", "pula a música", "pula a musica",
+            "música anterior", "musica anterior", "volta a música", "volta a musica", "faixa anterior",
+            "continua a música", "continua a musica", "solta a música", "solta a musica", "despausa",
+        )):
+            return Route(Intent.MEDIA, 0.92, "controle de mídia")
+
+        if value.startswith(("anote", "anota", "faça uma nota", "faz uma nota")) or any(x in value for x in ("minhas notas", "minhas anotações", "minhas anotacoes", "leia as notas")):
+            return Route(Intent.NOTE, 0.9, "anotação")
+
+        if re.match(r"^(?:duque[,!]?\s+)?(?:quanto é|quanto e|calcule|calcula)\b", value):
+            return Route(Intent.CALC, 0.9, "cálculo")
+
+        if any(x in value for x in ("me lembre", "lembrete", "lembrar", "agenda", "agende", "timer", "cronômetro", "cronometro", "me avise em", "me avisa em")):
             return Route(Intent.REMINDER, 0.85, "pedido de lembrete/agendamento")
 
         if any(x in value for x in (
