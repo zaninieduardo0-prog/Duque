@@ -23,6 +23,8 @@ class SecurityPolicy:
 
     _DEFAULTS = {
         "open_app": RiskLevel.LOW,
+        "close_app": RiskLevel.MEDIUM,
+        "is_app_running": RiskLevel.LOW,
         "open_url": RiskLevel.LOW,
         "open_path": RiskLevel.MEDIUM,
         "web_search": RiskLevel.LOW,
