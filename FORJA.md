@@ -54,9 +54,16 @@ deixa a versão nova em observação por 90 s. Se ela não responder em
 repetidas (5 em 10 min) fazem o supervisor parar em vez de ficar em loop.
 Log em `duque_data/supervisor.log`; estado em `duque_data/update_state.json`.
 
-## Estado atual
+## Como usar
 
-Os módulos da Forja, o adapter do Claude e o supervisor estão prontos e
-testados (`tests/test_forge.py`, com git real e remoto local). Ainda falta
-ligá-los ao `AgentLoop` (pedido por voz/texto → Forja) e trocar o
-`Duque.vbs` para iniciar pelo supervisor.
+- Por voz ou texto: "Duque, melhore seu código para ...", "coloque na Forja ...",
+  "corrija o projeto ...". O Duque responde na hora e trabalha em segundo plano.
+- O agente autônomo também pode chamar a ferramenta `forge_improve` sozinho.
+- HTTP: `GET /api/forja` (andamento e histórico) e
+  `POST /api/forja {"objetivo": "..."}`.
+- O `Duque.vbs` inicia pelo supervisor, então as atualizações reiniciam o Duque
+  sozinhas.
+
+A edição direta do código em execução fica desligada por padrão
+(`DUQUE_ALLOW_SELF_MODIFICATION=0`) e commits na instalação ao vivo pedem
+confirmação: o caminho de auto-desenvolvimento é a Forja.

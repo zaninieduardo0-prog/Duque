@@ -51,7 +51,12 @@ class SecurityPolicy:
         "reminder": RiskLevel.MEDIUM,
         "system_control": RiskLevel.HIGH,
         "git_push": RiskLevel.HIGH,
-        "git_commit": RiskLevel.MEDIUM,
+        # Commits na instalação ao vivo exigem confirmação; o caminho normal de
+        # auto-desenvolvimento é a Forja (cópia isolada + CI + rollback).
+        "git_commit": RiskLevel.HIGH,
+        "apply_code_change": RiskLevel.HIGH,
+        "forge_improve": RiskLevel.MEDIUM,
+        "forge_status": RiskLevel.LOW,
         "git_pull": RiskLevel.MEDIUM,
         "git_fetch": RiskLevel.LOW,
         "git_log": RiskLevel.LOW,

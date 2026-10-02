@@ -315,6 +315,24 @@ def executar_comando():
         }), 500
 
 
+@app.route("/api/forja", methods=["GET"])
+def forja_status():
+    if agent.forge_service is None:
+        return jsonify({"ativa": False, "motivo": "Forja desligada: configure ANTHROPIC_API_KEY (ou OPENAI_API_KEY)."})
+    return jsonify({"ativa": True, **agent.forge_service.status()})
+
+
+@app.route("/api/forja", methods=["POST"])
+def forja_enviar():
+    if agent.forge_service is None:
+        return jsonify({"erro": "Forja desligada."}), 503
+    dados = request.get_json(silent=True) or {}
+    objetivo = dados.get("objetivo") or dados.get("goal")
+    if not isinstance(objetivo, str) or not objetivo.strip():
+        return jsonify({"erro": "Informe o objetivo."}), 400
+    return jsonify({"ok": True, **agent.forge_service.submit(objetivo)})
+
+
 @app.route("/estado/<novo_estado>", methods=["GET"])
 def estado_compatibilidade(novo_estado: str):
     if novo_estado not in {state.value for state in DuqueState}:

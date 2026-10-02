@@ -13,5 +13,5 @@ If Not fso.FileExists(pythonw) Then
 End If
 
 shell.CurrentDirectory = root
-command = """" & pythonw & """ """ & root & "\duque.py"""
+command = """" & pythonw & """ """ & root & "\duque_supervisor.py"""
 shell.Run command, 0, False

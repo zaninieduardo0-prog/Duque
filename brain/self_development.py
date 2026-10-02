@@ -25,7 +25,7 @@ class SelfDevelopment:
     def __init__(self, workspace: Workspace) -> None:
         self.workspace = workspace
         self.tools = CodeTools(workspace)
-        self.allow_changes = os.getenv("DUQUE_ALLOW_SELF_MODIFICATION", "1").casefold() in {"1", "true", "yes", "on"}
+        self.allow_changes = os.getenv("DUQUE_ALLOW_SELF_MODIFICATION", "0").casefold() in {"1", "true", "yes", "on"}
 
     def inspect(self) -> dict[str, Any]:
         files = self.workspace.list_files()
@@ -70,7 +70,10 @@ class SelfDevelopment:
         if not self.allow_changes:
             return {
                 "success": False,
-                "error": "Auto-modificação desativada. Defina DUQUE_ALLOW_SELF_MODIFICATION=1 para permitir alterações.",
+                "error": (
+                    "Alterar o código em execução está desativado. Use forge_improve: a Forja altera "
+                    "uma cópia isolada, testa, passa pelo CI e aplica com rollback."
+                ),
             }
         return self.tools.write_file(path, content)
 

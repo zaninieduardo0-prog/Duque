@@ -53,7 +53,7 @@ class PendingConfirmation:
 class AgentLoop:
     """Orquestra entendimento, planejamento, execução, verificação, correção, memória e agenda."""
 
-    def __init__(self, engine: DuqueEngine | None = None, tasks: TaskManager | None = None, executor: Executor | None = None, workspace: Workspace | None = None, ui_tools: UITools | None = None, model: ModelAdapter | None = None, model_planner: ModelPlanner | None = None, memory: Memory | None = None) -> None:
+    def __init__(self, engine: DuqueEngine | None = None, tasks: TaskManager | None = None, executor: Executor | None = None, workspace: Workspace | None = None, ui_tools: UITools | None = None, model: ModelAdapter | None = None, model_planner: ModelPlanner | None = None, memory: Memory | None = None, forge_service: Any | None = None) -> None:
         self.engine = engine or DuqueEngine()
         self.router = IntentRouter()
         self.planner = Planner()
@@ -88,10 +88,67 @@ class AgentLoop:
         self._pending_confirmation: PendingConfirmation | None = None
         self._last_app: str | None = None
         self._restore_pending_confirmation()
+        self.forge_service = forge_service if forge_service is not None else self._create_forge_service()
+        if self.forge_service is not None:
+            self.executor.register("forge_improve", self._forge_improve)
+            self.executor.register("forge_status", self.forge_service.status)
+            self.schemas.register(ToolSpec(
+                "forge_improve",
+                "Melhora o próprio código do Duque com segurança: cópia isolada, testes, PR, CI e atualização automática",
+                ("goal",),
+                {"goal": str},
+            ))
+            self.schemas.register(ToolSpec("forge_status", "Consulta o andamento dos trabalhos da Forja"))
 
         self.scheduler = Scheduler(database=self.tasks.database)
         self.scheduled_runner = ScheduledTaskRunner(self.scheduler, self.task_engine, self.tasks, event_sink=self.engine.emit)
         self.scheduled_runner.start()
+
+    def _create_forge_service(self) -> Any | None:
+        """Liga a Forja quando há repositório Git e um modelo programador configurado."""
+        if os.getenv("DUQUE_FORGE", "1").casefold() in {"0", "false", "no", "off", "nao", "não"}:
+            return None
+        if not (self.workspace.root / ".git").exists():
+            return None
+        try:
+            from forge.config import ForgeConfig
+            from forge.forge import Forge
+            from forge.service import ForgeService
+            from forge.updater import Updater
+
+            from .providers.factory import create_developer_model
+
+            model = create_developer_model()
+            if model is None:
+                return None
+            config = ForgeConfig.from_env(self.workspace.root)
+            forge = Forge.create(config, model, self.tasks)
+            updater = Updater(config.repo_root, remote=config.remote, base_branch=config.base_branch)
+            return ForgeService(forge, updater, notify=self._forge_notify)
+        except Exception as exc:
+            self.memory.remember(MemoryLayer.OPERATIONAL, "forge:disabled", {"error": f"{type(exc).__name__}: {exc}"})
+            return None
+
+    def _forge_notify(self, kind: str, data: dict[str, Any]) -> None:
+        self.memory.remember(MemoryLayer.OPERATIONAL, f"forge:{kind}:{uuid4().hex[:8]}", data)
+
+    def _forge_improve(self, goal: str) -> dict[str, object]:
+        if self.forge_service is None:
+            return {"success": False, "error": "A Forja não está ativa"}
+        return {"queued": True, **self.forge_service.submit(goal)}
+
+    @staticmethod
+    def _forge_requested(text: str) -> bool:
+        """Pedidos para o Duque mudar o próprio código vão para a Forja."""
+        value = " ".join(text.casefold().strip().split())
+        markers = (
+            "forja", "seu código", "seu codigo", "seu próprio código", "seu proprio codigo",
+            "se melhore", "melhore a si", "melhore você", "melhore voce", "se atualize",
+            "atualize seu", "reescreva seu", "evolua seu", "evolua você", "evolua voce",
+            "melhore o projeto", "melhora o projeto", "corrija o projeto", "corrige o projeto",
+            "implemente no duque", "adicione ao duque", "adicione no duque",
+        )
+        return any(marker in value for marker in markers)
 
     def _observe_screen(self) -> dict[str, object]:
         if self.verification is None:
@@ -469,6 +526,14 @@ class AgentLoop:
             return AgentResult(
                 f"Tenho uma ação aguardando confirmação: {pending.text}. Responda 'confirmo' ou 'cancela'.",
                 pending.task_id,
+            )
+
+        if self.forge_service is not None and self._forge_requested(text):
+            job = self.forge_service.submit(text)
+            return AgentResult(
+                "Coloquei na Forja. Vou trabalhar numa cópia isolada, testar e abrir o PR; "
+                "se o CI passar, aplico e reinicio sozinho. "
+                f"Trabalho {job['id']}, posição {job['position']} na fila."
             )
 
         route = self.router.route(text, self._last_app)
