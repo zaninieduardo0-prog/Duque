@@ -108,6 +108,7 @@ class AgentLoop:
             ToolSpec("open_app", "Abre um aplicativo", ("name",), {"name": str}),
             ToolSpec("close_app", "Fecha um aplicativo pelo processo conhecido", ("name",), {"name": str}),
             ToolSpec("is_app_running", "Verifica se um aplicativo está em execução", ("name",), {"name": str}),
+            ToolSpec("is_app_running", "Verifica se um aplicativo está em execução", ("name",), {"name": str}),
             ToolSpec("open_url", "Abre uma URL no navegador; pode ser usada para serviços web como WhatsApp Web", ("url",), {"url": str}),
             ToolSpec("open_path", "Abre um caminho existente", ("path",), {"path": str}),
             ToolSpec("web_search", "Pesquisa na web sem abrir o navegador", ("query",), {"query": str}),
@@ -206,7 +207,7 @@ class AgentLoop:
     def _build_plan(self, text: str, intent: str):
         # Ações operacionais simples devem ser determinísticas. O modelo fica
         # para tarefas ambíguas/complexas, evitando que um pedido claro vire "chat".
-        if isinstance(self.model, NullModel) or intent in {"open_app", "file_operation", "system", "reminder", "open_search_result"}:
+        if isinstance(self.model, NullModel) or intent in {"open_app", "close_app", "check_app", "file_operation", "system", "reminder", "open_search_result"}:
             return self.planner.build(text, intent, set(self.schemas.names()))
         if intent in {"chat", "unknown"}:
             try:
@@ -496,7 +497,7 @@ class AgentLoop:
             return AgentResult(answer, task.id)
         if not tool_steps:
             self.tasks.start(task.id)
-            if route.intent.value in {"open_app", "search", "file_operation", "reminder", "system", "open_search_result"}:
+            if route.intent.value in {"open_app", "close_app", "check_app", "search", "file_operation", "reminder", "system", "open_search_result"}:
                 error = f"Nenhuma ferramenta disponível para a intenção: {route.intent.value}"
                 self.tasks.fail(task.id, error)
                 self.memory.remember(
