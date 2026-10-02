@@ -237,8 +237,8 @@ class AgentLoop:
         )
         if tool_steps:
             return tool_steps
-        if intent in {"open_app", "search", "file_operation", "reminder", "system"}:
-            fallback = self.planner.build(text, intent, set(self.schemas.names()))
+        if intent in {"open_app", "close_app", "check_app", "search", "file_operation", "reminder", "system"}:
+            fallback = self.planner.build(text, intent, set(self.schemas.names()), self._last_app)
             return self._validated_tool_steps(
                 step for step in fallback.steps if step.kind == StepKind.TOOL
             )
