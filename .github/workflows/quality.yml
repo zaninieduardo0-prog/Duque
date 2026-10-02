@@ -18,7 +18,7 @@ jobs:
           python-version: "3.13"
       - name: Install quality tools
         run: |
-          python -m pip install --upgrade pip pytest ruff pyright
+          python -m pip install --upgrade pip pytest pytest-github-actions-annotate-failures ruff pyright
           python -m pip install -e .
       - name: Import runtime modules
         env:
