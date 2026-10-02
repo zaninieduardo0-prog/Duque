@@ -60,6 +60,7 @@ class Planner:
         goal: str,
         intent: str = "chat",
         available_tools: set[str] | None = None,
+        context_app: str | None = None,
     ) -> Plan:
         def tool_available(name: str) -> bool:
             return available_tools is None or name in available_tools
@@ -101,7 +102,7 @@ class Planner:
             )
             app_name = next((name for marker_text, name in names if marker_text in lowered), "")
             if not app_name:
-                app_name = self._app_name(goal)
+                app_name = context_app or self._app_name(goal)
             if not tool_available("is_app_running"):
                 return Plan(goal)
             return Plan(goal, [PlanStep(
