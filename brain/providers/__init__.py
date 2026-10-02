@@ -1,3 +1,3 @@
-from .openai import OpenAIAdapter
+from .openai_provider import OpenAIAdapter
 
 __all__ = ["OpenAIAdapter"]
