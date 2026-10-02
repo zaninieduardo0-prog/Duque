@@ -92,6 +92,12 @@ setx ANTHROPIC_API_KEY "<sua chave da Anthropic, começa com sk-ant->"
 setx DUQUE_CITY "Piracicaba"
 ```
 
+Opcional — horário do resumo do dia falado (padrão 21:30; `"0"` desliga):
+
+```powershell
+setx DUQUE_DAILY_SUMMARY "21:30"
+```
+
 Opcional (a Forja abrir PRs sozinha): crie em
 GitHub → Settings → Developer settings → Fine-grained tokens, só para o
 repositório **Duque**, com *Contents: Read and write* e

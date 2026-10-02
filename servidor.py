@@ -367,6 +367,8 @@ def memoria():
         "notas": agent.assistant_tools.notes_list().get("notes", []),
         "timers": agent.assistant_tools.timers_list().get("timers", []),
         "lembretes": agent.reminders_list().get("reminders", []),
+        "rotinas": {nome: valor.get("commands", []) for nome, valor in agent.routines.routines_list().get("routines", {}).items()},
+        "contatos": [contato["name"] for contato in agent.messaging.contacts_list().get("contacts", [])],
         "foco_ate": agent._focus_until if agent.focus_active() else None,
         "turnos": agent.conversation.last_id(),
     })

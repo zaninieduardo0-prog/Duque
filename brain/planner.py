@@ -263,6 +263,9 @@ class Planner:
 
     @staticmethod
     def _shortcut_plan(goal: str, lowered: str, single) -> Plan | None:
+        social = Planner._social_plan(goal, lowered, single)
+        if social is not None:
+            return social
         if re.search(r"bloque(?:ie|ia|ar)", lowered):
             return single("Bloquear a tela", "lock_screen", {})
         if re.search(r"\btela\b|o que você (?:vê|ve)|o que voce (?:vê|ve)", lowered):
@@ -298,6 +301,50 @@ class Planner:
             return single("Cancelar timers", "timer_cancel", {})
         if "timer" in lowered:
             return single("Listar timers", "timers_list", {})
+        return None
+
+    @staticmethod
+    def _social_plan(goal: str, lowered: str, single) -> Plan | None:
+        """WhatsApp, contatos, rotinas e resumo do dia."""
+        text = goal.strip()
+        if re.search(r"\b(?:mand[ae]|envi[ae]|escrev[ae])\b[^.?!]*\b(?:mensagem|msg|zap|whatsapp)\b", lowered):
+            match = re.search(
+                r"\b(?:para|pro|pra|ao|à)\s+(?:o |a )?(.+?)(?:\s+(?:no|pelo) (?:whatsapp|zap))?(?:\s+(?:dizendo(?: que)?|falando(?: que)?|escrito|com o texto|que)\s+|\s*:\s*)(.+)$",
+                text, flags=re.IGNORECASE,
+            )
+            if match:
+                contact = re.sub(r"\s+(?:no|pelo) (?:whatsapp|zap)$", "", match.group(1), flags=re.IGNORECASE).strip()
+                return single("Preparar mensagem no WhatsApp", "whatsapp_message", {"contact": contact, "text": match.group(2).strip()})
+            body = re.search(r"(?:dizendo|falando|escrito|com o texto|:)\s*(.+)$", text, flags=re.IGNORECASE)
+            if body:
+                return single("Preparar mensagem no WhatsApp", "whatsapp_message", {"contact": "", "text": body.group(1).strip()})
+            return None
+        if "meus contatos" in lowered:
+            return single("Listar contatos", "contacts_list", {})
+        if "contato" in lowered:
+            match = re.search(r"contato\s+(.+?)\s+(\+?\d[\d\s().-]{8,})\s*$", text, flags=re.IGNORECASE)
+            if match:
+                return single("Salvar contato", "contact_save", {"name": match.group(1).strip(), "phone": match.group(2).strip()})
+            return None
+        if "minhas rotinas" in lowered:
+            return single("Listar rotinas", "routines_list", {})
+        if "rotina" in lowered:
+            if re.search(r"\b(?:cri[ae]|salv[ae]|nova)\b", lowered):
+                match = re.search(r"rotina\s+([\wÀ-ú]+)\s*(?:com|:|-|=|que faz|que)?\s*(.+)$", text, flags=re.IGNORECASE)
+                if match:
+                    return single("Salvar rotina", "routine_save", {"name": match.group(1), "commands": match.group(2)})
+                return None
+            name = re.search(r"rotina\s+(?:de\s+|do\s+|da\s+)?([\wÀ-ú]+)", text, flags=re.IGNORECASE)
+            if not name:
+                return None
+            if re.search(r"\b(?:apag|exclu|remov)\w*", lowered):
+                return single("Apagar rotina", "routine_delete", {"name": name.group(1)})
+            return single("Rodar rotina", "routine_run", {"name": name.group(1)})
+        mode = re.search(r"modo\s+([\wÀ-ú]+)\s*$", lowered)
+        if mode and mode.group(1) != "foco":
+            return single("Rodar rotina", "routine_run", {"name": mode.group(1)})
+        if re.search(r"resumo do (?:meu )?dia|como foi (?:o )?meu dia|o que (?:eu )?fiz hoje", lowered):
+            return single("Resumo do dia", "day_summary", {})
         return None
 
     def _assistant_plan(self, goal: str, intent: str, tool_available) -> Plan | None:

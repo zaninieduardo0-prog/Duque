@@ -9,6 +9,10 @@ from computer.apps import find_app_in_text
 _PREFIX = r"^(?:duque[,!]?\s+)?(?:por favor[,]?\s+)?"
 OPEN_VERB = re.compile(_PREFIX + r"(?:abr[ae]|abrir|inici[ae]|iniciar|execut[ae]|executar|liga|ligue)\b")
 SHORTCUT_PATTERNS = (
+    re.compile(r"\b(?:mand[ae]|envi[ae]|escrev[ae])\b[^.?!]*\b(?:mensagem|msg|zap|whatsapp)\b"),
+    re.compile(r"\b(?:salv[ae]|guard[ae]|adicion[ae]) (?:o |um |novo )?contato\b|\bmeus contatos\b"),
+    re.compile(r"\b(?:cri[ae]|salv[ae]|nova|apagu?e|apaga|exclu[ai]|remov[ae]|rod[ae]|execut[ae]|inici[ae]|ativ[ae]) (?:a |uma )?rotina\b|\bminhas rotinas\b|^(?:duque[,!]?\s+)?(?:ativ[ae] (?:o )?)?modo (?!foco\b)[a-zà-ú]+$"),
+    re.compile(r"\bresumo do (?:meu )?dia\b|\bcomo foi (?:o )?meu dia\b|\bo que (?:eu )?fiz hoje\b"),
     re.compile(r"\b(?:o que (?:tem|está|esta|aparece|é isso|e isso) na (?:minha )?tela|l[eê]i?a a tela|olh[ae] (?:a|minha) tela|o que você (?:vê|ve)|o que voce (?:vê|ve)|explica (?:essa|esta|o que tem na) tela|(?:esse|este) erro na tela)\b"),
     re.compile(r"\b(?:modo foco|pomodoro|foco por|(?:sair|sai|encerr[ae]|termin[ae]|desativ[ae]|desliga|para) (?:do |o )?(?:modo )?foco)\b"),
     re.compile(r"\b(?:meus lembretes|minha agenda|o que (?:eu )?tenho (?:agendado|marcado)|cancel(?:a|e|ar) (?:o|os|todos os) lembretes?)\b"),

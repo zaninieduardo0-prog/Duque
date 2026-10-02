@@ -26,6 +26,7 @@ from computer.verified_ui import VerifiedScreenActions
 from computer.visual_workflow import VisualWorkflow
 from computer.workspace import Workspace
 from computer.assistant_tools import AssistantTools
+from computer.messaging import Messaging
 from computer.now_playing import NowPlaying
 from computer.screen_vision import ScreenVision
 from memory.conversation import ConversationStore
@@ -34,6 +35,7 @@ from .agent_state import AgentContext
 from .autonomous_loop import AutonomousLoop
 from .model import ModelAdapter, NullModel, OpenAIResponsesModel
 from .persona import text_system_prompt
+from .routines import Routines
 from .when import describe_moment, parse_when
 from .model_planner import ModelPlanner
 from .planner import Planner, StepKind
@@ -120,6 +122,7 @@ class AgentLoop:
         self._focus_until: float | None = None
         self._focus_timer: threading.Timer | None = None
         self._register_life_tools()
+        self._ensure_daily_summary()
         self.scheduled_runner.start()
 
     def _create_forge_service(self) -> Any | None:
@@ -343,7 +346,17 @@ class AgentLoop:
 
     # agenda, foco e visão ----------------------------------------------------
     def _register_life_tools(self) -> None:
+        self.routines = Routines(self.memory, self._run_routine_step, lambda: set(self.schemas.names()))
+        self.messaging = Messaging(self.memory, self.assistant_tools.open_target)
         tools = [
+            (ToolSpec("routine_run", "Roda uma rotina salva (ex.: 'trabalho', 'estudo', 'jogo')", ("name",), {"name": str}), self.routines.routine_run),
+            (ToolSpec("routine_save", "Cria ou substitui uma rotina com comandos separados por vírgula", ("name", "commands"), {"name": str, "commands": str}), self.routines.routine_save),
+            (ToolSpec("routines_list", "Lista as rotinas"), self.routines.routines_list),
+            (ToolSpec("routine_delete", "Apaga uma rotina", ("name",), {"name": str}), self.routines.routine_delete),
+            (ToolSpec("contact_save", "Salva um contato com telefone para o WhatsApp", ("name", "phone"), {"name": str, "phone": str}), self.messaging.contact_save),
+            (ToolSpec("contacts_list", "Lista os contatos salvos"), self.messaging.contacts_list),
+            (ToolSpec("whatsapp_message", "Abre o WhatsApp com a mensagem pronta para o contato; o Du confere e envia", ("text",), {"contact": str, "text": str}), self.messaging.whatsapp_message),
+            (ToolSpec("day_summary", "Resumo do dia: o que foi feito, o que falhou e a agenda de amanhã"), self.day_summary),
             (ToolSpec("reminder_at", "Cria um lembrete em data/hora (ex.: 'amanhã às 9h', 'sexta às 18:30'); sobrevive a reinícios", ("when",), {"when": str, "text": str}), self.reminder_at),
             (ToolSpec("reminders_list", "Lista os lembretes agendados"), self.reminders_list),
             (ToolSpec("reminder_cancel", "Cancela o lembrete de número indicado (0 = todos)", (), {"index": int}), self.reminder_cancel),
@@ -403,8 +416,84 @@ class AgentLoop:
         self.scheduler.cancel(job.id)
         return {"message": f"Cancelei o lembrete: {job.description}.", "cancelled": 1}
 
+    def _run_routine_step(self, tool: str, arguments: dict[str, Any]) -> tuple[bool, str]:
+        task = self.tasks.create(f"[rotina] {tool}", source="routine")
+        result = self.executor.execute_step(task, tool, arguments)
+        if result.success:
+            return True, self._execution_message(result, f"{tool} ok")
+        return False, f"{tool}: {result.error or 'falhou'}"
+
+    def _ensure_daily_summary(self) -> None:
+        """Agenda o resumo diário (DUQUE_DAILY_SUMMARY=HH:MM; 0 desliga)."""
+        from datetime import datetime, timedelta
+
+        setting = os.getenv("DUQUE_DAILY_SUMMARY", "21:30").strip()
+        existing = [job for job in self.scheduler.list() if job.metadata.get("daily_summary")]
+        if setting.casefold() in {"0", "off", "false", "nao", "não", ""}:
+            for job in existing:
+                self.scheduler.cancel(job.id)
+            return
+        try:
+            hour, minute = (int(part) for part in setting.split(":", 1))
+        except ValueError:
+            return
+        if any(job.metadata.get("daily_summary") == setting for job in existing):
+            return
+        for job in existing:
+            self.scheduler.cancel(job.id)
+        now = datetime.now()
+        first = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if first <= now:
+            first += timedelta(days=1)
+        self.scheduler.add("resumo do dia", first, kind="reminder", daily_summary=setting, repeat_seconds=86400)
+
+    def day_summary(self) -> dict[str, object]:
+        from datetime import datetime, timedelta
+
+        now = datetime.now()
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+        today = [task for task in self.tasks.list() if task.created_at >= start and not str(task.description).startswith("[")]
+        done = [task for task in today if task.status.value == "completed"]
+        failed = [task for task in today if task.status.value == "failed"]
+        actions = [task.description for task in done if task.metadata.get("intent") not in {None, "chat", "unknown"}]
+        parts = [f"Resumo do dia, Du: {len(done)} pedido(s) atendido(s)"]
+        if actions:
+            highlights = list(dict.fromkeys(actions))[-4:]
+            parts[0] += ", entre eles: " + "; ".join(highlights)
+        parts[0] += "."
+        if failed:
+            parts.append(f"{len(failed)} não deram certo.")
+        if self.forge_service is not None:
+            merged = [item for item in self.forge_service.status().get("history") or [] if item.get("status") == "merged"]
+            if merged:
+                parts.append(f"A Forja aplicou {len(merged)} melhoria(s).")
+        tomorrow = (now + timedelta(days=1)).date()
+        agenda = [job for job in self._agenda() if datetime.fromtimestamp(job.run_at).date() == tomorrow]
+        if agenda:
+            items = [f"{datetime.fromtimestamp(job.run_at):%H:%M} {job.description}" for job in agenda]
+            parts.append("Amanhã: " + "; ".join(items) + ".")
+        else:
+            parts.append("Nada na agenda de amanhã.")
+        return {"message": " ".join(parts), "done": len(done), "failed": len(failed), "tomorrow": len(agenda)}
+
     def _on_reminder(self, job: Any) -> None:
         from datetime import datetime
+
+        if job.metadata.get("daily_summary"):
+            from datetime import timedelta
+
+            hour, minute = (int(part) for part in str(job.metadata["daily_summary"]).split(":", 1))
+            fired = datetime.fromtimestamp(job.last_run_at or time.time())
+            scheduled = fired.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if scheduled > fired:
+                scheduled -= timedelta(days=1)
+            # Se o PC estava desligado no horário, não despeja o resumo atrasado de manhã.
+            if (fired - scheduled).total_seconds() < 2 * 3600:
+                self.announce(str(self.day_summary()["message"]))
+            # Mantém o próximo resumo no horário configurado, mesmo após um disparo atrasado.
+            job.run_at = (scheduled + timedelta(days=1)).timestamp()
+            self.scheduler._save(job)
+            return
 
         late = (job.last_run_at or time.time()) - job.run_at
         text = f"Du, lembrete: {job.description}."

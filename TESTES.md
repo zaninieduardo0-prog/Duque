@@ -100,6 +100,19 @@ marque ✅ ou ❌. Se der ❌, anote o que aconteceu (e, se houver, o trecho de
 | 4C.8 | Abra algo na tela e pergunte `o que tem na minha tela?` | Descreve a tela em poucas frases |
 | 4C.9 | Com uma mensagem de erro aberta: `que erro é esse na tela?` | Explica o erro e sugere solução |
 
+## 4D. Rotinas, WhatsApp e resumo do dia
+
+| # | Ação | Esperado |
+|---|------|----------|
+| 4D.1 | `modo trabalho` | Abre VS Code, Spotify e GitHub (rotina pronta) |
+| 4D.2 | `crie a rotina noite: abre o youtube, diminua o volume` e depois `modo noite` | Salva e roda as duas ações |
+| 4D.3 | `minhas rotinas` / painel MEMÓRIA | Lista trabalho, estudo, jogo e as suas |
+| 4D.4 | `salve o contato <nome> <DDD + número>` | Confirma o contato |
+| 4D.5 | `manda uma mensagem pro <nome> no whatsapp dizendo que vou atrasar` | WhatsApp abre na conversa com o texto pronto; **só envia se você apertar Enter** |
+| 4D.6 | `manda mensagem: teste` (sem contato) | WhatsApp abre para você escolher o contato |
+| 4D.7 | `resumo do dia` | Quantos pedidos, o que falhou e a agenda de amanhã |
+| 4D.8 | Deixe o Duque ligado às 21:30 | Ele fala o resumo do dia sozinho (mude com `setx DUQUE_DAILY_SUMMARY "22:00"` ou desligue com `"0"`) |
+
 ## 5. Forja
 
 | # | Ação | Esperado |

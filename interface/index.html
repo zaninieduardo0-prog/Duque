@@ -320,6 +320,14 @@ body{
         <div class="label">Timers ativos</div>
         <ul id="memTimers"></ul>
       </section>
+      <section>
+        <div class="label">Rotinas</div>
+        <ul id="memRoutines"></ul>
+      </section>
+      <section>
+        <div class="label">Contatos</div>
+        <ul id="memContacts"></ul>
+      </section>
     </div>
   </div>
 
@@ -1255,6 +1263,17 @@ async function loadMemory(){
       b.textContent=when.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'})+' '+when.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
       li.append(a,b); agenda.appendChild(li);
     });
+    const routines=$('memRoutines'); routines.innerHTML='';
+    Object.entries(m.rotinas||{}).forEach(([nome,cmds])=>{
+      const li=document.createElement('li');
+      const a=document.createElement('span'); a.textContent='modo '+nome;
+      const b=document.createElement('span'); b.textContent=cmds.join(' · '); b.style.textAlign='right'; b.style.opacity='.6';
+      li.append(a,b); routines.appendChild(li);
+    });
+    if(!Object.keys(m.rotinas||{}).length) routines.innerHTML='<li class="empty">Nenhuma rotina.</li>';
+    const contacts=$('memContacts');
+    contacts.innerHTML = (m.contatos||[]).length ? '' : '<li class="empty">Diga "salve o contato Nome 19 99999-9999".</li>';
+    (m.contatos||[]).forEach(nome=>{ const li=document.createElement('li'); li.textContent=nome; contacts.appendChild(li); });
     if(!(m.lembretes||[]).length) agenda.innerHTML='<li class="empty">Nada agendado. Diga "me lembra amanhã às 9h de…".</li>';
   }catch(e){}
 }
