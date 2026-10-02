@@ -15,7 +15,7 @@ import openwakeword
 import sounddevice as sd
 from openwakeword.model import Model
 from pvrecorder import PvRecorder
-from pedalboard import Compressor, Gain, HighpassFilter, LowShelfFilter, Pedalboard, time_stretch
+from pedalboard import Compressor, Gain, HighpassFilter, LowShelfFilter, Pedalboard, time_stretch  # pyright: ignore[reportPrivateImportUsage]
 from agents.realtime import OpenAIRealtimeWebSocketModel, RealtimeRunner, RealtimePlaybackTracker
 from agent.duque_realtime import duque_realtime
 from voice.session import PlaybackFence
