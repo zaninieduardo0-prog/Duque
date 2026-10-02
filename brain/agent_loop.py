@@ -86,6 +86,7 @@ class AgentLoop:
         self.autonomous = AutonomousLoop(self.model, self.executor, self.schemas, observer=self._observe_screen, event_sink=self.engine.emit)
         self.memory = memory or Memory()
         self._pending_confirmation: PendingConfirmation | None = None
+        self._last_app: str | None = None
         self._restore_pending_confirmation()
 
         self.scheduler = Scheduler(database=self.tasks.database)
@@ -207,16 +208,16 @@ class AgentLoop:
         # Ações operacionais simples devem ser determinísticas. O modelo fica
         # para tarefas ambíguas/complexas, evitando que um pedido claro vire "chat".
         if isinstance(self.model, NullModel) or intent in {"open_app", "close_app", "check_app", "file_operation", "system", "reminder", "open_search_result"}:
-            return self.planner.build(text, intent, set(self.schemas.names()))
+            return self.planner.build(text, intent, set(self.schemas.names()), self._last_app)
         if intent in {"chat", "unknown"}:
             try:
                 return self.model_planner.build(text, self.executor.tools.names())
             except Exception:
-                return self.planner.build(text, intent)
+                return self.planner.build(text, intent, context_app=self._last_app)
         try:
             return self.model_planner.build(text, self.executor.tools.names())
         except Exception:
-            return self.planner.build(text, intent, set(self.schemas.names()))
+            return self.planner.build(text, intent, set(self.schemas.names()), self._last_app)
 
     def _validated_tool_steps(self, steps) -> list[tuple[str, dict[str, Any]]]:
         validated: list[tuple[str, dict[str, Any]]] = []
@@ -478,6 +479,8 @@ class AgentLoop:
             return self._handle_autonomous(text, confirmed=confirmed)
         task = self.tasks.create(text, intent=route.intent.value, confidence=route.confidence)
 
+        # Mantém o último aplicativo citado para frases naturais como
+        # "abre o Chrome" -> "ele está aberto?".
         plan = self._build_plan(text, route.intent.value)
         self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "created"})
         tool_steps = self._ensure_executable_plan(text, route.intent.value, plan)
@@ -523,6 +526,14 @@ class AgentLoop:
             self.engine.emit(EventType.TASK_FINISHED, task_id=task.id)
             return AgentResult(text, task.id)
         report = self.correction.run(task, lambda error, attempt: self._correct_steps(text, route.intent.value, tool_steps, error, attempt), max_attempts=max_attempts, confirmed=confirmed)
+
+        if report.success and route.intent.value in {"open_app", "close_app", "check_app"}:
+            for tool_name, arguments in tool_steps:
+                if tool_name in {"open_app", "close_app", "is_app_running"}:
+                    app_name = arguments.get("name")
+                    if isinstance(app_name, str) and app_name.strip():
+                        self._last_app = app_name.strip()
+                    break
         if not report.success:
             failed = next((item.result for item in reversed(report.results) if not item.result.success), None)
             if failed and failed.confirmation_required:
