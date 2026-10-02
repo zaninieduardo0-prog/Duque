@@ -35,4 +35,4 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m pytest -q tests
       - name: Run Pyright
-        run: pyright
+        run: python .github/scripts/pyright_annotate.py
