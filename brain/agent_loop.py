@@ -261,6 +261,12 @@ class AgentLoop:
 
     @staticmethod
     def _execution_message(value: object, fallback: str = "Tarefa concluída.") -> str:
+        # O executor devolve ExecutionResult; a mensagem deve interpretar o
+        # payload da ferramenta, não o envelope da execução.
+        if isinstance(value, ExecutionResult):
+            if not value.success:
+                return value.error or fallback
+            value = value.value
         if not isinstance(value, dict):
             return fallback
         if "files" in value and isinstance(value["files"], list):
@@ -448,7 +454,7 @@ class AgentLoop:
             f"task:{task.id}",
             {"description": pending.text, "status": "completed", "attempts": report.attempts},
         )
-        return AgentResult("Tarefa concluída.", task.id, last, report.attempts)
+        return AgentResult(self._execution_message(last), task.id, last, report.attempts)
 
     def handle(self, text: str, *, confirmed: bool = False, max_attempts: int = 3) -> AgentResult:
         self.memory.remember(MemoryLayer.CONVERSATION, f"turn:{uuid4().hex}", {"role": "user", "text": text})
