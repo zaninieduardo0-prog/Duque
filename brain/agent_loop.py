@@ -496,7 +496,7 @@ class AgentLoop:
             self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "failed", "error": error, "attempts": report.attempts})
             return AgentResult(f"Não consegui executar a tarefa: {error}", task.id, failed, report.attempts)
         last = report.results[-1].result if report.results else None
-        self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "attempts": report.attempts, "result": last})
+        self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "attempts": report.attempts, "result": last.value if last is not None else None})
         return AgentResult(self._execution_message(last), task.id, last, report.attempts)
 
     def _correct_steps(
