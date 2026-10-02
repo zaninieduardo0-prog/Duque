@@ -52,6 +52,17 @@ class SecurityPolicy:
         "git_pull": RiskLevel.MEDIUM,
         "git_fetch": RiskLevel.LOW,
         "git_log": RiskLevel.LOW,
+        "system_info": RiskLevel.LOW,
+        "environment": RiskLevel.LOW,
+        "list_directory": RiskLevel.LOW,
+        "read_any_file": RiskLevel.LOW,
+        "write_any_file": RiskLevel.HIGH,
+        "delete_any_file": RiskLevel.HIGH,
+        "copy_path": RiskLevel.HIGH,
+        "move_path": RiskLevel.HIGH,
+        "run_command": RiskLevel.HIGH,
+        "list_processes": RiskLevel.LOW,
+        "kill_process": RiskLevel.HIGH,
     }
 
     def assess(self, action: str) -> ActionPolicy:
