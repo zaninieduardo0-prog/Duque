@@ -71,7 +71,27 @@ class ComputerTools:
             {"title": item["title"], "url": _normalize_search_url(item["url"])}
             for item in parser.results[:8]
         ]
-        return {"query": query, "results": results, "count": len(results)}
+        payload = {"query": query, "results": results, "count": len(results)}
+        self._last_search = payload
+        return payload
+
+    def open_search_result(self, index: int = 1) -> dict[str, Any]:
+        if self._last_search is None:
+            raise ValueError("Nenhuma pesquisa recente disponível.")
+        results = self._last_search.get("results", [])
+        if not isinstance(results, list) or not results:
+            raise ValueError("A pesquisa recente não retornou resultados.")
+        position = int(index)
+        if position < 1 or position > len(results):
+            raise ValueError(f"Resultado inválido. Escolha entre 1 e {len(results)}.")
+        result = results[position - 1]
+        if not isinstance(result, dict):
+            raise ValueError("Resultado de pesquisa inválido.")
+        url = str(result.get("url") or "").strip()
+        if not url:
+            raise ValueError("O resultado selecionado não possui URL.")
+        self.controller.open_url(url)
+        return {"index": position, "title": str(result.get("title") or ""), "url": url, "opened": True}
 
     def open_app(self, name: str) -> dict[str, Any]:
         command = resolve_app(name)
@@ -95,6 +115,7 @@ class ComputerTools:
 
     def register(self, executor: Any) -> None:
         executor.register("web_search", self.web_search)
+        executor.register("open_search_result", self.open_search_result)
         executor.register("open_app", self.open_app)
         executor.register("open_url", self.open_url)
         executor.register("open_path", self.open_path)
