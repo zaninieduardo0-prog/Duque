@@ -16,6 +16,7 @@ dependencies = [
     "sounddevice>=0.5",
     "pvrecorder>=1.2",
     "pedalboard>=0.9",
+    "anthropic>=0.40",
 ]
 
 [tool.setuptools.packages.find]
@@ -26,6 +27,7 @@ include = [
     "brain*",
     "computer*",
     "core*",
+    "forge*",
     "memory*",
     "voice*",
 ]
@@ -46,9 +48,11 @@ include = [
     "brain",
     "computer",
     "core",
+    "forge",
     "memory",
     "voice",
     "duque.py",
+    "duque_supervisor.py",
     "servidor.py",
     "duque_wake_v2.py",
     "duque_wake_v3.py",

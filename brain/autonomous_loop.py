@@ -45,7 +45,9 @@ class AutonomousLoop:
         max_steps: int = 160,
         observer: Callable[[], dict[str, Any]] | None = None,
         event_sink: Callable[..., Any] | None = None,
+        system: str | None = None,
     ) -> None:
+        self.system = system or self.SYSTEM
         self.model = model
         self.executor = executor
         self.schemas = schemas
@@ -63,7 +65,7 @@ class AutonomousLoop:
             return AutonomousResult(False, "", error="Tarefa do contexto não encontrada")
 
         messages: list[dict[str, str]] = [
-            {"role": "system", "content": self.SYSTEM},
+            {"role": "system", "content": self.system},
             {"role": "user", "content": self._initial_prompt(context)},
         ]
         executions: list[ExecutionResult] = []
