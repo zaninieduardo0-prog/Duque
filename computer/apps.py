@@ -28,6 +28,24 @@ KNOWN_APPS.update({
     "paint": ["mspaint.exe"],
 })
 
+PROCESS_NAMES: dict[str, list[str]] = {
+    "notepad": ["notepad.exe"],
+    "bloco de notas": ["notepad.exe"],
+    "calculadora": ["calculatorapp.exe", "calc.exe"],
+    "calculadora do windows": ["calculatorapp.exe", "calc.exe"],
+    "calc": ["calculatorapp.exe", "calc.exe"],
+    "explorador": ["explorer.exe"],
+    "explorer": ["explorer.exe"],
+    "chrome": ["chrome.exe"],
+    "google chrome": ["chrome.exe"],
+    "edge": ["msedge.exe"],
+    "microsoft edge": ["msedge.exe"],
+    "paint": ["mspaint.exe"],
+    "whatsapp": ["whatsapp.exe"],
+    "whatsapp desktop": ["whatsapp.exe"],
+}
+})
+
 
 def resolve_app(name: str) -> list[str] | None:
     normalized = name.casefold().strip()
