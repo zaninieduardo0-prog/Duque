@@ -64,6 +64,7 @@ marque ✅ ou ❌. Se der ❌, anote o que aconteceu (e, se houver, o trecho de
 | 4.1 | `abre o spotify` / `fecha o spotify` | Abre / fecha |
 | 4.2 | `abre o discord`, `abre o vscode`, `abre as configurações` | Abre cada um (se instalado) |
 | 4.3 | `próxima música` / `música anterior` | Troca a faixa |
+| 4.3b | Com o Spotify tocando, olhe o painel **Spotify** do HUD | Mostra artista e música reais; os botões ⏮ ⏯ ⏭ controlam o Spotify |
 | 4.4 | `anote que preciso pagar a luz` e depois `minhas notas` | Nota salva e listada |
 | 4.5 | `como está o computador?` | CPU, memória, disco e bateria |
 | 4.6 | `abre a pasta downloads` | Abre o Explorer em Downloads |

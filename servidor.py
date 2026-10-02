@@ -9,6 +9,7 @@ from openai import OpenAI
 
 from brain.agent_loop import AgentLoop
 from core.events import Event, EventType
+from computer.now_playing import NowPlaying
 from core.voice_bridge import bridge
 from core.state import DuqueState
 
@@ -335,6 +336,28 @@ def executar_comando():
             "ok": False,
             "erro": f"{type(exc).__name__}: {exc}",
         }), 500
+
+
+now_playing = NowPlaying()
+
+
+@app.route("/api/midia", methods=["GET"])
+def midia_status():
+    return jsonify(now_playing.get())
+
+
+@app.route("/api/midia", methods=["POST"])
+def midia_controle():
+    dados = request.get_json(silent=True) or {}
+    acao = str(dados.get("acao", ""))
+    if acao not in {"play_pause", "next", "previous"}:
+        return jsonify({"erro": "Ação inválida: use play_pause, next ou previous."}), 400
+    try:
+        resultado = agent.assistant_tools.media(acao)
+    except Exception as exc:
+        return jsonify({"erro": f"{type(exc).__name__}: {exc}"}), 503
+    now_playing.invalidate()
+    return jsonify({"ok": True, **resultado})
 
 
 @app.route("/api/conversa", methods=["GET"])

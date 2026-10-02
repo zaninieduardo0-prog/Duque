@@ -268,7 +268,7 @@ body{
         <svg width="13" height="11" viewBox="0 0 13 11" fill="none"><path d="M1 1l8 4.5L1 10V1Z" stroke="currentColor" stroke-width="1"/><path d="M12 1v9" stroke="currentColor" stroke-width="1"/></svg>
       </button>
     </div>
-    <a id="sOpen" class="ghost" href="https://open.spotify.com" target="_blank" rel="noopener">Abrir Spotify</a>
+    <a id="sOpen" class="ghost" href="spotify:" rel="noopener">Abrir Spotify</a>
   </div>
 
   <!-- rodapé central -->
@@ -877,48 +877,45 @@ setInterval(()=>{
   else if(!micOn && s!=='listening') audioTarget = 0.02;
 }, 110);
 
-/* ---------------- spotify (arquitetura pronta para OAuth) ---------------- */
-const queue=[
-  {track:'Night Terminal', artist:'Mirrorline', duration:243},
-  {track:'Slow Machines', artist:'Aeris Vale', duration:198},
-  {track:'Gold Standard', artist:'Kaito Ferreira', duration:274},
-  {track:'Low Orbit', artist:'The Quiet Signal', duration:221}
-];
-let qi=0, sTimer=null;
-
-/* Substitua este objeto pela integração real (Web Playback SDK / Web API).
-   Basta chamar DUQUE.setState({spotify:{...}}) com os dados reais. */
-const Spotify = {
-  play(){ DUQUE.setState({spotify:{playing:true}}); runProgress(); DUQUE.activity('SPOTIFY'); },
-  pause(){ DUQUE.setState({spotify:{playing:false}}); clearInterval(sTimer); },
-  next(){ qi=(qi+1)%queue.length; load(); },
-  prev(){ qi=(qi-1+queue.length)%queue.length; load(); }
-};
-function load(){
-  const t=queue[qi];
-  DUQUE.setState({spotify:{track:t.track, artist:t.artist, duration:t.duration, progress:0}});
-  renderSpotify();
-  if(DUQUE.get().spotify.playing) runProgress();
-}
-function runProgress(){
-  clearInterval(sTimer);
-  sTimer=setInterval(()=>{
-    const sp=DUQUE.get().spotify;
-    if(!sp.playing) return;
-    sp.progress += 1;
-    if(sp.progress>=sp.duration) Spotify.next();
+/* ---------------- spotify (real, via Windows) ----------------
+   O servidor lê o que está tocando pelo título da janela do Spotify
+   (GET /api/midia) e controla com as teclas de mídia (POST /api/midia).
+*/
+let mediaBusy=false;
+async function pollMedia(){
+  if(mediaBusy) return;
+  mediaBusy=true;
+  try{
+    const r=await fetch('/api/midia',{cache:'no-store'});
+    if(!r.ok) return;
+    const m=await r.json();
+    const track = m.playing ? m.track : (m.running ? 'Pausado' : 'Spotify fechado');
+    const artist = m.playing ? m.artist : (m.running ? 'Toque para continuar' : 'Diga "abre o Spotify"');
+    DUQUE.setState({spotify:{playing:Boolean(m.playing), track, artist, running:Boolean(m.running)}});
     renderSpotify();
-  },1000);
+  }catch(e){}
+  finally{ mediaBusy=false; }
 }
-const fmt=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+async function mediaAction(acao){
+  try{
+    await fetch('/api/midia',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({acao})});
+  }catch(e){}
+  setTimeout(pollMedia,700);
+}
+const Spotify = {
+  play(){ mediaAction('play_pause'); DUQUE.activity('SPOTIFY'); },
+  pause(){ mediaAction('play_pause'); },
+  next(){ mediaAction('next'); },
+  prev(){ mediaAction('previous'); }
+};
 function renderSpotify(){
   const sp=DUQUE.get().spotify;
-  $('sTrack').textContent=sp.track;
-  $('sArtist').textContent=sp.artist;
-  $('sStatus').textContent=sp.playing?'Tocando':'Pausado';
-  $('sBar').style.width=(sp.duration? (sp.progress/sp.duration*100):0)+'%';
-  $('sCur').textContent=fmt(sp.progress||0);
-  $('sDur').textContent=fmt(sp.duration||0);
+  $('sTrack').textContent=sp.track||'—';
+  $('sArtist').textContent=sp.artist||'—';
+  $('sStatus').textContent=sp.playing?'Tocando':(sp.running?'Pausado':'Fechado');
+  $('sBar').style.width=sp.playing?'100%':'0%';
+  $('sBar').style.opacity=sp.playing?'.55':'0';
+  $('sMeta').style.visibility='hidden';
   $('sIcon').innerHTML = sp.playing
     ? '<path d="M2 1v11M10 1v11" stroke="currentColor" stroke-width="1"/>'
     : '<path d="M1 1l10 5.5L1 12V1Z" stroke="currentColor" stroke-width="1"/>';
@@ -927,7 +924,8 @@ function renderSpotify(){
 $('sPlay').onclick=()=>DUQUE.get().spotify.playing?Spotify.pause():Spotify.play();
 $('sNext').onclick=()=>Spotify.next();
 $('sPrev').onclick=()=>Spotify.prev();
-load();
+pollMedia();
+setInterval(pollMedia,3000);
 
 /* ---------------- comando / backend real ----------------
    O HUD conversa com o servidor Flask, que entrega o texto ao AgentLoop.

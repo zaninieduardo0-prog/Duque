@@ -159,6 +159,11 @@ class ServerConversationTests(unittest.TestCase):
         self.assertEqual(data["via"], "voz")
         self.assertEqual(sent, ["e amanhã?"])
 
+    def test_media_endpoints(self) -> None:
+        status = self.client.get("/api/midia").get_json()
+        self.assertIn("playing", status)
+        self.assertEqual(self.client.post("/api/midia", json={"acao": "dançar"}).status_code, 400)
+
     def test_typed_text_without_voice_is_answered(self) -> None:
         data = self.client.post("/api/comando", json={"text": "quanto é 2+3?"}).get_json()
         self.assertEqual(data["text"], "2+3 = 5")
