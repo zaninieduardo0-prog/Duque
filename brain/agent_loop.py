@@ -275,8 +275,15 @@ class AgentLoop:
             if len(content) > 6000:
                 content = content[:6000] + "\n...[conteúdo truncado]"
             return f"Arquivo: {value['path']}\n\n{content}"
-        if value.get("opened") is True:
+        if value.get("opened") is True and "app" in value:
             return f"Abri o aplicativo {value.get('app', 'solicitado')}."
+        if "closed" in value and "app" in value:
+            if value.get("closed") is True:
+                return f"Fechei o aplicativo {value.get('app', 'solicitado')}."
+            return f"O aplicativo {value.get('app', 'solicitado')} já não estava aberto."
+        if "running" in value and "app" in value:
+            status = "está aberto" if value.get("running") else "não está aberto"
+            return f"{value.get('app', 'O aplicativo')} {status}."
         if value.get("created") is True:
             return f"Criei o arquivo {value.get('path', 'solicitado')}."
         if value.get("deleted") is True:
