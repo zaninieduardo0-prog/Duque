@@ -11,7 +11,7 @@ from core.engine import DuqueEngine
 from core.events import EventType
 from core.executor import ExecutionResult, Executor
 from core.task_engine import TaskEngine
-from core.tasks import TaskManager
+from core.tasks import Task, TaskManager
 from computer.code_tools import CodeTools
 from computer.runtime import create_ui_tools, create_verification
 from computer.screen_tools import ScreenTools
@@ -312,8 +312,9 @@ class AgentLoop:
             return str(value.get("stdout") or value.get("stderr") or fallback).strip()
         return fallback
 
-    def _handle_autonomous(self, text: str, *, confirmed: bool = False, task: Any | None = None) -> AgentResult:
-        task = task or self.tasks.create(text, mode="autonomous")
+    def _handle_autonomous(self, text: str, *, confirmed: bool = False, task: Task | None = None) -> AgentResult:
+        if task is None:
+            task = self.tasks.create(text, mode="autonomous")
         context = AgentContext(goal=text, task_id=task.id)
         try:
             self.tasks.start(task.id)
@@ -565,8 +566,8 @@ class AgentLoop:
             return original_steps
 
         correction_goal = (
-            f"Objetivo original: {goal}\\n"
-            f"Falha da tentativa {attempt}: {error}\\n"
+            f"Objetivo original: {goal}\n"
+            f"Falha da tentativa {attempt}: {error}\n"
             "Crie um novo plano corrigido."
         )
         try:
