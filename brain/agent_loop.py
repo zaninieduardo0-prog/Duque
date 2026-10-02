@@ -470,7 +470,7 @@ class AgentLoop:
                 pending.task_id,
             )
 
-        route = self.router.route(text)
+        route = self.router.route(text, self._last_app)
         self.memory.remember(MemoryLayer.CONVERSATION, f"turn:{uuid4().hex}", {"role": "user", "text": text, "intent": route.intent.value})
         # Autonomia é uma capacidade disponível, não um modo obrigatório para toda mensagem.
         # Conversas simples devem responder normalmente; o loop autônomo entra quando o pedido
