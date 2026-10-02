@@ -289,7 +289,7 @@ class AgentLoop:
     def _build_plan(self, text: str, intent: str):
         # Ações operacionais simples devem ser determinísticas. O modelo fica
         # para tarefas ambíguas/complexas, evitando que um pedido claro vire "chat".
-        if isinstance(self.model, NullModel) or intent in {"open_app", "close_app", "check_app", "file_operation", "system", "reminder", "open_search_result", "time", "weather", "media", "note", "calc"}:
+        if isinstance(self.model, NullModel) or intent in {"open_app", "close_app", "check_app", "file_operation", "system", "reminder", "open_search_result", "time", "weather", "media", "note", "calc", "shortcut"}:
             return self.planner.build(text, intent, set(self.schemas.names()), self._last_app)
         if intent in {"chat", "unknown"}:
             try:
@@ -319,7 +319,7 @@ class AgentLoop:
         )
         if tool_steps:
             return tool_steps
-        if intent in {"open_app", "close_app", "check_app", "search", "file_operation", "reminder", "system", "time", "weather", "media", "note", "calc"}:
+        if intent in {"open_app", "close_app", "check_app", "search", "file_operation", "reminder", "system", "time", "weather", "media", "note", "calc", "shortcut"}:
             fallback = self.planner.build(text, intent, set(self.schemas.names()), self._last_app)
             return self._validated_tool_steps(
                 step for step in fallback.steps if step.kind == StepKind.TOOL
@@ -626,7 +626,7 @@ class AgentLoop:
             return AgentResult(answer, task.id)
         if not tool_steps:
             self.tasks.start(task.id)
-            if route.intent.value in {"open_app", "close_app", "check_app", "search", "file_operation", "reminder", "system", "open_search_result", "time", "weather", "media", "note", "calc"}:
+            if route.intent.value in {"open_app", "close_app", "check_app", "search", "file_operation", "reminder", "system", "open_search_result", "time", "weather", "media", "note", "calc", "shortcut"}:
                 error = f"Nenhuma ferramenta disponível para a intenção: {route.intent.value}"
                 self.tasks.fail(task.id, error)
                 self.memory.remember(

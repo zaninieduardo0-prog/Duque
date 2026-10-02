@@ -166,6 +166,23 @@ class IntentAndPlanTests(unittest.TestCase):
         self.assertEqual(self.plan('encontre o arquivo "notas 2026"'), (Intent.FILE_OPERATION, [("find_files", {"name": "notas 2026"})]))
         self.assertEqual(self.plan("leia o arquivo notas.txt")[1], [("read_file", {"path": "notas.txt"})])
 
+    def test_shortcuts(self) -> None:
+        cases = {
+            "toca lofi no youtube": [("youtube", {"query": "lofi"})],
+            "coloca Daft Punk no spotify": [("spotify", {"query": "Daft Punk"})],
+            "como chego na Avenida Paulista?": [("maps", {"destination": "Avenida Paulista"})],
+            "como está o computador?": [("system_status", {})],
+            'copia "teste do Duque" para a área de transferência': [("clipboard_write", {"text": "teste do Duque"})],
+            "o que tem na área de transferência?": [("clipboard_read", {})],
+            "bloqueia a tela": [("lock_screen", {})],
+            "meus timers": [("timers_list", {})],
+            "cancela os timers": [("timer_cancel", {})],
+        }
+        for text, steps in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(self.plan(text), (Intent.SHORTCUT, steps))
+        self.assertEqual(self.plan("abre o youtube")[0], Intent.OPEN_APP)
+
     def test_find_app_in_text(self) -> None:
         self.assertEqual(find_app_in_text("abre o visual studio code"), "visual studio code")
         self.assertIsNone(find_app_in_text("abre a geladeira"))

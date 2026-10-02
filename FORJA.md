@@ -56,10 +56,9 @@ Log em `duque_data/supervisor.log`; estado em `duque_data/update_state.json`.
 
 ## Como usar
 
-- Por texto (HUD ou `POST /api/comando`): "Duque, melhore seu código para ...",
-  "coloque na Forja ...", "corrija o projeto ...". O Duque responde na hora e
-  trabalha em segundo plano. A voz (Realtime) ainda não tem acesso às
-  ferramentas do agente; quando tiver, o mesmo pedido falado vai funcionar.
+- Por texto ou voz: "Duque, melhore seu código para ...", "coloque na Forja ...",
+  "corrija o projeto ...". O Duque responde na hora e trabalha em segundo plano.
+  "Como está a Forja?" diz a etapa atual e o último resultado.
 - O agente autônomo também pode chamar a ferramenta `forge_improve` sozinho.
 - HTTP: `GET /api/forja` (andamento e histórico) e
   `POST /api/forja {"objetivo": "..."}`.

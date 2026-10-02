@@ -8,6 +8,15 @@ from computer.apps import find_app_in_text
 
 _PREFIX = r"^(?:duque[,!]?\s+)?(?:por favor[,]?\s+)?"
 OPEN_VERB = re.compile(_PREFIX + r"(?:abr[ae]|abrir|inici[ae]|iniciar|execut[ae]|executar|liga|ligue)\b")
+SHORTCUT_PATTERNS = (
+    re.compile(r"\bno (?:youtube|spotify)\b"),
+    re.compile(r"\b(?:como (?:chego|chegar|vou)|rota (?:para|até|ate)|mapa (?:de|do|da|para))\b"),
+    re.compile(r"\b(?:como (?:está|esta) o (?:computador|pc|notebook)|status do (?:pc|computador|sistema)|uso (?:de|da) (?:cpu|memória|memoria)|quanto de bateria|nível da bateria|nivel da bateria)\b"),
+    re.compile(_PREFIX + r"cop(?:ie|ia|iar)\b"),
+    re.compile(r"\b(?:área|area) de transferência|\b(?:área|area) de transferencia"),
+    re.compile(r"\bbloque(?:ie|ia|ar) (?:a tela|o pc|o computador)\b"),
+    re.compile(r"\b(?:meus timers|quais timers|timers ativos|cancel(?:a|e|ar) (?:o|os) timers?)\b"),
+)
 CLOSE_VERB = re.compile(_PREFIX + r"(?:fech[ae]|fechar|encerr[ae]|encerrar|mat[ae])\b")
 
 
@@ -27,6 +36,7 @@ class Intent(str, Enum):
     MEDIA = "media"
     NOTE = "note"
     CALC = "calc"
+    SHORTCUT = "shortcut"
     UNKNOWN = "unknown"
 
 
@@ -55,6 +65,9 @@ class IntentRouter:
         value = " ".join(text.casefold().strip().split())
         if not value:
             return Route(Intent.UNKNOWN, 0.0, "texto vazio")
+
+        if any(pattern.search(value) for pattern in SHORTCUT_PATTERNS):
+            return Route(Intent.SHORTCUT, 0.92, "atalho do dia a dia")
 
         if any(phrase in value for phrase in self.OPEN_APP_PHRASES):
             return Route(Intent.OPEN_APP, 0.95, "pedido explícito para abrir aplicativo")

@@ -6,21 +6,25 @@ marque ✅ ou ❌. Se der ❌, anote o que aconteceu (e, se houver, o trecho de
 
 ## 0. Preparação (uma vez)
 
-1. Na pasta do Duque: `git pull`
-2. Ative a `.venv` e rode: `pip install -e .`
-3. **Faça uma cópia** de `duque_memoria.db` e `duque_imoveis.db` se quiser
-   guardar: eles saíram do GitHub e o `git pull` pode removê-los da pasta
-   (o Duque não usa esses arquivos; a memória atual fica em `duque_data/`).
-4. Variáveis de ambiente do Windows (Configurações → Sistema → Sobre →
+1. **Antes de atualizar**, copie `duque_memoria.db` e `duque_imoveis.db` para
+   outra pasta se quiser guardá-los: eles saíram do GitHub e o `git pull` pode
+   removê-los (o Duque não usa esses arquivos; a memória fica em `duque_data/`).
+2. Na pasta do Duque: `git pull`
+3. Variáveis de ambiente do Windows (Configurações → Sistema → Sobre →
    Configurações avançadas → Variáveis de ambiente):
    - `OPENAI_API_KEY` (já existente: voz e conversa)
    - `ANTHROPIC_API_KEY` (Forja)
    - opcional: `DUQUE_GITHUB_TOKEN` (Forja abrir PRs) e `DUQUE_CITY` (cidade padrão do clima)
-5. Feche o Duque se estiver aberto e abra pelo `Duque.vbs`.
+4. Dê dois cliques em **`preparar_duque.bat`**: instala tudo, baixa o modelo
+   do "Hey Jarvis", roda o **diagnóstico** e os testes automáticos.
+   Tudo `[OK]` ou `[AVISO]` → pode seguir. Qualquer `[FALHA]` → me mande a
+   lista que aparece na tela.
+5. Abra pelo `Duque.vbs`.
 
 | # | Ação | Esperado |
 |---|------|----------|
-| 0.1 | Abrir pelo `Duque.vbs` | HUD abre no navegador; `duque_data/supervisor.log` existe |
+| 0.1 | `preparar_duque.bat` | Termina com "Pronto para rodar" |
+| 0.2 | Abrir pelo `Duque.vbs` | HUD abre no navegador; `duque_data/supervisor.log` existe |
 
 ## 1. Conversa por texto com resposta falada
 

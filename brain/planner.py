@@ -261,6 +261,31 @@ class Planner:
                 return Plan(goal, [PlanStep(f"Procurar arquivos: {name}", StepKind.TOOL, "find_files", {"name": name})])
         return None
 
+    @staticmethod
+    def _shortcut_plan(goal: str, lowered: str, single) -> Plan | None:
+        verbs = r"(?:toca|toque|tocar|coloca|coloque|bota|abre|abra|abrir|pesquise|pesquisa|procure|procura|busque|busca|ache|acha)"
+        for service in ("youtube", "spotify"):
+            match = re.search(rf"{verbs}\s+(.+?)\s+no {service}\b", goal, flags=re.IGNORECASE)
+            if match:
+                return single(f"Abrir {service}", service, {"query": match.group(1).strip(" \"'")})
+        match = re.search(r"(?:como (?:chego|chegar|vou)|rota|mapa)\s+(?:para|até|ate|em|no|na|ao|à|de|do|da)\s+(.+?)[?.!]*$", goal, flags=re.IGNORECASE)
+        if match:
+            return single("Abrir o mapa", "maps", {"destination": match.group(1).strip()})
+        if re.search(r"(?:computador|pc|notebook|sistema|cpu|memória|memoria|bateria)", lowered) and not re.search(r"cop(?:ie|ia|iar)", lowered):
+            return single("Ver o estado do computador", "system_status", {})
+        match = re.search(r"cop(?:ie|ia|iar)\s+[\"“'](.+?)[\"”'](?:\s|$)", goal, flags=re.IGNORECASE)
+        if match:
+            return single("Copiar texto", "clipboard_write", {"text": match.group(1)})
+        if re.search(r"(?:área|area) de transfer", lowered):
+            return single("Ler a área de transferência", "clipboard_read", {})
+        if re.search(r"bloque(?:ie|ia|ar)", lowered):
+            return single("Bloquear a tela", "lock_screen", {})
+        if re.search(r"cancel(?:a|e|ar)", lowered):
+            return single("Cancelar timers", "timer_cancel", {})
+        if "timer" in lowered:
+            return single("Listar timers", "timers_list", {})
+        return None
+
     def _assistant_plan(self, goal: str, intent: str, tool_available) -> Plan | None:
         """Planos determinísticos para as ferramentas do dia a dia."""
         lowered = " ".join(goal.casefold().split())
@@ -270,6 +295,8 @@ class Planner:
                 return None
             return Plan(goal, [PlanStep(description, StepKind.TOOL, tool, arguments)])
 
+        if intent == "shortcut":
+            return self._shortcut_plan(goal, lowered, single)
         if intent == "time":
             return single("Consultar data e hora", "current_time", {})
         if intent == "weather":
