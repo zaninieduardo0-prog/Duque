@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 from urllib.request import Request, urlopen
 
-from .apps import resolve_app
+from .apps import PROCESS_NAMES, resolve_app
 from .controller import ComputerController
 
 
@@ -56,6 +56,7 @@ class ComputerTools:
 
     def __init__(self, controller: ComputerController | None = None) -> None:
         self.controller = controller or ComputerController()
+        self._last_search: dict[str, Any] | None = None
 
     def web_search(self, query: str) -> dict[str, Any]:
         query = query.strip()
@@ -106,6 +107,56 @@ class ComputerTools:
         self.controller.open_url(url)
         return {"url": url, "opened": True}
 
+    def close_app(self, name: str) -> dict[str, Any]:
+        import platform
+        import subprocess
+
+        normalized = name.casefold().strip()
+        processes = PROCESS_NAMES.get(normalized)
+        if not processes:
+            raise ValueError(f"Não sei qual processo corresponde ao aplicativo: {name}")
+        if platform.system() != "Windows":
+            raise RuntimeError("Fechamento por processo está implementado apenas para Windows.")
+        closed: list[str] = []
+        for process in processes:
+            result = subprocess.run(
+                ["taskkill", "/IM", process],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                shell=False,
+            )
+            if result.returncode == 0:
+                closed.append(process)
+        if not closed:
+            return {"app": name, "closed": False, "processes": processes, "message": "Aplicativo não estava em execução."}
+        return {"app": name, "closed": True, "processes": closed}
+
+    def is_app_running(self, name: str) -> dict[str, Any]:
+        import platform
+        import subprocess
+
+        normalized = name.casefold().strip()
+        processes = PROCESS_NAMES.get(normalized)
+        if not processes:
+            raise ValueError(f"Não sei qual processo corresponde ao aplicativo: {name}")
+        if platform.system() != "Windows":
+            raise RuntimeError("Consulta por processo está implementada apenas para Windows.")
+        tasklist = subprocess.run(
+            ["tasklist", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            shell=False,
+        )
+        running = {
+            line.split('","', 1)[0].strip('"').casefold()
+            for line in tasklist.stdout.splitlines()
+            if line.strip()
+        }
+        matched = [process for process in processes if process.casefold() in running]
+        return {"app": name, "running": bool(matched), "processes": matched}
+
     def open_path(self, path: str) -> dict[str, Any]:
         target = Path(path).expanduser()
         if not target.exists():
@@ -117,5 +168,7 @@ class ComputerTools:
         executor.register("web_search", self.web_search)
         executor.register("open_search_result", self.open_search_result)
         executor.register("open_app", self.open_app)
+        executor.register("close_app", self.close_app)
+        executor.register("is_app_running", self.is_app_running)
         executor.register("open_url", self.open_url)
         executor.register("open_path", self.open_path)
