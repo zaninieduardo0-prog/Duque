@@ -44,7 +44,6 @@ PROCESS_NAMES: dict[str, list[str]] = {
     "whatsapp": ["whatsapp.exe"],
     "whatsapp desktop": ["whatsapp.exe"],
 }
-})
 
 
 def resolve_app(name: str) -> list[str] | None:
