@@ -73,6 +73,29 @@ class Planner:
                 StepKind.TOOL, "open_app", {"name": app_name},
             )])
 
+        if intent == "open_search_result":
+            if not tool_available("open_search_result"):
+                return Plan(goal)
+            lowered = goal.casefold()
+            index = 1
+            for marker in ("resultado ", "resultado número ", "resultado numero "):
+                position = lowered.find(marker)
+                if position >= 0:
+                    remainder = goal[position + len(marker):].strip()
+                    digits = ""
+                    for char in remainder:
+                        if char.isdigit():
+                            digits += char
+                        else:
+                            break
+                    if digits:
+                        index = int(digits)
+                    break
+            return Plan(goal, [PlanStep(
+                f"Abrir o resultado de pesquisa {index}",
+                StepKind.TOOL, "open_search_result", {"index": index},
+            )])
+
         if intent == "search":
             if not tool_available("web_search"):
                 return Plan(goal)
