@@ -181,6 +181,19 @@ class AgentLoop:
     @staticmethod
     def _create_default_model() -> ModelAdapter:
         """Usa o modelo da API quando a chave estiver configurada; caso contrário, permanece offline."""
+        # Preferência: se houver backend local configurado, tente inicializar o adaptador local.
+        try:
+            if os.getenv("DUQUE_LOCAL_MODEL") or os.getenv("DUQUE_LOCAL_BACKEND"):
+                try:
+                    from .model import LocalModel
+
+                    return LocalModel()
+                except Exception:
+                    # Falha ao inicializar modelo local; cair para OpenAI ou NullModel
+                    pass
+        except Exception:
+            pass
+
         if os.getenv("OPENAI_API_KEY"):
             try:
                 return OpenAIResponsesModel()

@@ -115,6 +115,64 @@ class CodeTools:
             args.append(branch)
         return self._git(args)
 
+    def propose_change(self, path: str, content: str, branch: str | None = None, message: str | None = None) -> dict[str, Any]:
+        """Cria uma branch, aplica a alteração no arquivo, cria um commit e volta para a branch original.
+
+        Retorna: {branch, commit, diff, success, error}
+        """
+        import uuid
+        # validações básicas
+        if not isinstance(path, str) or not isinstance(content, str):
+            return {"success": False, "error": "path e content devem ser strings"}
+
+        original_branch_proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(self.workspace.root), capture_output=True, text=True, shell=False)
+        if original_branch_proc.returncode != 0:
+            return {"success": False, "error": "Não foi possível detectar branch atual", "stderr": original_branch_proc.stderr}
+        original_branch = original_branch_proc.stdout.strip()
+
+        branch_name = branch or f"duque/autogen/{uuid.uuid4().hex[:8]}"
+        commit_msg = (message or f"Duque: proposta de alteração em {path}").strip()
+
+        try:
+            # cria branch
+            r = self._git(["checkout", "-b", branch_name])
+            if not r["success"]:
+                return {"success": False, "error": "Falha ao criar branch", "details": r}
+
+            # escreve arquivo
+            self.workspace.write(path, content)
+
+            # adiciona e comita
+            add = self._git(["add", "-A"])
+            if not add["success"]:
+                raise RuntimeError(f"git add falhou: {add.get('stderr')}" )
+            commit = self._git(["commit", "-m", commit_msg])
+            if not commit["success"]:
+                # pode ser que não haja mudanças; ainda assim tentamos obter diff
+                pass
+
+            # obter hash do commit (HEAD)
+            rev = subprocess.run(["git", "rev-parse", "--verify", "HEAD"], cwd=str(self.workspace.root), capture_output=True, text=True, shell=False)
+            commit_hash = rev.stdout.strip() if rev.returncode == 0 else None
+
+            # diff entre branch e original
+            diff_proc = subprocess.run(["git", "diff", f"{original_branch}..{branch_name}", "--", path], cwd=str(self.workspace.root), capture_output=True, text=True, shell=False)
+            diff_text = diff_proc.stdout if diff_proc.returncode == 0 else ""
+
+            result = {
+                "success": True,
+                "branch": branch_name,
+                "commit": commit_hash,
+                "base_branch": original_branch,
+                "diff": diff_text,
+            }
+            return result
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+        finally:
+            # volta para a branch original para não alterar o ambiente de trabalho do usuário
+            self._git(["checkout", original_branch])
+
     def _git(self, args: list[str]) -> dict[str, Any]:
         completed = subprocess.run(
             ["git", *args],
@@ -145,3 +203,19 @@ class CodeTools:
         executor.register("git_pull", self.git_pull)
         executor.register("git_commit", self.git_commit)
         executor.register("git_push", self.git_push)
+        executor.register("propose_change", self.propose_change)
+        executor.register("merge_branch", self.merge_branch)
+
+    def merge_branch(self, branch: str, target: str | None = None) -> dict[str, Any]:
+        """Faz merge da branch especificada para a target (ou branch atual se target None)."""
+        tgt = target
+        if tgt is None:
+            # determina branch atual
+            proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(self.workspace.root), capture_output=True, text=True, shell=False)
+            if proc.returncode != 0:
+                return {"success": False, "error": "Não foi possível detectar branch atual", "stderr": proc.stderr}
+            tgt = proc.stdout.strip()
+
+        # executa merge
+        res = self._git(["merge", "--no-ff", branch])
+        return res

@@ -5,6 +5,16 @@ from pathlib import Path
 from threading import Lock
 
 from flask import Flask, jsonify, request, Response
+import os
+import subprocess
+from core.auth import require_auth, check_api_token
+from core.auth_roles import require_role
+import json
+import tempfile
+from voice.voz_local import LocalTTS
+from voice.stt_vosk import transcribe_wav
+from pathlib import Path
+import shutil
 from openai import OpenAI
 
 from brain.agent_loop import AgentLoop
@@ -156,6 +166,19 @@ def atualizar_estado(
     return True
 
 
+def _check_api_token() -> bool:
+    """Verifica token simples de API via DUQUE_API_TOKEN. Se não configurado, permite por padrão."""
+    token = os.getenv("DUQUE_API_TOKEN")
+    if not token:
+        return True
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        provided = auth.split(" ", 1)[1]
+    else:
+        provided = request.args.get("token") or request.form.get("token") or ""
+    return provided == token
+
+
 @app.route("/")
 def inicio():
     caminho = Path("interface/index.html")
@@ -182,10 +205,28 @@ def gerar_fala():
     if not isinstance(texto, str) or not texto.strip():
         return jsonify({"erro": "O texto para fala não pode ser vazio."}), 400
 
-    if openai_client is None:
-        return jsonify({"erro": "OPENAI_API_KEY não configurada."}), 503
-
+    # Primeiro tenta TTS local se disponível
     try:
+        if os.getenv('DUQUE_USE_LOCAL_TTS', '1') == '1':
+            try:
+                tts = LocalTTS()
+                # grava em arquivo temporário WAV e retorna conteúdo
+                import io
+                import base64
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
+                path = tmp.name
+                tmp.close()
+                res = tts.speak_to_file(texto.strip(), path)
+                if res.get('success'):
+                    data = open(path, 'rb').read()
+                    return Response(data, mimetype='audio/wav')
+                # fallback para cloud TTS
+            except Exception:
+                pass
+
+        if openai_client is None:
+            return jsonify({"erro": "OPENAI_API_KEY não configurada e TTS local indisponível."}), 503
+
         audio = openai_client.audio.speech.create(
             model="gpt-4o-mini-tts",
             voice="cedar",
@@ -313,6 +354,164 @@ def executar_comando():
             "ok": False,
             "erro": f"{type(exc).__name__}: {exc}",
         }), 500
+
+
+@app.route('/api/workspace/inspect', methods=['GET'])
+def api_inspect_workspace():
+    try:
+        info = agent.self_development.inspect()
+        return jsonify({"ok": True, "info": info})
+    except Exception as exc:
+        return jsonify({"ok": False, "erro": f"{type(exc).__name__}: {exc}"}), 500
+
+
+@app.route('/api/workspace/read_many', methods=['POST'])
+def api_read_many():
+    dados = request.get_json(silent=True) or {}
+    paths = dados.get('paths')
+    if not isinstance(paths, list):
+        return jsonify({"ok": False, "erro": "paths deve ser uma lista"}), 400
+    try:
+        result = agent.self_development.read_many(paths)
+        return jsonify({"ok": True, "files": result})
+    except Exception as exc:
+        return jsonify({"ok": False, "erro": f"{type(exc).__name__}: {exc}"}), 500
+
+
+@app.route('/api/workspace/apply_change', methods=['POST'])
+@require_auth
+def api_apply_change():
+    dados = request.get_json(silent=True) or {}
+    path = dados.get('path')
+    content = dados.get('content')
+    if not isinstance(path, str) or not isinstance(content, str):
+        return jsonify({"ok": False, "erro": "path e content devem ser strings"}), 400
+    try:
+        result = agent.self_development.apply_change(path, content)
+        return jsonify({"ok": True, "result": result})
+    except Exception as exc:
+        return jsonify({"ok": False, "erro": f"{type(exc).__name__}: {exc}"}), 500
+
+
+@app.route('/api/workspace/propose_change', methods=['POST'])
+@require_auth
+def api_propose_change():
+    dados = request.get_json(silent=True) or {}
+    path = dados.get('path')
+    content = dados.get('content')
+    branch = dados.get('branch')
+    message = dados.get('message')
+    if not isinstance(path, str) or not isinstance(content, str):
+        return jsonify({"ok": False, "erro": "path e content devem ser strings"}), 400
+    try:
+        result = agent.self_development.tools.propose_change(path, content, branch=branch, message=message)
+        # opcional: criar PR remoto se GH_TOKEN estiver configurado e param create_pr=true
+        create_pr = bool(dados.get('create_pr'))
+        if create_pr:
+            # chamamos o script que faz push e cria PR via GH API
+            branch_name = result.get('branch')
+            if branch_name:
+                try:
+                    pr_proc = subprocess.run([sys.executable, 'scripts/gh_pr_create.py', '--branch', branch_name, '--title', f"Proposta: {path}", '--body', message or "Gerado pelo Duque"], cwd=str(Path('.').resolve()), capture_output=True, text=True, shell=False)
+                    if pr_proc.returncode == 0:
+                        try:
+                            pr_json = json.loads(pr_proc.stdout)
+                        except Exception:
+                            pr_json = {'raw': pr_proc.stdout}
+                        return jsonify({"ok": True, "result": result, "pr": pr_json})
+                    return jsonify({"ok": False, "error": "Falha ao criar PR", "stdout": pr_proc.stdout, "stderr": pr_proc.stderr}), 500
+                except Exception as exc:
+                    return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
+        return jsonify({"ok": True, "result": result})
+    except Exception as exc:
+        return jsonify({"ok": False, "erro": f"{type(exc).__name__}: {exc}"}), 500
+
+
+@app.route('/api/workspace/approve_change', methods=['POST'])
+@require_auth
+def api_approve_change():
+    dados = request.get_json(silent=True) or {}
+    branch = dados.get('branch')
+    target = dados.get('target')
+    if not isinstance(branch, str) or not branch.strip():
+        return jsonify({"ok": False, "erro": "branch é obrigatório"}), 400
+    try:
+        # require admin role for approve if JWT roles are configured
+        if os.getenv('DUQUE_JWT_SECRET'):
+            # use role-based check
+            from core.auth_roles import require_role
+
+            @require_role('admin')
+            def _merge():
+                return agent.self_development.tools.merge_branch(branch, target=target)
+
+            result = _merge()
+        else:
+            result = agent.self_development.tools.merge_branch(branch, target=target)
+        return jsonify({"ok": True, "result": result})
+    except Exception as exc:
+        return jsonify({"ok": False, "erro": f"{type(exc).__name__}: {exc}"}), 500
+
+
+@app.route('/api/workspace/list_proposals', methods=['GET'])
+@require_auth
+def api_list_proposals():
+    try:
+        proc = subprocess.run(["git", "branch", "--list", "duque/autogen/*"], cwd='.', capture_output=True, text=True, shell=False)
+        if proc.returncode != 0:
+            return jsonify({"ok": False, "erro": proc.stderr}), 500
+        lines = [l.strip().lstrip('* ').strip() for l in proc.stdout.splitlines() if l.strip()]
+        return jsonify({"ok": True, "branches": lines})
+    except Exception as exc:
+        return jsonify({"ok": False, "erro": f"{type(exc).__name__}: {exc}"}), 500
+
+
+@app.route('/api/stt', methods=['POST'])
+@require_auth
+def api_stt():
+    # Recebe um upload de arquivo WAV no campo 'file' e retorna transcrição via VOSK
+    if 'file' not in request.files:
+        return jsonify({"ok": False, "erro": "Arquivo WAV não enviado no campo 'file'"}), 400
+    f = request.files['file']
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
+    try:
+        f.save(tmp.name)
+        # Primeiro tente VOSK
+        res = transcribe_wav(tmp.name)
+        if not res.get('success'):
+            # Fallback: se whisper_infer.py disponível, chame-o
+            whisper = Path('scripts/whisper_infer.py')
+            if whisper.exists():
+                proc = subprocess.run([sys.executable, str(whisper), tmp.name], capture_output=True, text=True, shell=False)
+                try:
+                    res2 = json.loads(proc.stdout)
+                    return jsonify({"ok": True, "result": res2})
+                except Exception:
+                    pass
+        return jsonify({"ok": True, "result": res})
+    except Exception as exc:
+        return jsonify({"ok": False, "erro": f"{type(exc).__name__}: {exc}"}), 500
+    finally:
+        try:
+            tmp.close()
+        except Exception:
+            pass
+
+
+@app.route('/api/git/commit', methods=['POST'])
+def api_git_commit():
+    dados = request.get_json(silent=True) or {}
+    message = dados.get('message')
+    if not isinstance(message, str) or not message.strip():
+        return jsonify({"ok": False, "erro": "message é obrigatório"}), 400
+    try:
+        git_tool = agent.executor.tools.get('git_commit')
+        if git_tool is None:
+            return jsonify({"ok": False, "erro": "git_commit não está disponível"}), 503
+        result = git_tool(message=message)
+        return jsonify({"ok": True, "result": result})
+    except Exception as exc:
+        return jsonify({"ok": False, "erro": f"{type(exc).__name__}: {exc}"}), 500
 
 
 @app.route("/estado/<novo_estado>", methods=["GET"])

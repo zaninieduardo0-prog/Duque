@@ -16,6 +16,10 @@ dependencies = [
     "sounddevice>=0.5",
     "pvrecorder>=1.2",
     "pedalboard>=0.9",
+    "requests>=2.0",
+    "pyttsx3>=2.90; platform_system == 'Windows' or platform_system == 'Linux' or platform_system == 'Darwin'",
+    "vosk>=0.3.45; platform_system == 'Linux' or platform_system == 'Windows' or platform_system == 'Darwin'",
+    "PyJWT>=2.6",
 ]
 
 [tool.setuptools.packages.find]

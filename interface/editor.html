@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Duque - Editor de Workspace</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:12px}
+    #files{width:300px;height:70vh;overflow:auto;float:left;margin-right:12px}
+    #editor{flex:1;display:flex;flex-direction:column}
+    textarea{width:100%;height:60vh;font-family:monospace}
+    button{margin:6px}
+  </style>
+</head>
+<body>
+  <h3>Duque — Editor do Workspace</h3>
+  <div>
+    <div id="files"></div>
+    <div id="editor">
+      <div>
+        <button id="refresh">Atualizar lista</button>
+        <button id="save">Salvar (apply_change)</button>
+        <button id="propose">Propor alteração (branch+commit)</button>
+        <button id="list">Listar propostas</button>
+        <button id="approve">Aprovar proposta</button>
+        <button id="play">Ouvir (TTS)</button>
+        <button id="startrec">Gravar</button>
+        <button id="stoprec">Parar gravação</button>
+        <input type="file" id="sttfile" accept="audio/wav" />
+        <button id="sttupload">Enviar STT</button>
+        <button id="commit">Commit</button>
+      </div>
+      <h4 id="path"></h4>
+      <textarea id="content"></textarea>
+    </div>
+  </div>
+
+<script>
+async function fetchFiles(){
+  const res = await fetch('/api/workspace/inspect');
+  const data = await res.json();
+  if(!data.ok){ alert('Erro: '+JSON.stringify(data)); return; }
+  const files = data.info.python_files;
+  const container = document.getElementById('files');
+  container.innerHTML = '';
+  files.forEach(f=>{
+    const el = document.createElement('div');
+    el.textContent = f;
+    el.style.cursor = 'pointer';
+    el.onclick = ()=>loadFile(f);
+    container.appendChild(el);
+  });
+}
+
+async function playTTS(){
+  const text = document.getElementById('content').value || document.getElementById('path').textContent;
+  if(!text){ alert('Nada para falar'); return; }
+  const res = await fetch('/api/fala', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
+  if(!res.ok){ const j=await res.json().catch(()=>null); alert('Erro TTS: '+JSON.stringify(j||res.status)); return; }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  audio.play();
+}
+
+let _rec_stream = null;
+let _rec_blob = null;
+
+async function uploadSTT(){
+  let file = null;
+  const input = document.getElementById('sttfile');
+  if(input.files.length){ file = input.files[0]; }
+  if(!file && _rec_blob){ file = _rec_blob; }
+  if(!file){ alert('Escolha um arquivo WAV ou grave áudio'); return; }
+  const fd = new FormData();
+  fd.append('file', file, 'recording.wav');
+  const res = await fetch('/api/stt', {method:'POST', body: fd});
+  const data = await res.json();
+  alert(JSON.stringify(data));
+}
+
+// Recording using MediaRecorder
+let mediaRecorder = null;
+let audioChunks = [];
+document.getElementById('startrec').onclick = async ()=>{
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+    audioChunks = [];
+    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+    mediaRecorder.start();
+    alert('Gravação iniciada');
+  }catch(e){ alert('Erro ao iniciar gravação: '+e); }
+};
+document.getElementById('stoprec').onclick = async ()=>{
+  if(!mediaRecorder){ alert('Nenhuma gravação em andamento'); return; }
+  mediaRecorder.onstop = ()=>{
+    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+    // converter para WAV não trivial no browser; enviar webm ao servidor que pode converter
+    _rec_blob = blob;
+    alert('Gravação finalizada');
+  };
+  mediaRecorder.stop();
+};
+
+async function proposeChange(){
+  const path = document.getElementById('path').textContent;
+  const content = document.getElementById('content').value;
+  if(!path){ alert('Selecione um arquivo'); return; }
+  const res = await fetch('/api/workspace/propose_change', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path,content})});
+  const data = await res.json();
+  alert(JSON.stringify(data));
+}
+
+async function listProposals(){
+  const res = await fetch('/api/workspace/list_proposals');
+  const data = await res.json();
+  if(!data.ok){ alert('Erro: '+JSON.stringify(data)); return; }
+  alert('Propostas:\n' + (data.branches || []).join('\n'));
+}
+
+async function approveProposal(){
+  const branch = prompt('Nome da branch a aprovar (ex: duque/autogen/...):');
+  if(!branch) return;
+  const token = prompt('Token (se configurado):');
+  const headers = {'Content-Type':'application/json'};
+  if(token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch('/api/workspace/approve_change', {method:'POST',headers,body:JSON.stringify({branch})});
+  const data = await res.json();
+  alert(JSON.stringify(data));
+}
+
+async function loadFile(path){
+  const res = await fetch('/api/workspace/read_many', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paths:[path]})});
+  const data = await res.json();
+  if(!data.ok){ alert('Erro: '+JSON.stringify(data)); return; }
+  document.getElementById('path').textContent = path;
+  document.getElementById('content').value = data.files[path] || '';
+}
+
+async function save(){
+  const path = document.getElementById('path').textContent;
+  const content = document.getElementById('content').value;
+  if(!path){ alert('Selecione um arquivo'); return; }
+  const res = await fetch('/api/workspace/apply_change', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path,content})});
+  const data = await res.json();
+  alert(JSON.stringify(data));
+}
+
+async function commit(){
+  const msg = prompt('Mensagem do commit');
+  if(!msg) return;
+  const res = await fetch('/api/git/commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
+  const data = await res.json();
+  alert(JSON.stringify(data));
+}
+
+document.getElementById('refresh').onclick = fetchFiles;
+document.getElementById('save').onclick = save;
+document.getElementById('propose').onclick = proposeChange;
+document.getElementById('list').onclick = listProposals;
+document.getElementById('approve').onclick = approveProposal;
+document.getElementById('play').onclick = playTTS;
+document.getElementById('sttupload').onclick = uploadSTT;
+document.getElementById('commit').onclick = commit;
+
+fetchFiles();
+</script>
+</body>
+</html>

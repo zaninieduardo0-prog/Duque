@@ -25,7 +25,8 @@ class SelfDevelopment:
     def __init__(self, workspace: Workspace) -> None:
         self.workspace = workspace
         self.tools = CodeTools(workspace)
-        self.allow_changes = os.getenv("DUQUE_ALLOW_SELF_MODIFICATION", "1").casefold() in {"1", "true", "yes", "on"}
+        # Por padrão, auto-aplicação não é feita sem aprovação humana.
+        self.allow_auto_apply = os.getenv("DUQUE_ALLOW_SELF_MODIFICATION", "0").casefold() in {"1", "true", "yes", "on"}
 
     def inspect(self) -> dict[str, Any]:
         files = self.workspace.list_files()
@@ -35,7 +36,7 @@ class SelfDevelopment:
             "file_count": len(files),
             "python_files": python_files,
             "files": files,
-            "self_modification_enabled": self.allow_changes,
+            "self_modification_enabled": self.allow_auto_apply,
         }
 
     def read_many(self, paths: list[str]) -> dict[str, Any]:
@@ -67,12 +68,20 @@ class SelfDevelopment:
         return self.tools.run_python(path)
 
     def apply_change(self, path: str, content: str) -> dict[str, Any]:
-        if not self.allow_changes:
-            return {
-                "success": False,
-                "error": "Auto-modificação desativada. Defina DUQUE_ALLOW_SELF_MODIFICATION=1 para permitir alterações.",
-            }
-        return self.tools.write_file(path, content)
+        # Cria uma proposta: branch + commit com a alteração. Não mescla por padrão.
+        proposal = self.tools.propose_change(path, content)
+        if not proposal.get("success"):
+            return proposal
+
+        branch = proposal.get("branch")
+        base = proposal.get("base_branch")
+
+        # Se auto-apply estiver habilitado, efetua merge automático (riscos conhecidos).
+        if self.allow_auto_apply and branch:
+            merge_result = self.tools.merge_branch(branch, target=base)
+            return {"success": True, "proposal": proposal, "merged": merge_result}
+
+        return {"success": True, "proposal": proposal, "merged": False}
 
     def register(self, executor: Any) -> None:
         executor.register("inspect_workspace", self.inspect)
