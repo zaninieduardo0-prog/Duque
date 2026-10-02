@@ -39,7 +39,7 @@ class IntentRouter:
         "abra paint", "inicie o chrome", "inicie o whatsapp", "inicie a calculadora",
     )
 
-    def route(self, text: str) -> Route:
+    def route(self, text: str, context_app: str | None = None) -> Route:
         value = " ".join(text.casefold().strip().split())
         if not value:
             return Route(Intent.UNKNOWN, 0.0, "texto vazio")
@@ -70,7 +70,7 @@ class IntentRouter:
             "está funcionando", "esta funcionando", "está em execução", "esta em execução",
             "está aberto?", "esta aberto?", "rodando?", "aberto?",
         )
-        if any(app in value for app in app_markers) and any(marker in value for marker in check_markers):
+        if (any(app in value for app in app_markers) or context_app) and any(marker in value for marker in check_markers):
             return Route(Intent.CHECK_APP, 0.94, "pedido para verificar o estado de um aplicativo")
 
         if any(x in value for x in (
