@@ -38,7 +38,7 @@ class StateManager:
         DuqueState.EXECUTING: {DuqueState.PROCESSING, DuqueState.SPEAKING, DuqueState.STANDBY, DuqueState.ERROR},
         DuqueState.SPEAKING: {DuqueState.LISTENING, DuqueState.PROCESSING, DuqueState.STANDBY, DuqueState.SLEEPING, DuqueState.ERROR},
         DuqueState.SLEEPING: {DuqueState.STANDBY, DuqueState.LISTENING, DuqueState.ERROR},
-        DuqueState.ERROR: {DuqueState.STANDBY, DuqueState.SLEEPING},
+        DuqueState.ERROR: {DuqueState.STANDBY, DuqueState.PROCESSING, DuqueState.LISTENING, DuqueState.SLEEPING},
     }
 
     def __init__(self, initial: DuqueState = DuqueState.STANDBY) -> None:
