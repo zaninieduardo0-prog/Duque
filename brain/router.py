@@ -8,6 +8,7 @@ class Intent(str, Enum):
     CHAT = "chat"
     OPEN_APP = "open_app"
     SEARCH = "search"
+    OPEN_SEARCH_RESULT = "open_search_result"
     CODE = "code"
     FILE_OPERATION = "file_operation"
     SYSTEM = "system"
@@ -56,6 +57,9 @@ class IntentRouter:
             "arquivo", "pasta",
         )):
             return Route(Intent.FILE_OPERATION, 0.92, "operação explícita sobre arquivos")
+
+        if any(x in value for x in ("abra a página", "abra a pagina", "abre a página", "abre a pagina", "abra o resultado", "abre o resultado", "mostre o resultado")):
+            return Route(Intent.OPEN_SEARCH_RESULT, 0.95, "pedido explícito para abrir resultado da pesquisa")
 
         if any(x in value for x in ("pesquise", "pesquisar", "procure na internet", "busque na internet", "google")):
             return Route(Intent.SEARCH, 0.9, "pedido explícito de pesquisa")
