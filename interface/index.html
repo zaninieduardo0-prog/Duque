@@ -976,7 +976,7 @@ $('sPlay').onclick=()=>DUQUE.get().spotify.playing?Spotify.pause():Spotify.play(
 $('sNext').onclick=()=>Spotify.next();
 $('sPrev').onclick=()=>Spotify.prev();
 pollMedia();
-setInterval(pollMedia,3000);
+setInterval(pollMedia,5000);
 
 /* ---------------- comando / backend real ----------------
    O HUD conversa com o servidor Flask, que entrega o texto ao AgentLoop.

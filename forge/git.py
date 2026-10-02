@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,9 +37,13 @@ class Git:
 
     def run(self, *args: str, check: bool = True, identity: bool = False) -> GitResult:
         command = ["git", *(FORGE_IDENTITY if identity else ()), *args]
+        # Nunca pedir senha de forma interativa: em segundo plano isso travaria
+        # a Forja até o tempo limite. Sem credencial salva, o push falha rápido.
+        env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="never")
         completed = subprocess.run(
             command,
             cwd=str(self.cwd),
+            env=env,
             capture_output=True,
             text=True,
             encoding="utf-8",

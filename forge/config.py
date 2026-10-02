@@ -61,6 +61,7 @@ class ForgeConfig:
             for item in os.getenv("DUQUE_FORGE_CHECKS", "compile,pytest,ruff").split(",")
             if item.strip()
         )
+        token = os.getenv("DUQUE_GITHUB_TOKEN") or os.getenv("GITHUB_TOKEN") or None
         return cls(
             repo_root=root,
             forge_dir=forge_dir,
@@ -71,7 +72,9 @@ class ForgeConfig:
             max_rounds=int(os.getenv("DUQUE_FORGE_MAX_ROUNDS", "3")),
             agent_max_steps=int(os.getenv("DUQUE_FORGE_MAX_STEPS", "80")),
             ci_timeout_seconds=int(os.getenv("DUQUE_FORGE_CI_TIMEOUT", "1200")),
+            # Sem token a API do GitHub aceita só 60 consultas/hora: consulta com menos frequência.
+            ci_poll_seconds=20 if token else 60,
             checks=checks,
             github_slug=os.getenv("DUQUE_GITHUB_REPO") or None,
-            github_token=os.getenv("DUQUE_GITHUB_TOKEN") or os.getenv("GITHUB_TOKEN") or None,
+            github_token=token,
         )

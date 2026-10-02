@@ -68,6 +68,11 @@ git push origin main
 ```
 
 > O PR #8 (e o #7) fecham sozinhos no GitHub depois do `git push`.
+>
+> Se o `git push` abrir uma janela de login do GitHub, entre com a conta
+> **zaninieduardo0-prog**. O Windows guarda a credencial, e é ela que a Forja
+> usa depois para enviar as melhorias (a Forja nunca abre janela de login
+> sozinha).
 
 ## Passo 5B — Pasta não é Git (instalação nova ao lado da antiga)
 

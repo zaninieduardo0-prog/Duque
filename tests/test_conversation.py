@@ -138,12 +138,54 @@ class AgentConversationTests(TempDirTestCase):
 
 @unittest.skipUnless(importlib.util.find_spec("openai") is not None, "servidor exige o pacote openai")
 class ServerConversationTests(unittest.TestCase):
-    def setUp(self) -> None:
-        import servidor
+    """Importa o servidor dentro de uma pasta temporária.
 
-        self.servidor = servidor
-        self.client = servidor.app.test_client()
-        self.addCleanup(servidor.bridge.detach_session)
+    O servidor cria o AgentLoop com o banco em "duque_data/" relativo à pasta
+    atual. Sem isolamento, rodar os testes na instalação real (Forja,
+    diagnóstico, preparar_duque.bat) usaria o banco do Du: dispararia lembretes
+    de verdade e escreveria na conversa real.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import importlib
+        import sys
+        import tempfile
+
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls._cwd = os.getcwd()
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        os.makedirs(os.path.join(cls._tmp.name, "interface"), exist_ok=True)
+        cls._env = mock.patch.dict(os.environ, {
+            "DUQUE_WORKSPACE_ROOT": cls._tmp.name,
+            "DUQUE_FORGE": "0",
+            "DUQUE_DAILY_SUMMARY": "0",
+            "OPENAI_API_KEY": "",
+            "ANTHROPIC_API_KEY": "",
+        })
+        cls._env.start()
+        os.chdir(cls._tmp.name)
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        sys.modules.pop("servidor", None)
+        cls.servidor = importlib.import_module("servidor")
+        if os.path.abspath(cls.servidor.agent.tasks.database.path).startswith(os.path.abspath(root)):
+            raise AssertionError("o teste do servidor não pode usar o banco da instalação")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        import sys
+
+        cls.servidor.agent.scheduled_runner.stop()
+        cls.servidor.bridge.detach_session()
+        sys.modules.pop("servidor", None)
+        os.chdir(cls._cwd)
+        cls._env.stop()
+        cls._tmp.cleanup()
+
+    def setUp(self) -> None:
+        self.client = self.servidor.app.test_client()
+        self.addCleanup(self.servidor.bridge.detach_session)
 
     def test_conversation_endpoints(self) -> None:
         response = self.client.post("/api/conversa", json={"role": "user", "text": "teste de voz", "canal": "voz"})

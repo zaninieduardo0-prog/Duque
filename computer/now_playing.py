@@ -54,7 +54,7 @@ def _tasklist() -> tuple[str, bool]:
 
 
 class NowPlaying:
-    def __init__(self, reader: Callable[[], tuple[str, bool]] | None = None, *, cache_seconds: float = 2.0) -> None:
+    def __init__(self, reader: Callable[[], tuple[str, bool]] | None = None, *, cache_seconds: float = 4.0) -> None:
         self.reader = reader or (_tasklist if sys.platform.startswith("win") else (lambda: ("", False)))
         self.cache_seconds = cache_seconds
         self._cached: dict[str, Any] | None = None
