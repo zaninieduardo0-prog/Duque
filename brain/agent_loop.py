@@ -108,7 +108,6 @@ class AgentLoop:
             ToolSpec("open_app", "Abre um aplicativo", ("name",), {"name": str}),
             ToolSpec("close_app", "Fecha um aplicativo pelo processo conhecido", ("name",), {"name": str}),
             ToolSpec("is_app_running", "Verifica se um aplicativo está em execução", ("name",), {"name": str}),
-            ToolSpec("is_app_running", "Verifica se um aplicativo está em execução", ("name",), {"name": str}),
             ToolSpec("open_url", "Abre uma URL no navegador; pode ser usada para serviços web como WhatsApp Web", ("url",), {"url": str}),
             ToolSpec("open_path", "Abre um caminho existente", ("path",), {"path": str}),
             ToolSpec("web_search", "Pesquisa na web sem abrir o navegador", ("query",), {"query": str}),
