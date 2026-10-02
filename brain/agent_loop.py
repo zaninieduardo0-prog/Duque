@@ -204,7 +204,7 @@ class AgentLoop:
     def _build_plan(self, text: str, intent: str):
         # Ações operacionais simples devem ser determinísticas. O modelo fica
         # para tarefas ambíguas/complexas, evitando que um pedido claro vire "chat".
-        if isinstance(self.model, NullModel) or intent in {"open_app", "file_operation", "system", "reminder"}:
+        if isinstance(self.model, NullModel) or intent in {"open_app", "file_operation", "system", "reminder", "open_search_result"}:
             return self.planner.build(text, intent, set(self.schemas.names()))
         if intent in {"chat", "unknown"}:
             try:
@@ -494,7 +494,7 @@ class AgentLoop:
             return AgentResult(answer, task.id)
         if not tool_steps:
             self.tasks.start(task.id)
-            if route.intent.value in {"open_app", "search", "file_operation", "reminder", "system"}:
+            if route.intent.value in {"open_app", "search", "file_operation", "reminder", "system", "open_search_result"}:
                 error = f"Nenhuma ferramenta disponível para a intenção: {route.intent.value}"
                 self.tasks.fail(task.id, error)
                 self.memory.remember(
