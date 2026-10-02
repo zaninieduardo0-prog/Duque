@@ -7,6 +7,8 @@ from enum import Enum
 class Intent(str, Enum):
     CHAT = "chat"
     OPEN_APP = "open_app"
+    CLOSE_APP = "close_app"
+    CHECK_APP = "check_app"
     SEARCH = "search"
     OPEN_SEARCH_RESULT = "open_search_result"
     CODE = "code"
@@ -44,6 +46,27 @@ class IntentRouter:
 
         if any(phrase in value for phrase in self.OPEN_APP_PHRASES):
             return Route(Intent.OPEN_APP, 0.95, "pedido explícito para abrir aplicativo")
+
+        if any(phrase in value for phrase in (
+            "feche o chrome", "fechar o chrome", "fecha o chrome",
+            "feche o navegador", "fechar o navegador", "fecha o navegador",
+            "feche o edge", "fechar o edge", "fecha o edge",
+            "feche o whatsapp", "fechar o whatsapp", "fecha o whatsapp",
+            "feche o bloco de notas", "fechar o bloco de notas", "fecha o bloco de notas",
+            "feche a calculadora", "fechar a calculadora", "fecha a calculadora",
+            "feche o paint", "fechar o paint", "fecha o paint",
+            "encerre o chrome", "encerra o chrome", "encerre o navegador",
+        )):
+            return Route(Intent.CLOSE_APP, 0.95, "pedido explícito para fechar aplicativo")
+
+        if any(phrase in value for phrase in (
+            "o chrome está aberto", "o chrome esta aberto", "chrome está aberto", "chrome esta aberto",
+            "o chrome está rodando", "o chrome esta rodando", "chrome está rodando", "chrome esta rodando",
+            "o navegador está aberto", "o navegador esta aberto", "navegador está aberto", "navegador esta aberto",
+            "o whatsapp está aberto", "o whatsapp esta aberto", "whatsapp está aberto", "whatsapp esta aberto",
+            "o edge está aberto", "o edge esta aberto", "edge está aberto", "edge esta aberto",
+        )):
+            return Route(Intent.CHECK_APP, 0.9, "pedido explícito para verificar aplicativo")
 
         if any(x in value for x in (
             "liste os arquivos", "listar os arquivos", "listar arquivos",
