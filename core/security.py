@@ -26,6 +26,7 @@ class SecurityPolicy:
         "open_url": RiskLevel.LOW,
         "open_path": RiskLevel.MEDIUM,
         "web_search": RiskLevel.LOW,
+        "open_search_result": RiskLevel.LOW,
         "read_file": RiskLevel.LOW,
         "list_files": RiskLevel.LOW,
         "write_file": RiskLevel.MEDIUM,
