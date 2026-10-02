@@ -78,7 +78,7 @@ class Planner:
         if intent == "close_app":
             lowered = goal.casefold()
             names = (
-                ("chrome", "chrome"), ("navegador", "chrome"),
+                ("chrome", "chrome"), ("navegador", "chrome"), ("browser", "chrome"),
                 ("edge", "edge"), ("whatsapp", "whatsapp"),
                 ("bloco de notas", "bloco de notas"), ("notepad", "notepad"),
                 ("calculadora", "calculadora"), ("paint", "paint"),
