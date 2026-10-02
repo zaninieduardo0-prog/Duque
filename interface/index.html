@@ -313,6 +313,10 @@ body{
         <input id="memNew" autocomplete="off" placeholder="Nova anotação + Enter">
       </section>
       <section>
+        <div class="label">Agenda</div>
+        <ul id="memAgenda"></ul>
+      </section>
+      <section>
         <div class="label">Timers ativos</div>
         <ul id="memTimers"></ul>
       </section>
@@ -1143,7 +1147,7 @@ function renderChat(){
   chatTurns.slice(-5).forEach(turn=>{
     const el=document.createElement('div');
     const who = turn.role==='user' ? 'Du' : 'Duque';
-    const via = turn.channel==='voz' ? ' · voz' : (turn.channel==='aviso' ? ' · aviso' : '');
+    const via = turn.channel==='voz' ? ' · voz' : (turn.channel==='aviso' ? ' · aviso' : (turn.channel==='silencioso' ? ' · foco' : ''));
     el.className='t'+(turn.role==='assistant'?' duque':'')+(turn.channel==='aviso'?' aviso':'');
     const tag=document.createElement('b'); tag.textContent=who+via;
     el.appendChild(tag);
@@ -1236,6 +1240,22 @@ async function loadMemory(){
       li.append(a,b); timers.appendChild(li);
     });
     if(!(m.timers||[]).length) timers.innerHTML='<li class="empty">Nenhum timer.</li>';
+    if(m.foco_ate){
+      const li=document.createElement('li');
+      const a=document.createElement('span'); a.textContent='Modo foco';
+      const b=document.createElement('span'); b.textContent=fmtRemaining(m.foco_ate - Date.now()/1000);
+      li.append(a,b); timers.prepend(li);
+    }
+    const agenda=$('memAgenda'); agenda.innerHTML='';
+    (m.lembretes||[]).forEach(item=>{
+      const li=document.createElement('li');
+      const when=new Date(item.at*1000);
+      const a=document.createElement('span'); a.textContent=item.text;
+      const b=document.createElement('span');
+      b.textContent=when.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'})+' '+when.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+      li.append(a,b); agenda.appendChild(li);
+    });
+    if(!(m.lembretes||[]).length) agenda.innerHTML='<li class="empty">Nada agendado. Diga "me lembra amanhã às 9h de…".</li>';
   }catch(e){}
 }
 let memTimer=null;

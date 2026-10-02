@@ -9,6 +9,9 @@ from computer.apps import find_app_in_text
 _PREFIX = r"^(?:duque[,!]?\s+)?(?:por favor[,]?\s+)?"
 OPEN_VERB = re.compile(_PREFIX + r"(?:abr[ae]|abrir|inici[ae]|iniciar|execut[ae]|executar|liga|ligue)\b")
 SHORTCUT_PATTERNS = (
+    re.compile(r"\b(?:o que (?:tem|está|esta|aparece|é isso|e isso) na (?:minha )?tela|l[eê]i?a a tela|olh[ae] (?:a|minha) tela|o que você (?:vê|ve)|o que voce (?:vê|ve)|explica (?:essa|esta|o que tem na) tela|(?:esse|este) erro na tela)\b"),
+    re.compile(r"\b(?:modo foco|pomodoro|foco por|(?:sair|sai|encerr[ae]|termin[ae]|desativ[ae]|desliga|para) (?:do |o )?(?:modo )?foco)\b"),
+    re.compile(r"\b(?:meus lembretes|minha agenda|o que (?:eu )?tenho (?:agendado|marcado)|cancel(?:a|e|ar) (?:o|os|todos os) lembretes?)\b"),
     re.compile(r"\bno (?:youtube|spotify)\b"),
     re.compile(r"\b(?:como (?:chego|chegar|vou)|rota (?:para|até|ate)|mapa (?:de|do|da|para))\b"),
     re.compile(r"\b(?:como (?:está|esta) o (?:computador|pc|notebook)|status do (?:pc|computador|sistema)|uso (?:de|da) (?:cpu|memória|memoria)|quanto de bateria|nível da bateria|nivel da bateria)\b"),

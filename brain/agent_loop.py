@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
 from dataclasses import dataclass
 from threading import RLock
 from typing import Any
@@ -24,12 +26,15 @@ from computer.verified_ui import VerifiedScreenActions
 from computer.visual_workflow import VisualWorkflow
 from computer.workspace import Workspace
 from computer.assistant_tools import AssistantTools
+from computer.now_playing import NowPlaying
+from computer.screen_vision import ScreenVision
 from memory.conversation import ConversationStore
 from memory.memory import Memory, MemoryLayer
 from .agent_state import AgentContext
 from .autonomous_loop import AutonomousLoop
 from .model import ModelAdapter, NullModel, OpenAIResponsesModel
 from .persona import text_system_prompt
+from .when import describe_moment, parse_when
 from .model_planner import ModelPlanner
 from .planner import Planner, StepKind
 from .router import IntentRouter
@@ -109,7 +114,12 @@ class AgentLoop:
             self.schemas.register(ToolSpec("forge_status", "Consulta o andamento dos trabalhos da Forja"))
 
         self.scheduler = Scheduler(database=self.tasks.database)
-        self.scheduled_runner = ScheduledTaskRunner(self.scheduler, self.task_engine, self.tasks, event_sink=self.engine.emit)
+        self.scheduled_runner = ScheduledTaskRunner(self.scheduler, self.task_engine, self.tasks, event_sink=self.engine.emit, reminder_handler=self._on_reminder)
+        self.now_playing = NowPlaying()
+        self.screen_vision = ScreenVision()
+        self._focus_until: float | None = None
+        self._focus_timer: threading.Timer | None = None
+        self._register_life_tools()
         self.scheduled_runner.start()
 
     def _create_forge_service(self) -> Any | None:
@@ -323,9 +333,123 @@ class AgentLoop:
                 pass
         return NullModel()
 
-    def announce(self, text: str) -> None:
-        """Aviso espontâneo do Duque (timer, Forja...): entra na conversa e o HUD fala."""
-        self.conversation.add("assistant", text, "aviso")
+    def announce(self, text: str, *, urgent: bool = False) -> None:
+        """Aviso espontâneo do Duque (timer, Forja...): entra na conversa e o HUD fala.
+
+        No modo foco os avisos continuam registrados, mas ficam em silêncio.
+        """
+        channel = "silencioso" if self.focus_active() and not urgent else "aviso"
+        self.conversation.add("assistant", text, channel)
+
+    # agenda, foco e visão ----------------------------------------------------
+    def _register_life_tools(self) -> None:
+        tools = [
+            (ToolSpec("reminder_at", "Cria um lembrete em data/hora (ex.: 'amanhã às 9h', 'sexta às 18:30'); sobrevive a reinícios", ("when",), {"when": str, "text": str}), self.reminder_at),
+            (ToolSpec("reminders_list", "Lista os lembretes agendados"), self.reminders_list),
+            (ToolSpec("reminder_cancel", "Cancela o lembrete de número indicado (0 = todos)", (), {"index": int}), self.reminder_cancel),
+            (ToolSpec("focus_mode", "Modo foco/pomodoro: action 'start' (pausa a música e silencia avisos) ou 'stop'", (), {"action": str, "minutes": (int, float)}), self.focus_mode),
+            (ToolSpec("describe_screen", "Olha a tela do Du e explica o que há nela (ou responde uma pergunta sobre ela)", (), {"question": str}), self.screen_vision.describe_screen),
+        ]
+        for spec, function in tools:
+            self.executor.register(spec.name, function)
+            self.schemas.register(spec)
+
+    @staticmethod
+    def _reminder_subject(text: str) -> str:
+        import re
+
+        subject = re.sub(
+            r"^(?:duque[,!]?\s+)?(?:me\s+)?(?:lembre|lembra|lembrar|avise|avisa|agende|agenda|marque|marca)(?:-me)?\s*(?:de|que|para|pra|sobre)?\s*",
+            "", text.strip(), flags=re.IGNORECASE,
+        )
+        return subject.strip(" ,.!?") or "o compromisso"
+
+    def reminder_at(self, when: str, text: str = "") -> dict[str, object]:
+        parsed = parse_when(when)
+        if parsed is None:
+            return {"success": False, "error": f"Não entendi a data ou a hora em '{when}'. Diga, por exemplo, 'amanhã às 9h'."}
+        if parsed.moment.timestamp() <= time.time():
+            return {"success": False, "error": "Esse horário já passou."}
+        subject = self._reminder_subject(text or parsed.rest)
+        job = self.scheduler.add(subject, parsed.moment, kind="reminder", agenda=True)
+        return {
+            "message": f"Combinado. {describe_moment(parsed.moment).capitalize()} eu te lembro de {subject}.",
+            "id": job.id,
+            "at": parsed.moment.isoformat(timespec="minutes"),
+        }
+
+    def _agenda(self) -> list[Any]:
+        return [job for job in self.scheduler.list() if job.metadata.get("agenda")]
+
+    def reminders_list(self) -> dict[str, object]:
+        from datetime import datetime
+
+        jobs = self._agenda()
+        if not jobs:
+            return {"message": "Sua agenda está vazia.", "reminders": []}
+        lines = [f"{index}. {describe_moment(datetime.fromtimestamp(job.run_at))}: {job.description}" for index, job in enumerate(jobs, 1)]
+        items = [{"id": job.id, "text": job.description, "at": job.run_at} for job in jobs]
+        return {"message": "Na agenda:\n" + "\n".join(lines), "reminders": items}
+
+    def reminder_cancel(self, index: int = 0) -> dict[str, object]:
+        jobs = self._agenda()
+        if index == 0:
+            for job in jobs:
+                self.scheduler.cancel(job.id)
+            return {"message": f"Cancelei {len(jobs)} lembrete(s).", "cancelled": len(jobs)}
+        if not 1 <= index <= len(jobs):
+            return {"success": False, "error": f"Não existe o lembrete {index}."}
+        job = jobs[index - 1]
+        self.scheduler.cancel(job.id)
+        return {"message": f"Cancelei o lembrete: {job.description}.", "cancelled": 1}
+
+    def _on_reminder(self, job: Any) -> None:
+        from datetime import datetime
+
+        late = (job.last_run_at or time.time()) - job.run_at
+        text = f"Du, lembrete: {job.description}."
+        if late > 300:
+            text += f" Era para {datetime.fromtimestamp(job.run_at):%H:%M}; o Duque estava desligado."
+        self.announce(text, urgent=True)
+
+    def focus_active(self) -> bool:
+        return self._focus_until is not None and time.time() < self._focus_until
+
+    def focus_mode(self, action: str = "start", minutes: int | float = 25) -> dict[str, object]:
+        value = action.casefold().strip()
+        if value in {"stop", "parar", "sair", "encerrar", "off"}:
+            if self._focus_timer:
+                self._focus_timer.cancel()
+            was_active = self.focus_active()
+            self._focus_until, self._focus_timer = None, None
+            return {"message": "Modo foco encerrado. Avisos de volta ao normal." if was_active else "O modo foco não estava ativo."}
+        minutes = float(minutes)
+        if not 1 <= minutes <= 240:
+            return {"success": False, "error": "O foco precisa ter entre 1 e 240 minutos."}
+        if self._focus_timer:
+            self._focus_timer.cancel()
+        paused = False
+        try:
+            if self.now_playing.get().get("playing"):
+                self.assistant_tools.media("play_pause")
+                self.now_playing.invalidate()
+                paused = True
+        except Exception:
+            pass
+        self._focus_until = time.time() + minutes * 60
+        label = f"{minutes:g} minutos"
+
+        def finish() -> None:
+            self._focus_until, self._focus_timer = None, None
+            self.announce(f"Du, fim dos {label} de foco. Hora de uma pausa.", urgent=True)
+
+        self._focus_timer = threading.Timer(minutes * 60, finish)
+        self._focus_timer.daemon = True
+        self._focus_timer.start()
+        return {
+            "message": f"Modo foco por {label}." + (" Pausei a música." if paused else "") + " Seguro os avisos até lá.",
+            "until": self._focus_until,
+        }
 
     def _chat_response(self, text: str) -> str:
         """Responde usando a persona e o histórico compartilhado de texto e voz."""

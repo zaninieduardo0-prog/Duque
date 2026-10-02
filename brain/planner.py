@@ -263,6 +263,20 @@ class Planner:
 
     @staticmethod
     def _shortcut_plan(goal: str, lowered: str, single) -> Plan | None:
+        if re.search(r"bloque(?:ie|ia|ar)", lowered):
+            return single("Bloquear a tela", "lock_screen", {})
+        if re.search(r"\btela\b|o que você (?:vê|ve)|o que voce (?:vê|ve)", lowered):
+            return single("Olhar a tela", "describe_screen", {"question": goal})
+        if "foco" in lowered or "pomodoro" in lowered:
+            if re.search(r"\b(?:sair|sai|encerr\w*|termin\w*|desativ\w*|deslig\w*)\b|\bpar[ae] (?:o |do )?(?:modo )?foco\b", lowered):
+                return single("Encerrar o modo foco", "focus_mode", {"action": "stop"})
+            minutes = (Planner.parse_duration(goal) or 25 * 60) / 60
+            return single("Ativar o modo foco", "focus_mode", {"action": "start", "minutes": minutes})
+        if "lembrete" in lowered or "agenda" in lowered or "agendado" in lowered or "marcado" in lowered:
+            if re.search(r"cancel(?:a|e|ar)", lowered):
+                number = re.search(r"\b(\d+)\b", lowered)
+                return single("Cancelar lembrete", "reminder_cancel", {"index": int(number.group(1)) if number else 0})
+            return single("Ver a agenda", "reminders_list", {})
         verbs = r"(?:toca|toque|tocar|coloca|coloque|bota|abre|abra|abrir|pesquise|pesquisa|procure|procura|busque|busca|ache|acha)"
         for service in ("youtube", "spotify"):
             match = re.search(rf"{verbs}\s+(.+?)\s+no {service}\b", goal, flags=re.IGNORECASE)
@@ -328,6 +342,11 @@ class Planner:
                 if label.strip(" .,!?"):
                     arguments["label"] = label.strip(" .,!?")
                 return single("Criar timer", "timer_set", arguments)
+            from .when import parse_when
+
+            when = parse_when(goal)
+            if when is not None:
+                return single("Agendar lembrete", "reminder_at", {"when": goal, "text": when.rest})
             return None
         if intent == "system":
             if any(word in lowered for word in ("aumente o volume", "aumentar o volume", "aumenta o volume", "sobe o volume")):

@@ -86,6 +86,20 @@ marque ✅ ou ❌. Se der ❌, anote o que aconteceu (e, se houver, o trecho de
 > Se a saudação aparecer mas não for falada, é o bloqueio de áudio automático
 > do navegador: clique uma vez na página e ela passa a falar normalmente.
 
+## 4C. Agenda, modo foco e visão da tela
+
+| # | Ação | Esperado |
+|---|------|----------|
+| 4C.1 | `me lembra de ligar pro banco amanhã às 9h` | "Amanhã às 09:00 eu te lembro de ligar pro banco." |
+| 4C.2 | `me lembra de testar o Duque daqui a 2 minutos` | Aviso falado depois de 2 min |
+| 4C.3 | `minha agenda` | Lista os lembretes com dia e hora (também no painel MEMÓRIA) |
+| 4C.4 | Crie um lembrete para daqui a 3 min, **feche o Duque**, espere 5 min e abra de novo | Ao abrir, ele avisa o lembrete dizendo que estava desligado |
+| 4C.5 | `cancela os lembretes` | Agenda vazia |
+| 4C.6 | Com música tocando: `modo foco por 1 minuto` | Pausa a música; avisos ficam silenciosos (marcados "· foco"); depois de 1 min avisa "Hora de uma pausa" |
+| 4C.7 | `sair do modo foco` | "Modo foco encerrado" |
+| 4C.8 | Abra algo na tela e pergunte `o que tem na minha tela?` | Descreve a tela em poucas frases |
+| 4C.9 | Com uma mensagem de erro aberta: `que erro é esse na tela?` | Explica o erro e sugere solução |
+
 ## 5. Forja
 
 | # | Ação | Esperado |

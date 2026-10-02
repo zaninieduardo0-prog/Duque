@@ -9,7 +9,6 @@ from openai import OpenAI
 
 from brain.agent_loop import AgentLoop
 from core.events import Event, EventType
-from computer.now_playing import NowPlaying
 from core.voice_bridge import bridge
 from core.state import DuqueState
 
@@ -339,7 +338,7 @@ def executar_comando():
         }), 500
 
 
-now_playing = NowPlaying()
+now_playing = agent.now_playing
 _ultima_saudacao = {"em": 0.0}
 
 
@@ -367,6 +366,8 @@ def memoria():
     return jsonify({
         "notas": agent.assistant_tools.notes_list().get("notes", []),
         "timers": agent.assistant_tools.timers_list().get("timers", []),
+        "lembretes": agent.reminders_list().get("reminders", []),
+        "foco_ate": agent._focus_until if agent.focus_active() else None,
         "turnos": agent.conversation.last_id(),
     })
 
