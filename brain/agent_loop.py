@@ -108,7 +108,8 @@ class AgentLoop:
             ToolSpec("open_app", "Abre um aplicativo", ("name",), {"name": str}),
             ToolSpec("open_url", "Abre uma URL no navegador; pode ser usada para serviços web como WhatsApp Web", ("url",), {"url": str}),
             ToolSpec("open_path", "Abre um caminho existente", ("path",), {"path": str}),
-            ToolSpec("web_search", "Pesquisa na web", ("query",), {"query": str}),
+            ToolSpec("web_search", "Pesquisa na web sem abrir o navegador", ("query",), {"query": str}),
+            ToolSpec("open_search_result", "Abre no navegador um resultado da pesquisa recente", (), {"index": int}),
             ToolSpec("read_file", "Lê um arquivo do workspace", ("path",), {"path": str}),
             ToolSpec("read_many_files", "Lê vários arquivos do workspace", ("paths",), {"paths": list}),
             ToolSpec("write_file", "Escreve arquivo no workspace", ("path", "content"), {"path": str, "content": str}),
@@ -278,6 +279,17 @@ class AgentLoop:
             return f"Criei o arquivo {value.get('path', 'solicitado')}."
         if value.get("deleted") is True:
             return f"Excluí o arquivo {value.get('path', 'solicitado')}."
+        if "query" in value and "results" in value and isinstance(value["results"], list):
+            results = value["results"]
+            if not results:
+                return f"Nenhum resultado encontrado para: {value['query']}"
+            lines = [f"Pesquisa: {value['query']}"]
+            for index, item in enumerate(results[:8], 1):
+                if isinstance(item, dict):
+                    lines.append(f"{index}. {item.get('title', 'Sem título')} — {item.get('url', '')}")
+            return "\n".join(lines)
+        if value.get("opened") is True and "index" in value and "title" in value:
+            return f"Abri o resultado {value['index']}: {value['title']}"
         if "workspace" in value and "file_count" in value:
             return f"Workspace: {value['workspace']}\nArquivos encontrados: {value['file_count']}."
         if "success" in value and "stdout" in value:
