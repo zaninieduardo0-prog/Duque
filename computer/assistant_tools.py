@@ -482,7 +482,7 @@ def _memory_and_battery() -> dict[str, Any]:
 def _cpu_percent(interval: float = 0.3) -> int | None:
     if not IS_WINDOWS:
         try:
-            return round(os.getloadavg()[0] / (os.cpu_count() or 1) * 100)
+            return round(getattr(os, "getloadavg")()[0] / (os.cpu_count() or 1) * 100)
         except (OSError, AttributeError):
             return None
     import ctypes
