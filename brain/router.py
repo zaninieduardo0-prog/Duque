@@ -59,14 +59,19 @@ class IntentRouter:
         )):
             return Route(Intent.CLOSE_APP, 0.95, "pedido explícito para fechar aplicativo")
 
-        if any(phrase in value for phrase in (
-            "o chrome está aberto", "o chrome esta aberto", "chrome está aberto", "chrome esta aberto",
-            "o chrome está rodando", "o chrome esta rodando", "chrome está rodando", "chrome esta rodando",
-            "o navegador está aberto", "o navegador esta aberto", "navegador está aberto", "navegador esta aberto",
-            "o whatsapp está aberto", "o whatsapp esta aberto", "whatsapp está aberto", "whatsapp esta aberto",
-            "o edge está aberto", "o edge esta aberto", "edge está aberto", "edge esta aberto",
-        )):
-            return Route(Intent.CHECK_APP, 0.9, "pedido explícito para verificar aplicativo")
+        app_markers = (
+            "chrome", "google chrome", "navegador",
+            "edge", "microsoft edge",
+            "whatsapp", "whatsapp desktop",
+            "bloco de notas", "notepad", "calculadora", "calc", "paint",
+        )
+        check_markers = (
+            "está aberto", "esta aberto", "está rodando", "esta rodando",
+            "está funcionando", "esta funcionando", "está em execução", "esta em execução",
+            "está aberto?", "esta aberto?", "rodando?", "aberto?",
+        )
+        if any(app in value for app in app_markers) and any(marker in value for marker in check_markers):
+            return Route(Intent.CHECK_APP, 0.94, "pedido para verificar o estado de um aplicativo")
 
         if any(x in value for x in (
             "liste os arquivos", "listar os arquivos", "listar arquivos",
