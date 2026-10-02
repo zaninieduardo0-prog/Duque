@@ -39,7 +39,8 @@ class Planner:
             "abrir o aplicativo ", "abrir aplicativo ", "abrir a aplicação ",
             "abrir aplicação ", "abrir o ", "abrir a ", "abrir ",
             "abra o aplicativo ", "abra aplicativo ", "abra o ", "abra a ",
-            "abra ", "inicie o ", "inicie a ", "inicie ",
+            "abra ", "abre o aplicativo ", "abre aplicativo ", "abre o ", "abre a ",
+            "abre ", "inicie o ", "inicie a ", "inicie ",
         )
         for prefix in prefixes:
             if lowered.startswith(prefix):
