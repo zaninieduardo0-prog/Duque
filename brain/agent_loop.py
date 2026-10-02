@@ -206,7 +206,10 @@ class AgentLoop:
         if isinstance(self.model, NullModel) or intent in {"open_app", "file_operation", "system", "reminder"}:
             return self.planner.build(text, intent, set(self.schemas.names()))
         if intent in {"chat", "unknown"}:
-            return self.planner.build(text, intent)
+            try:
+                return self.model_planner.build(text, self.executor.tools.names())
+            except Exception:
+                return self.planner.build(text, intent)
         try:
             return self.model_planner.build(text, self.executor.tools.names())
         except Exception:
