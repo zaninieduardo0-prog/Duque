@@ -143,7 +143,7 @@ class IntentRouter:
         )):
             return Route(Intent.MEDIA, 0.92, "controle de mídia")
 
-        if value.startswith(("anote", "anota", "faça uma nota", "faz uma nota")) or any(x in value for x in ("minhas notas", "minhas anotações", "minhas anotacoes", "leia as notas")):
+        if value.startswith(("anote", "anota", "faça uma nota", "faz uma nota", "lembre que", "lembra que", "guarde que", "guarda que", "memorize que", "memoriza que")) or any(x in value for x in ("minhas notas", "minhas anotações", "minhas anotacoes", "leia as notas", "o que você sabe sobre mim", "o que voce sabe sobre mim", "o que você lembra de mim", "o que voce lembra de mim")):
             return Route(Intent.NOTE, 0.9, "anotação")
 
         if re.match(r"^(?:duque[,!]?\s+)?(?:quanto é|quanto e|calcule|calcula)\b", value):

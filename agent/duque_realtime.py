@@ -30,7 +30,7 @@ def build_instructions() -> str:
     override = os.getenv("DUQUE_VOICE_INSTRUCTIONS", "").strip()
     if override:
         return override
-    return voice_instructions(bridge.context())
+    return voice_instructions(bridge.context(), bridge.memories())
 
 
 # Mantido por compatibilidade com quem importava a constante.

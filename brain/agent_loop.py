@@ -139,6 +139,55 @@ class AgentLoop:
 
     def _forge_notify(self, kind: str, data: dict[str, Any]) -> None:
         self.memory.remember(MemoryLayer.OPERATIONAL, f"forge:{kind}:{uuid4().hex[:8]}", data)
+        if kind == "forja_concluida":
+            self.announce(self.forge_announcement(data))
+
+    @staticmethod
+    def forge_announcement(data: dict[str, Any]) -> str:
+        """Frase curta para avisar, por voz, o resultado de um trabalho da Forja."""
+        goal = str(data.get("goal", "")).strip()
+        status = data.get("status")
+        text = {
+            "merged": f"Du, terminei na Forja: {goal}. Passou nos testes e no CI e já está no main.",
+            "awaiting_approval": f"Du, a melhoria '{goal}' está pronta, mas precisa da sua aprovação no GitHub.",
+            "no_changes": f"Du, analisei '{goal}' na Forja e não foi preciso mudar nada.",
+        }.get(str(status), f"Du, não consegui concluir '{goal}' na Forja. Os detalhes estão no relatório.")
+        if data.get("restarting"):
+            text += " Vou reiniciar em alguns segundos para aplicar."
+        elif data.get("update") == "rolled_back":
+            text += " A atualização falhou na validação local e voltei para a versão anterior."
+        return text
+
+    def memory_digest(self, limit: int = 25) -> str:
+        """Anotações do Du em texto curto, para o modelo lembrar dele."""
+        notes = self.assistant_tools.notes_list().get("notes", [])
+        return "\n".join(f"- {note['text']}" for note in notes[-limit:])
+
+    def greeting(self) -> str:
+        """Saudação de início, no estilo J.A.R.V.I.S.: hora, clima e pendências."""
+        from datetime import datetime
+
+        now = datetime.now()
+        period = "Bom dia" if 5 <= now.hour < 12 else "Boa tarde" if 12 <= now.hour < 18 else "Boa noite"
+        parts = [f"{period}, Du. São {now:%H:%M}."]
+        try:
+            weather = self.assistant_tools.weather()
+            if weather.get("message"):
+                parts.append(str(weather["message"]))
+        except Exception:
+            pass
+        timers = self.assistant_tools.timers_list().get("timers", [])
+        if timers:
+            parts.append(f"Você tem {len(timers)} timer(s) ativo(s).")
+        notes = self.assistant_tools.notes_list().get("notes", [])
+        if notes:
+            parts.append(f"{len(notes)} anotação(ões) guardada(s).")
+        if self.forge_service is not None:
+            history = self.forge_service.status().get("history") or []
+            if history and history[-1].get("status") == "merged":
+                parts.append(f"Última melhoria aplicada pela Forja: {history[-1].get('goal')}.")
+        parts.append("Sistemas online.")
+        return " ".join(parts)
 
     def _forge_improve(self, goal: str) -> dict[str, object]:
         if self.forge_service is None:
@@ -283,7 +332,7 @@ class AgentLoop:
         history = self.conversation.as_messages(16)
         if not history or history[-1]["role"] != "user" or history[-1]["content"] != text.strip():
             history.append({"role": "user", "content": text})
-        response = self.model.respond([{"role": "system", "content": text_system_prompt()}, *history])
+        response = self.model.respond([{"role": "system", "content": text_system_prompt(self.memory_digest())}, *history])
         return response.text.strip() or "Não consegui formular uma resposta agora."
 
     def _build_plan(self, text: str, intent: str):

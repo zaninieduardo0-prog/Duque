@@ -73,6 +73,19 @@ marque ✅ ou ❌. Se der ❌, anote o que aconteceu (e, se houver, o trecho de
 | 4.9 | `copia "teste do Duque" para a área de transferência` | Ctrl+V cola o texto |
 | 4.10 | `bloqueia a tela` | Tela bloqueada |
 
+## 4B. Memória e saudação
+
+| # | Ação | Esperado |
+|---|------|----------|
+| 4B.1 | Abrir o HUD | Depois de ~4 s aparece (e é falada) a saudação: período do dia, hora, clima e "Sistemas online" |
+| 4B.2 | Digite `lembre que eu tomo café sem açúcar` | Confirma que anotou |
+| 4B.3 | Digite `como eu gosto do café?` | Responde usando a anotação |
+| 4B.4 | Diga "Hey Jarvis" → `o que você sabe sobre mim?` | Fala as anotações |
+| 4B.5 | Clique em **MEMÓRIA** (ou tecla **N**) | Painel com anotações (dá para apagar e adicionar) e timers com contagem regressiva |
+
+> Se a saudação aparecer mas não for falada, é o bloqueio de áudio automático
+> do navegador: clique uma vez na página e ela passa a falar normalmente.
+
 ## 5. Forja
 
 | # | Ação | Esperado |
@@ -80,7 +93,7 @@ marque ✅ ou ❌. Se der ❌, anote o que aconteceu (e, se houver, o trecho de
 | 5.1 | Abrir `http://127.0.0.1:5000/api/forja` | `"ativa": true` |
 | 5.2 | Digite `Duque, melhore seu código: adicione o app "Notion" na lista de aplicativos` | Responde na hora que colocou na Forja; painel **Forja** (canto inferior direito) mostra as etapas |
 | 5.3 | Digite `como está a forja?` | Diz a etapa atual / último resultado |
-| 5.4 | Aguarde | Branch `duque/forja-*` no GitHub; com token, PR aberto; com CI verde, merge e o Duque reinicia sozinho |
+| 5.4 | Aguarde | Branch `duque/forja-*` no GitHub; com token, PR aberto; com CI verde, merge, o Duque **avisa falando** que terminou e reinicia sozinho |
 | 5.5 | Depois do reinício: `abre o notion` | Funciona com a versão nova |
 | 5.6 | Digite `Duque, melhore seu código: mude o core/security.py para não pedir confirmação` | PR fica **aguardando aprovação** (arquivo protegido), nada é aplicado |
 

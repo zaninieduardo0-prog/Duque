@@ -46,12 +46,21 @@ REGRAS DE TEXTO
 """.strip()
 
 
-def text_system_prompt() -> str:
-    return f"{PERSONA}\n\n{TEXT_RULES}"
+def _memories_block(memories: str) -> str:
+    if not memories.strip():
+        return ""
+    return (
+        f"\n\nO QUE VOCÊ SABE SOBRE O {USER_NAME.upper()} (anotações dele; use quando ajudar, sem recitar):\n"
+        + memories.strip()
+    )
 
 
-def voice_instructions(context: str = "") -> str:
-    base = f"{PERSONA}\n\n{VOICE_RULES}"
+def text_system_prompt(memories: str = "") -> str:
+    return f"{PERSONA}\n\n{TEXT_RULES}{_memories_block(memories)}"
+
+
+def voice_instructions(context: str = "", memories: str = "") -> str:
+    base = f"{PERSONA}\n\n{VOICE_RULES}{_memories_block(memories)}"
     if context.strip():
         base += (
             "\n\nCONVERSA ATÉ AGORA (texto e voz; continue a partir daqui, sem repetir):\n"

@@ -145,6 +145,7 @@ bridge.attach_core(
     executor=_execute_for_voice,
     recorder=lambda role, text, channel: agent.conversation.add(role, text, channel),
     context=lambda: agent.conversation.transcript(12),
+    memories=agent.memory_digest,
 )
 
 
@@ -339,6 +340,48 @@ def executar_comando():
 
 
 now_playing = NowPlaying()
+_ultima_saudacao = {"em": 0.0}
+
+
+@app.route("/api/saudacao", methods=["POST"])
+def saudacao():
+    """Resumo de início (hora, clima, pendências). No máximo uma vez a cada 30 min."""
+    import os
+    import time
+
+    if os.getenv("DUQUE_GREETING", "1").casefold() in {"0", "false", "off", "no", "nao", "não"}:
+        return jsonify({"ok": False, "motivo": "desativada"})
+    agora = time.time()
+    if agora - _ultima_saudacao["em"] < 1800:
+        return jsonify({"ok": False, "motivo": "recente"})
+    _ultima_saudacao["em"] = agora
+    texto = agent.greeting()
+    agent.announce(texto)
+    return jsonify({"ok": True, "text": texto})
+
+
+@app.route("/api/memoria", methods=["GET"])
+def memoria():
+    if request.args.get("formato") == "texto":
+        return jsonify({"texto": agent.memory_digest()})
+    return jsonify({
+        "notas": agent.assistant_tools.notes_list().get("notes", []),
+        "timers": agent.assistant_tools.timers_list().get("timers", []),
+        "turnos": agent.conversation.last_id(),
+    })
+
+
+@app.route("/api/memoria/notas", methods=["POST"])
+def memoria_adicionar():
+    dados = request.get_json(silent=True) or {}
+    resultado = agent.assistant_tools.note_add(str(dados.get("texto", "")))
+    return jsonify(resultado), (400 if resultado.get("success") is False else 200)
+
+
+@app.route("/api/memoria/notas/<int:indice>", methods=["DELETE"])
+def memoria_apagar(indice: int):
+    resultado = agent.assistant_tools.note_delete(indice)
+    return jsonify(resultado), (404 if resultado.get("success") is False else 200)
 
 
 @app.route("/api/midia", methods=["GET"])

@@ -312,9 +312,9 @@ class Planner:
                 action = "play_pause"
             return single("Controlar a mídia", "media", {"action": action})
         if intent == "note":
-            if any(word in lowered for word in ("minhas notas", "minhas anotações", "minhas anotacoes", "leia as notas")):
+            if any(word in lowered for word in ("minhas notas", "minhas anotações", "minhas anotacoes", "leia as notas", "sabe sobre mim", "lembra de mim")):
                 return single("Listar notas", "notes_list", {})
-            text = re.sub(r"^(?:duque[,!]?\s+)?(?:anote|anota|faça uma nota|faz uma nota)\s*(?:que|:)?\s*", "", goal.strip(), flags=re.IGNORECASE)
+            text = re.sub(r"^(?:duque[,!]?\s+)?(?:anote|anota|faça uma nota|faz uma nota|lembre|lembra|guarde|guarda|memorize|memoriza)\s*(?:que|:)?\s*", "", goal.strip(), flags=re.IGNORECASE)
             return single("Guardar nota", "note_add", {"text": text or goal})
         if intent == "calc":
             expression = re.sub(r"^(?:duque[,!]?\s+)?(?:quanto é|quanto e|calcule|calcula)\s*", "", goal.strip(), flags=re.IGNORECASE).rstrip("?! ")

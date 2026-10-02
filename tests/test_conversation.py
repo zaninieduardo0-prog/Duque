@@ -159,6 +159,23 @@ class ServerConversationTests(unittest.TestCase):
         self.assertEqual(data["via"], "voz")
         self.assertEqual(sent, ["e amanhã?"])
 
+    def test_memory_and_greeting_endpoints(self) -> None:
+        from tests.test_memory_features import fake_weather
+
+        self.servidor.agent.assistant_tools.fetch_json = fake_weather
+        self.assertEqual(self.client.post("/api/memoria/notas", json={"texto": "gosta de jazz"}).status_code, 200)
+        notes = self.client.get("/api/memoria").get_json()["notas"]
+        self.assertIn("gosta de jazz", [note["text"] for note in notes])
+        self.assertIn("gosta de jazz", self.client.get("/api/memoria?formato=texto").get_json()["texto"])
+        self.assertEqual(self.client.delete(f"/api/memoria/notas/{len(notes)}").status_code, 200)
+        self.assertEqual(self.client.delete("/api/memoria/notas/999").status_code, 404)
+
+        self.servidor._ultima_saudacao["em"] = 0.0
+        first = self.client.post("/api/saudacao").get_json()
+        self.assertTrue(first["ok"])
+        self.assertIn("Sistemas online", first["text"])
+        self.assertFalse(self.client.post("/api/saudacao").get_json()["ok"])
+
     def test_media_endpoints(self) -> None:
         status = self.client.get("/api/midia").get_json()
         self.assertIn("playing", status)
