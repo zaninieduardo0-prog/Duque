@@ -15,6 +15,7 @@ from core.tasks import TaskManager
 from computer.code_tools import CodeTools
 from computer.runtime import create_ui_tools, create_verification
 from computer.screen_tools import ScreenTools
+from computer.system_tools import SystemTools
 from computer.tools import ComputerTools
 from computer.ui_tools import UITools
 from computer.verification_tools import VerificationTools
@@ -62,6 +63,7 @@ class AgentLoop:
         self.workspace = workspace or Workspace(os.getenv("DUQUE_WORKSPACE_ROOT", "."))
         ComputerTools().register(self.executor)
         CodeTools(self.workspace).register(self.executor)
+        SystemTools().register(self.executor)
         self.self_development = SelfDevelopment(self.workspace)
         self.self_development.register(self.executor)
         active_ui_tools = ui_tools or create_ui_tools()
@@ -133,6 +135,17 @@ class AgentLoop:
             ToolSpec("screen_click_text", "Localiza um texto na tela e clica no elemento; pode confirmar texto esperado", ("text",), {"text": str, "expected_text": str, "expected_not_text": str}),
             ToolSpec("screen_contains_text", "Verifica se um texto está visível via OCR", ("text",), {"text": str}),
             ToolSpec("schedule_task", "Agenda uma tarefa serializável", ("description", "delay_seconds", "steps"), {"description": str, "delay_seconds": (int, float), "steps": list, "repeat_seconds": (int, float)}),
+            ToolSpec("system_info", "Obtém informações do sistema local"),
+            ToolSpec("environment", "Lê uma variável de ambiente ou o ambiente completo", (), {"name": str}),
+            ToolSpec("list_directory", "Lista qualquer diretório local", (), {"path": str}),
+            ToolSpec("read_any_file", "Lê qualquer arquivo local", ("path",), {"path": str, "max_bytes": int}),
+            ToolSpec("write_any_file", "Escreve qualquer arquivo local", ("path", "content"), {"path": str, "content": str}),
+            ToolSpec("delete_any_file", "Exclui arquivo ou diretório local", ("path",), {"path": str}),
+            ToolSpec("copy_path", "Copia arquivo ou diretório local", ("source", "destination"), {"source": str, "destination": str}),
+            ToolSpec("move_path", "Move arquivo ou diretório local", ("source", "destination"), {"source": str, "destination": str}),
+            ToolSpec("run_command", "Executa um comando do sistema local", ("command",), {"command": str, "timeout": int}),
+            ToolSpec("list_processes", "Lista processos em execução"),
+            ToolSpec("kill_process", "Encerra um processo local", ("pid",), {"pid": int, "force": bool}),
         ]
         registered = set(self.executor.tools.names())
         for spec in specs:
