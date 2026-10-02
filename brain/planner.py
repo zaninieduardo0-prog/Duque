@@ -73,6 +73,42 @@ class Planner:
                 StepKind.TOOL, "open_app", {"name": app_name},
             )])
 
+        if intent == "close_app":
+            lowered = goal.casefold()
+            names = (
+                ("chrome", "chrome"), ("navegador", "chrome"),
+                ("edge", "edge"), ("whatsapp", "whatsapp"),
+                ("bloco de notas", "bloco de notas"), ("notepad", "notepad"),
+                ("calculadora", "calculadora"), ("paint", "paint"),
+            )
+            app_name = next((name for marker_text, name in names if marker_text in lowered), "")
+            if not app_name:
+                app_name = self._app_name(goal)
+            if not tool_available("close_app"):
+                return Plan(goal)
+            return Plan(goal, [PlanStep(
+                f"Fechar o aplicativo solicitado: {app_name}",
+                StepKind.TOOL, "close_app", {"name": app_name},
+            )])
+
+        if intent == "check_app":
+            lowered = goal.casefold()
+            names = (
+                ("chrome", "chrome"), ("navegador", "chrome"),
+                ("edge", "edge"), ("whatsapp", "whatsapp"),
+                ("bloco de notas", "bloco de notas"), ("notepad", "notepad"),
+                ("calculadora", "calculadora"), ("paint", "paint"),
+            )
+            app_name = next((name for marker_text, name in names if marker_text in lowered), "")
+            if not app_name:
+                app_name = self._app_name(goal)
+            if not tool_available("is_app_running"):
+                return Plan(goal)
+            return Plan(goal, [PlanStep(
+                f"Verificar se o aplicativo está em execução: {app_name}",
+                StepKind.TOOL, "is_app_running", {"name": app_name},
+            )])
+
         if intent == "open_search_result":
             if not tool_available("open_search_result"):
                 return Plan(goal)
