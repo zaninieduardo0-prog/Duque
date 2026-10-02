@@ -1029,8 +1029,9 @@ async function runCommand(text){
     showResponse(answer);
     DUQUE.activity('RESPONSE');
 
-    // O texto vem do AgentLoop; agora a mesma resposta é enviada ao TTS.
-    await speakResponse(answer);
+    // A resposta textual não espera o TTS. A voz roda em paralelo para
+    // manter o Duque responsivo, inclusive quando a síntese demora.
+    void speakResponse(answer);
     DUQUE.telemetry([{k:'Resposta',v:'<em>Pronta</em>'}],2600);
   }catch(error){
     showResponse(error instanceof Error ? error.message : 'Não foi possível falar com o Duque.');
