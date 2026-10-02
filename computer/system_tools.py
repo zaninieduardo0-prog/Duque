@@ -32,7 +32,15 @@ class SystemTools:
     def environment(self, name: str | None = None) -> dict[str, Any]:
         if name:
             return {"name": name, "value": os.getenv(name)}
-        return {"variables": dict(os.environ)}
+        # Não despejar chaves, tokens ou credenciais do ambiente no contexto do agente.
+        # Variáveis individuais continuam consultáveis quando explicitamente pedidas.
+        sensitive_markers = ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASS", "AUTH", "CREDENTIAL")
+        variables = {
+            key: value
+            for key, value in os.environ.items()
+            if not any(marker in key.upper() for marker in sensitive_markers)
+        }
+        return {"variables": variables, "redacted": True}
 
     def list_directory(self, path: str = ".") -> dict[str, Any]:
         target = Path(path).expanduser().resolve()
