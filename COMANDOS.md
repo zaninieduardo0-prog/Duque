@@ -189,3 +189,26 @@ git reset --hard <código>
 
 > Isso só mexe no código do Duque. Memória e configurações (`duque_data/`)
 > continuam.
+
+---
+
+## Aplicar uma atualização nova do Claude (branch `duque/ajustes-N`)
+
+Troque `N` pelo número que o Claude informar (a última foi **5**). Um bloco por vez:
+
+```powershell
+cd C:\Users\zanin\Duque
+Get-Process pythonw -ErrorAction SilentlyContinue | Stop-Process
+git fetch origin
+git merge origin/duque/ajustes-5 -m "Ajustes 5"
+git push origin main
+wscript .\Duque.vbs
+```
+
+Opcionais da audição e do Chrome (depois feche e abra o Duque):
+
+```powershell
+setx DUQUE_CHROME_PROFILE "zaninieduardo0"
+setx DUQUE_VOICE_IDLE "60"
+setx DUQUE_VAD_INTERRUPT "0"
+```
