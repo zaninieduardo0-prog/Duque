@@ -229,16 +229,24 @@ class AgentLoop:
 
     @staticmethod
     def _forge_requested(text: str) -> bool:
-        """Pedidos para o Duque mudar o próprio código vão para a Forja."""
+        """Pedidos para o Duque MUDAR o próprio código vão para a Forja.
+
+        Precisa de um verbo de mudança + o próprio Duque como alvo (ou citar a
+        Forja explicitamente). Perguntas como "explica seu código" não contam.
+        """
+        import re
+
         value = " ".join(text.casefold().strip().split())
-        markers = (
-            "forja", "seu código", "seu codigo", "seu próprio código", "seu proprio codigo",
-            "se melhore", "melhore a si", "melhore você", "melhore voce", "se atualize",
-            "atualize seu", "reescreva seu", "evolua seu", "evolua você", "evolua voce",
-            "melhore o projeto", "melhora o projeto", "corrija o projeto", "corrige o projeto",
-            "implemente no duque", "adicione ao duque", "adicione no duque",
+        if "forja" in value and not re.search(r"\b(?:como|status|andamento|progresso)\b", value):
+            return True
+        if re.search(r"\bse (?:melhore|melhora|atualize|atualiza|corrija|corrige|evolua|evolui|aprimore)\b|\b(?:melhore|evolua|aprimore) a si\b", value):
+            return True
+        verb = re.search(r"\b(?:melhor|corrij|corrig|reescrev|evolu|atualiz|implement|adicion|cri[ae]\b|refator|consert|arrum|otimiz|aprimor|mud[ae]\b|alter)\w*", value)
+        target = re.search(
+            r"\b(?:seu (?:próprio |proprio )?(?:código|codigo)|(?:você|voce) mesmo|a si mesmo|o projeto|(?:no|ao|o) duque|(?:sua|suas) (?:função|funcao|funções|funcoes|ferramentas?))\b",
+            value,
         )
-        return any(marker in value for marker in markers)
+        return bool(verb and target)
 
     def _observe_screen(self) -> dict[str, object]:
         if self.verification is None:

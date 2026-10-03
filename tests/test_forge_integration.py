@@ -52,6 +52,28 @@ class AgentForgeTests(TempDirTestCase):
         self.assertIn("Forja", result.text)
         self.assertIn("abc123", result.text)
 
+    def test_forge_trigger_requires_a_change_request(self) -> None:
+        should = [
+            "Duque, melhore seu código de reconhecimento de apps",
+            "coloque na forja: adicionar o Notion",
+            "corrija o projeto, o timer não avisa",
+            "adicione ao Duque um comando de tradução",
+            "se atualize para entender datas melhor",
+        ]
+        should_not = [
+            "explica seu código",
+            "qual a linguagem do seu código?",
+            "melhore esse texto para mim",
+            "como está a forja?",
+            "abre o projeto no vscode",
+        ]
+        for text in should:
+            with self.subTest(text=text):
+                self.assertTrue(AgentLoop._forge_requested(text))
+        for text in should_not:
+            with self.subTest(text=text):
+                self.assertFalse(AgentLoop._forge_requested(text))
+
     def test_regular_requests_do_not_go_to_forge(self) -> None:
         forge = FakeForgeService()
         agent = self.make_agent(forge)

@@ -47,8 +47,11 @@ def _set_state(
     tarefa: str = "",
     atividade: str = "",
     coerencia: int = 100,
-    force: bool = False,
+    force: bool = True,
 ) -> None:
+    # Este estado só alimenta o HUD. Ele nunca pode derrubar uma ação real:
+    # a voz, por exemplo, executa ferramentas a partir de "ouvindo", e a
+    # transição ouvindo -> executando não existe na máquina de estados.
     snapshot = agent.engine.transition(
         estado,
         task=tarefa,
@@ -132,7 +135,15 @@ def _handle_event(event: Event) -> None:
         )
 
 
-agent.engine.events.subscribe(None, _handle_event)
+def _safe_handle_event(event: Event) -> None:
+    """Falha ao atualizar o HUD nunca interrompe a tarefa que emitiu o evento."""
+    try:
+        _handle_event(event)
+    except Exception as exc:
+        print(f"[HUD] evento {event.type.value} ignorado: {type(exc).__name__}: {exc}", flush=True)
+
+
+agent.engine.events.subscribe(None, _safe_handle_event)
 
 
 def _execute_for_voice(pedido: str) -> str:
@@ -270,10 +281,13 @@ def executar_comando():
             return jsonify({"ok": True, "via": "voz", "text": "", "resposta": ""})
 
     try:
+        # Estado visual: um comando novo sempre pode começar, mesmo vindo de
+        # "dormindo" ou "erro" (antes isso gerava InvalidTransition e erro 500).
         _set_state(
             DuqueState.PROCESSING,
             tarefa="Interpretando comando",
             atividade="Processamento",
+            force=True,
         )
         with state_lock:
             estado_duque["modo"] = "texto"
