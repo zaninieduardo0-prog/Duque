@@ -1,40 +1,40 @@
 from __future__ import annotations
 
+import asyncio
 import os
 
+from agents import function_tool
 from agents.realtime import RealtimeAgent
 
+from brain.persona import voice_instructions
+from core.voice_bridge import bridge
 
-DUQUE_REALTIME_INSTRUCTIONS = """
-Você é o Duque, assistente pessoal do Du.
 
-IDENTIDADE
-- Seu nome é Duque.
-- Chame o usuário de Du.
-- Nunca use "senhor" para se referir ao usuário.
-- Não use "Eduardo" a menos que Du peça.
-- Fale em português do Brasil por padrão.
+@function_tool
+async def executar_no_duque(pedido: str) -> str:
+    """Executa um pedido usando o cérebro e as ferramentas do Duque.
 
-ESTILO DE VOZ
-- Seja natural, direto e conversacional.
-- Respostas faladas devem ser curtas o suficiente para uma conversa por voz.
-- Não leia markdown, caminhos longos, JSON ou código inteiro em voz alta.
-- Quando Du pedir algo técnico, explique em passos simples e execute o que estiver disponível.
-- Não invente que executou uma ação. Se não conseguiu, diga claramente o que aconteceu.
+    Use para tudo que exige agir: abrir ou fechar aplicativos e pastas, ler e
+    procurar arquivos, pesquisar na web, clima, hora, contas, notas, timers e
+    lembretes, música e volume, área de transferência, estado do computador,
+    YouTube, Spotify, mapas e melhorias no próprio código do Duque (Forja).
 
-COMPORTAMENTO
-- Você é o modo de conversa por voz do Duque.
-- Mantenha contexto entre os turnos da sessão.
-- Pode interromper uma resposta quando o usuário começar a falar.
-- Se Du pedir para encerrar a conversa, responda brevemente e deixe a sessão terminar.
-- Para assuntos que exigem trabalho no projeto, o modo texto/autônomo do Duque é o responsável por operações longas de arquivos, código e Git.
-- Não finja ter acesso a ferramentas que não foram fornecidas nesta sessão.
+    Args:
+        pedido: o pedido completo do Du, em português, com todos os detalhes.
+    """
+    return await asyncio.to_thread(bridge.execute, pedido)
 
-PERSONALIDADE
-- Confiante, calmo, útil e humano.
-- Pode usar linguagem casual quando Du falar de forma casual.
-- Priorize resolver o pedido em vez de fazer discursos.
-""".strip()
+
+def build_instructions() -> str:
+    """Persona + conversa recente (texto e voz) para continuar do mesmo ponto."""
+    override = os.getenv("DUQUE_VOICE_INSTRUCTIONS", "").strip()
+    if override:
+        return override
+    return voice_instructions(bridge.context(), bridge.memories())
+
+
+# Mantido por compatibilidade com quem importava a constante.
+DUQUE_REALTIME_INSTRUCTIONS = voice_instructions()
 
 
 def _build_agent() -> RealtimeAgent:
@@ -42,11 +42,13 @@ def _build_agent() -> RealtimeAgent:
     return RealtimeAgent(
         name="Duque",
         instructions=DUQUE_REALTIME_INSTRUCTIONS,
+        tools=[executar_no_duque],
     )
 
 
 duque_realtime = _build_agent()
 
-# Mantém a identidade fácil de ajustar pelo runtime sem duplicar o prompt.
-if os.getenv("DUQUE_VOICE_INSTRUCTIONS"):
-    duque_realtime.instructions = os.getenv("DUQUE_VOICE_INSTRUCTIONS", "").strip() or DUQUE_REALTIME_INSTRUCTIONS
+
+def refresh_instructions() -> None:
+    """Chamado no início de cada sessão de voz para trazer o contexto atual."""
+    duque_realtime.instructions = build_instructions()

@@ -30,7 +30,7 @@ class AutonomousLoop:
         '{"action":"tool","tool":"nome","arguments":{},"reason":"..."} ou '
         '{"action":"finish","message":"..."}. '
         "Analise todos os resultados antes da próxima ação. Para desenvolvimento de software, inspecione o workspace e o Git, leia os arquivos relevantes, faça alterações quando necessário, execute testes, corrija falhas e revise o diff antes de concluir. "
-        "Use git_fetch/pull quando precisar sincronizar o projeto. Faça commit quando uma alteração estiver validada. Push é uma ação separada e só deve ser feito quando autorizado. "
+        "Para alterar o código do próprio Duque, use forge_improve com um objetivo claro: a Forja trabalha numa cópia isolada, testa e aplica com segurança. Não edite nem faça commit do código em execução. "
         "Se algo falhar, corrija ou escolha outra abordagem. Nunca invente resultados e nunca declare sucesso sem evidência. "
         "Quando a tarefa envolver interface, prefira observar/localizar antes de clicar ou digitar. "
         "Evite repetir a mesma ferramenta com os mesmos argumentos quando o estado não mudou. Para ler código, prefira read_many_files em vez de várias leituras isoladas. Em tarefas de desenvolvimento, mantenha foco no objetivo, faça progresso verificável e não fique rechecando o mesmo estado indefinidamente. Só finalize depois que os resultados das ferramentas fornecerem evidência suficiente de conclusão."

@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 
 import duque_wake_v2 as runtime
+from core.voice_bridge import bridge
+from voice.transcripts import speech_from_event
 
 log = runtime.log
 
@@ -117,6 +119,19 @@ async def receive_events(session) -> None:
         if not runtime.REALTIME:
             return
         kind = getattr(event, "type", "")
+
+        # Registra as falas na conversa única (texto + voz).
+        speech = speech_from_event(event)
+        if speech:
+            role, text = speech
+            await runtime.asyncio.to_thread(bridge.record, role, text, "voz")
+
+        if kind == "tool_start":
+            runtime.hud("executando", "Executando pedido...")
+            continue
+        if kind == "tool_end":
+            runtime.hud("processando", "Resultado recebido")
+            continue
 
         if kind == "raw_model_event":
             data = getattr(event, "data", None)

@@ -9,6 +9,7 @@ from openai import OpenAI
 
 from brain.agent_loop import AgentLoop
 from core.events import Event, EventType
+from core.voice_bridge import bridge
 from core.state import DuqueState
 
 app = Flask(__name__)
@@ -46,8 +47,11 @@ def _set_state(
     tarefa: str = "",
     atividade: str = "",
     coerencia: int = 100,
-    force: bool = False,
+    force: bool = True,
 ) -> None:
+    # Este estado só alimenta o HUD. Ele nunca pode derrubar uma ação real:
+    # a voz, por exemplo, executa ferramentas a partir de "ouvindo", e a
+    # transição ouvindo -> executando não existe na máquina de estados.
     snapshot = agent.engine.transition(
         estado,
         task=tarefa,
@@ -131,7 +135,28 @@ def _handle_event(event: Event) -> None:
         )
 
 
-agent.engine.events.subscribe(None, _handle_event)
+def _safe_handle_event(event: Event) -> None:
+    """Falha ao atualizar o HUD nunca interrompe a tarefa que emitiu o evento."""
+    try:
+        _handle_event(event)
+    except Exception as exc:
+        print(f"[HUD] evento {event.type.value} ignorado: {type(exc).__name__}: {exc}", flush=True)
+
+
+agent.engine.events.subscribe(None, _safe_handle_event)
+
+
+def _execute_for_voice(pedido: str) -> str:
+    """Ferramenta da voz: executa pelo mesmo cérebro, sem duplicar o turno na conversa."""
+    return agent.handle(pedido, channel="voz", record=False).text
+
+
+bridge.attach_core(
+    executor=_execute_for_voice,
+    recorder=lambda role, text, channel: agent.conversation.add(role, text, channel),
+    context=lambda: agent.conversation.transcript(12),
+    memories=agent.memory_digest,
+)
 
 
 def atualizar_estado(
@@ -242,20 +267,32 @@ def alterar_estado():
 def executar_comando():
     dados = request.get_json(silent=True) or {}
     texto = dados.get("text")
+    canal = str(dados.get("canal")) if dados.get("canal") in {"texto", "voz"} else "texto"
+    registrar = dados.get("registrar", True) is not False
 
     if not isinstance(texto, str) or not texto.strip():
         return jsonify({"erro": "O comando não pode ser vazio."}), 400
 
+    # Conversa por voz em andamento: o texto digitado entra na mesma sessão e a
+    # resposta sai falada por ela, mantendo um único fluxo de conversa.
+    if canal == "texto" and registrar and bridge.voice_active:
+        agent.conversation.add("user", texto.strip(), "texto")
+        if bridge.send_to_voice(texto.strip()):
+            return jsonify({"ok": True, "via": "voz", "text": "", "resposta": ""})
+
     try:
+        # Estado visual: um comando novo sempre pode começar, mesmo vindo de
+        # "dormindo" ou "erro" (antes isso gerava InvalidTransition e erro 500).
         _set_state(
             DuqueState.PROCESSING,
             tarefa="Interpretando comando",
             atividade="Processamento",
+            force=True,
         )
         with state_lock:
             estado_duque["modo"] = "texto"
 
-        resultado = agent.handle(texto.strip())
+        resultado = agent.handle(texto.strip(), channel=canal, record=registrar)
 
         with state_lock:
             estado_duque["resposta"] = resultado.text or ""
@@ -313,6 +350,117 @@ def executar_comando():
             "ok": False,
             "erro": f"{type(exc).__name__}: {exc}",
         }), 500
+
+
+now_playing = agent.now_playing
+_ultima_saudacao = {"em": 0.0}
+
+
+@app.route("/api/saudacao", methods=["POST"])
+def saudacao():
+    """Resumo de início (hora, clima, pendências). No máximo uma vez a cada 30 min."""
+    import os
+    import time
+
+    if os.getenv("DUQUE_GREETING", "1").casefold() in {"0", "false", "off", "no", "nao", "não"}:
+        return jsonify({"ok": False, "motivo": "desativada"})
+    agora = time.time()
+    if agora - _ultima_saudacao["em"] < 1800:
+        return jsonify({"ok": False, "motivo": "recente"})
+    _ultima_saudacao["em"] = agora
+    texto = agent.greeting()
+    agent.announce(texto)
+    return jsonify({"ok": True, "text": texto})
+
+
+@app.route("/api/memoria", methods=["GET"])
+def memoria():
+    if request.args.get("formato") == "texto":
+        return jsonify({"texto": agent.memory_digest()})
+    return jsonify({
+        "notas": agent.assistant_tools.notes_list().get("notes", []),
+        "timers": agent.assistant_tools.timers_list().get("timers", []),
+        "lembretes": agent.reminders_list().get("reminders", []),
+        "rotinas": {nome: valor.get("commands", []) for nome, valor in agent.routines.routines_list().get("routines", {}).items()},
+        "contatos": [contato["name"] for contato in agent.messaging.contacts_list().get("contacts", [])],
+        "foco_ate": agent._focus_until if agent.focus_active() else None,
+        "turnos": agent.conversation.last_id(),
+    })
+
+
+@app.route("/api/memoria/notas", methods=["POST"])
+def memoria_adicionar():
+    dados = request.get_json(silent=True) or {}
+    resultado = agent.assistant_tools.note_add(str(dados.get("texto", "")))
+    return jsonify(resultado), (400 if resultado.get("success") is False else 200)
+
+
+@app.route("/api/memoria/notas/<int:indice>", methods=["DELETE"])
+def memoria_apagar(indice: int):
+    resultado = agent.assistant_tools.note_delete(indice)
+    return jsonify(resultado), (404 if resultado.get("success") is False else 200)
+
+
+@app.route("/api/midia", methods=["GET"])
+def midia_status():
+    return jsonify(now_playing.get())
+
+
+@app.route("/api/midia", methods=["POST"])
+def midia_controle():
+    dados = request.get_json(silent=True) or {}
+    acao = str(dados.get("acao", ""))
+    if acao not in {"play_pause", "next", "previous"}:
+        return jsonify({"erro": "Ação inválida: use play_pause, next ou previous."}), 400
+    try:
+        resultado = agent.assistant_tools.media(acao)
+    except Exception as exc:
+        return jsonify({"erro": f"{type(exc).__name__}: {exc}"}), 503
+    now_playing.invalidate()
+    return jsonify({"ok": True, **resultado})
+
+
+@app.route("/api/conversa", methods=["GET"])
+def conversa():
+    if request.args.get("formato") == "texto":
+        return jsonify({"texto": agent.conversation.transcript(12)})
+    try:
+        desde = int(request.args.get("desde", "0"))
+    except ValueError:
+        desde = 0
+    turnos = agent.conversation.since(desde) if desde else agent.conversation.recent(30)
+    return jsonify({
+        "turnos": [turno.to_dict() for turno in turnos],
+        "ultimo": agent.conversation.last_id(),
+        "voz_ativa": bridge.voice_active,
+    })
+
+
+@app.route("/api/conversa", methods=["POST"])
+def registrar_conversa():
+    dados = request.get_json(silent=True) or {}
+    turno = agent.conversation.add(str(dados.get("role", "")), str(dados.get("text", "")), str(dados.get("canal", "voz")))
+    if turno is None:
+        return jsonify({"erro": "Turno inválido."}), 400
+    return jsonify({"ok": True, "id": turno.id})
+
+
+@app.route("/api/forja", methods=["GET"])
+def forja_status():
+    if agent.forge_service is None:
+        return jsonify({"ativa": False, "motivo": "Forja desligada: configure ANTHROPIC_API_KEY (ou OPENAI_API_KEY)."})
+    return jsonify({"ativa": True, **agent.forge_service.status()})
+
+
+@app.route("/api/forja", methods=["POST"])
+def forja_enviar():
+    if agent.forge_service is None:
+        return jsonify({"erro": "Forja desligada."}), 503
+    dados = request.get_json(silent=True) or {}
+    objetivo = dados.get("objetivo") or dados.get("goal")
+    if not isinstance(objetivo, str) or not objetivo.strip():
+        return jsonify({"erro": "Informe o objetivo."}), 400
+    return jsonify({"ok": True, **agent.forge_service.submit(objetivo)})
 
 
 @app.route("/estado/<novo_estado>", methods=["GET"])

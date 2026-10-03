@@ -1,7 +1,30 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import Enum
+
+from computer.apps import find_app_in_text
+
+_PREFIX = r"^(?:duque[,!]?\s+)?(?:por favor[,]?\s+)?"
+OPEN_VERB = re.compile(_PREFIX + r"(?:abr[ae]|abrir|inici[ae]|iniciar|execut[ae]|executar|liga|ligue)\b")
+SHORTCUT_PATTERNS = (
+    re.compile(r"\b(?:mand[ae]|envi[ae]|escrev[ae])\b[^.?!]*\b(?:mensagem|msg|zap|whatsapp)\b"),
+    re.compile(r"\b(?:salv[ae]|guard[ae]|adicion[ae]) (?:o |um |novo )?contato\b|\bmeus contatos\b"),
+    re.compile(r"\b(?:cri[ae]|salv[ae]|nova|apagu?e|apaga|exclu[ai]|remov[ae]|rod[ae]|execut[ae]|inici[ae]|ativ[ae]) (?:a |uma )?rotina\b|\bminhas rotinas\b|^(?:duque[,!]?\s+)?(?:ativ[ae] (?:o )?)?modo (?!foco\b)[a-zà-ú]+$"),
+    re.compile(r"\bresumo do (?:meu )?dia\b|\bcomo foi (?:o )?meu dia\b|\bo que (?:eu )?fiz hoje\b"),
+    re.compile(r"\b(?:o que (?:tem|está|esta|aparece|é isso|e isso) na (?:minha )?tela|l[eê]i?a a tela|olh[ae] (?:a|minha) tela|o que você (?:vê|ve)|o que voce (?:vê|ve)|explica (?:essa|esta|o que tem na) tela|(?:esse|este) erro na tela)\b"),
+    re.compile(r"\b(?:modo foco|pomodoro|foco por|(?:sair|sai|encerr[ae]|termin[ae]|desativ[ae]|desliga|para) (?:do |o )?(?:modo )?foco)\b"),
+    re.compile(r"\b(?:meus lembretes|minha agenda|o que (?:eu )?tenho (?:agendado|marcado)|cancel(?:a|e|ar) (?:o|os|todos os) lembretes?)\b"),
+    re.compile(r"\bno (?:youtube|spotify)\b"),
+    re.compile(r"\b(?:como (?:chego|chegar|vou)|rota (?:para|até|ate)|mapa (?:de|do|da|para))\b"),
+    re.compile(r"\b(?:como (?:está|esta) o (?:computador|pc|notebook)|status do (?:pc|computador|sistema)|uso (?:de|da) (?:cpu|memória|memoria)|quanto de bateria|nível da bateria|nivel da bateria)\b"),
+    re.compile(_PREFIX + r"cop(?:ie|ia|iar)\b"),
+    re.compile(r"\b(?:área|area) de transferência|\b(?:área|area) de transferencia"),
+    re.compile(r"\bbloque(?:ie|ia|ar) (?:a tela|o pc|o computador)\b"),
+    re.compile(r"\b(?:meus timers|quais timers|timers ativos|cancel(?:a|e|ar) (?:o|os) timers?)\b"),
+)
+CLOSE_VERB = re.compile(_PREFIX + r"(?:fech[ae]|fechar|encerr[ae]|encerrar|mat[ae])\b")
 
 
 class Intent(str, Enum):
@@ -15,6 +38,12 @@ class Intent(str, Enum):
     FILE_OPERATION = "file_operation"
     SYSTEM = "system"
     REMINDER = "reminder"
+    TIME = "time"
+    WEATHER = "weather"
+    MEDIA = "media"
+    NOTE = "note"
+    CALC = "calc"
+    SHORTCUT = "shortcut"
     UNKNOWN = "unknown"
 
 
@@ -44,8 +73,17 @@ class IntentRouter:
         if not value:
             return Route(Intent.UNKNOWN, 0.0, "texto vazio")
 
+        if any(pattern.search(value) for pattern in SHORTCUT_PATTERNS):
+            return Route(Intent.SHORTCUT, 0.92, "atalho do dia a dia")
+
         if any(phrase in value for phrase in self.OPEN_APP_PHRASES):
             return Route(Intent.OPEN_APP, 0.95, "pedido explícito para abrir aplicativo")
+
+        mentions_file = any(word in value for word in ("arquivo", "pasta"))
+        if OPEN_VERB.search(value) and not mentions_file and find_app_in_text(value):
+            return Route(Intent.OPEN_APP, 0.93, "verbo de abrir + aplicativo conhecido")
+        if CLOSE_VERB.search(value) and not mentions_file and find_app_in_text(value):
+            return Route(Intent.CLOSE_APP, 0.93, "verbo de fechar + aplicativo conhecido")
 
         if any(phrase in value for phrase in (
             "feche o chrome", "fechar o chrome", "fecha o chrome",
@@ -98,7 +136,27 @@ class IntentRouter:
         )):
             return Route(Intent.CODE, 0.9, "pedido relacionado a programação")
 
-        if any(x in value for x in ("me lembre", "lembrete", "lembrar", "agenda", "agende")):
+        if any(x in value for x in ("que horas", "que hora é", "que dia é hoje", "que dia e hoje", "data de hoje", "dia da semana")):
+            return Route(Intent.TIME, 0.95, "pergunta de data/hora")
+
+        if any(x in value for x in ("clima", "previsão do tempo", "previsao do tempo", "vai chover", "temperatura lá fora", "temperatura agora", "como está o tempo", "como esta o tempo")):
+            return Route(Intent.WEATHER, 0.9, "pergunta sobre o clima")
+
+        if any(x in value for x in (
+            "pausa a música", "pause a música", "pausar a música", "pausa a musica", "pause a musica",
+            "próxima música", "proxima musica", "próxima faixa", "proxima faixa", "pula a música", "pula a musica",
+            "música anterior", "musica anterior", "volta a música", "volta a musica", "faixa anterior",
+            "continua a música", "continua a musica", "solta a música", "solta a musica", "despausa",
+        )):
+            return Route(Intent.MEDIA, 0.92, "controle de mídia")
+
+        if value.startswith(("anote", "anota", "faça uma nota", "faz uma nota", "lembre que", "lembra que", "guarde que", "guarda que", "memorize que", "memoriza que")) or any(x in value for x in ("minhas notas", "minhas anotações", "minhas anotacoes", "leia as notas", "o que você sabe sobre mim", "o que voce sabe sobre mim", "o que você lembra de mim", "o que voce lembra de mim")):
+            return Route(Intent.NOTE, 0.9, "anotação")
+
+        if re.match(r"^(?:duque[,!]?\s+)?(?:quanto é|quanto e|calcule|calcula)\b", value):
+            return Route(Intent.CALC, 0.9, "cálculo")
+
+        if any(x in value for x in ("me lembre", "lembrete", "lembrar", "agenda", "agende", "timer", "cronômetro", "cronometro", "me avise em", "me avisa em")):
             return Route(Intent.REMINDER, 0.85, "pedido de lembrete/agendamento")
 
         if any(x in value for x in (

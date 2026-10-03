@@ -426,3 +426,25 @@ class SupervisorTests(GitRepoTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ForgeConfigEnvTests(unittest.TestCase):
+    def test_poll_interval_respects_github_limits(self) -> None:
+        from unittest import mock
+        import os
+
+        with mock.patch.dict(os.environ, {"DUQUE_GITHUB_TOKEN": "", "GITHUB_TOKEN": ""}):
+            self.assertEqual(ForgeConfig.from_env(".").ci_poll_seconds, 60)
+        with mock.patch.dict(os.environ, {"DUQUE_GITHUB_TOKEN": "x"}):
+            self.assertEqual(ForgeConfig.from_env(".").ci_poll_seconds, 20)
+
+    def test_git_never_prompts(self) -> None:
+        from unittest import mock
+
+        from forge.git import Git
+
+        with mock.patch("forge.git.subprocess.run") as run:
+            run.return_value = subprocess.CompletedProcess([], 0, "", "")
+            Git(".").run("status")
+        env = run.call_args.kwargs["env"]
+        self.assertEqual(env["GIT_TERMINAL_PROMPT"], "0")
