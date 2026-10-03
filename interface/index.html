@@ -73,7 +73,7 @@ body{
 #dlabel em{font-style:normal;color:var(--txt-dim);margin-left:8px}
 
 /* ---------- estado central ---------- */
-#stateBlock{position:absolute;left:50%;transform:translateX(-50%);bottom:19%;text-align:center;width:min(520px,80vw)}
+#stateBlock{position:absolute;left:50%;transform:translateX(-50%);bottom:max(19%,172px);text-align:center;width:min(520px,80vw)}
 #stateName{
   font-size:15px;font-weight:200;letter-spacing:.62em;text-indent:.62em;color:var(--ice);text-transform:uppercase;
   text-shadow:0 0 22px rgba(var(--acc),.55);transition:opacity .5s ease;
@@ -85,11 +85,14 @@ body{
 @keyframes sweep{0%{transform:translateX(-120%)}55%{transform:translateX(320%)}100%{transform:translateX(320%)}}
 
 /* ---------- telemetria contextual (direita, efêmera) ---------- */
-#telemetry{position:absolute;right:44px;top:50%;transform:translateY(-50%);width:250px;display:flex;flex-direction:column;gap:11px;align-items:flex-end;text-align:right}
+#rail{position:absolute;right:44px;top:250px;bottom:38px;width:min(300px,26vw);display:flex;flex-direction:column;justify-content:flex-end;gap:18px;pointer-events:none}
+#rail>*{pointer-events:auto}
+#telemetry{flex:none;display:flex;flex-direction:column;gap:9px;align-items:flex-end;text-align:right}
+#telemetry:empty{display:none}
 .tel{opacity:0;animation:telIn .6s ease forwards}
 .tel.out{animation:telOut .7s ease forwards}
 .tel .k{font-size:9.5px;letter-spacing:.34em;color:rgba(var(--acc),.7);text-transform:uppercase}
-.tel .v{font-size:15px;font-weight:200;letter-spacing:.14em;color:var(--white);margin-top:2px;overflow-wrap:anywhere}
+.tel .v{font-size:13px;font-weight:200;letter-spacing:.14em;color:var(--white);margin-top:2px;overflow-wrap:anywhere}
 .tel .v em{font-style:normal;color:var(--ice)}
 @keyframes telIn{from{opacity:0;transform:translateX(14px);filter:blur(3px)}to{opacity:1;transform:none;filter:none}}
 @keyframes telOut{to{opacity:0;transform:translateX(10px);filter:blur(3px)}}
@@ -155,8 +158,8 @@ body.paused #pauseBox{display:block}
 #sCtl button svg{display:block}
 
 /* ---------- conversa única (texto + voz) ---------- */
-#chat{position:absolute;right:44px;bottom:150px;width:290px;display:flex;flex-direction:column;justify-content:flex-end;
-  gap:8px;text-align:right;max-height:30vh;overflow:hidden}
+#chat{flex:0 1 auto;min-height:0;display:flex;flex-direction:column;justify-content:flex-end;
+  gap:8px;text-align:right;overflow:hidden}
 #chat .t{font-size:11px;line-height:1.55;letter-spacing:.08em;color:rgba(214,230,255,.42);animation:telIn .45s ease both}
 #chat .t:nth-last-child(3){opacity:.62}
 #chat .t:nth-last-child(n+4){opacity:.32}
@@ -169,8 +172,8 @@ body.paused #pauseBox{display:block}
 #response.show{opacity:1}
 
 /* ---------- forja ---------- */
-#forge{position:absolute;right:44px;bottom:38px;width:262px;text-align:right;opacity:0;transition:opacity .5s ease}
-#forge.on{opacity:1}
+#forge{flex:none;text-align:right;display:none}
+#forge.on{display:block;animation:telIn .45s ease both}
 #fGoal{margin-top:9px;font-size:12.5px;font-weight:200;letter-spacing:.08em;color:var(--white);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 #fStep{margin-top:5px;font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--txt-dim)}
 #fStep.ok{color:var(--ice)}
@@ -207,7 +210,8 @@ body.paused #pauseBox{display:block}
   #forge{display:none}
   #spotify{display:none}
   .tl{top:24px;left:24px}
-  #chat{left:24px;right:24px;width:auto;bottom:calc(30% + 64px);max-height:16vh;text-align:left}
+  #rail{left:24px;right:24px;width:auto;top:auto;bottom:calc(30% + 64px);max-height:16vh}
+  #chat{text-align:left}
   #voice{bottom:24px}
   .tr{top:24px;right:24px}
   #stateBlock{bottom:30%}
@@ -278,8 +282,6 @@ body.paused #pauseBox{display:block}
     <div id="stateBar"><i></i></div>
   </div>
 
-  <!-- telemetria contextual -->
-  <div id="telemetry"></div>
 
   <!-- spotify (real, via Windows) -->
   <div id="spotify" class="z">
@@ -303,15 +305,6 @@ body.paused #pauseBox{display:block}
     </div>
   </div>
 
-  <!-- tarefas longas (Forja e o que estiver rodando) -->
-  <div id="forge" class="z" aria-live="polite">
-    <div class="label" style="letter-spacing:.42em">Tarefas</div>
-    <div id="fGoal"></div>
-    <div id="fStep"></div>
-    <div id="fTrack" aria-hidden="true"></div>
-    <ul id="fList"></ul>
-  </div>
-
   <!-- pausa de emergência -->
   <div id="pauseBox" class="z" role="alertdialog" aria-live="assertive" aria-label="Pausa de emergência">
     <div class="pTitle">Pausa de emergência</div>
@@ -321,8 +314,20 @@ body.paused #pauseBox{display:block}
     <div class="pHint">F9 · "Retomar, TELEX" · digite "retomar"</div>
   </div>
 
-  <!-- conversa -->
-  <div id="chat" aria-live="polite"></div>
+  <!-- coluna direita: avisos rápidos, conversa e tarefas empilhados (nunca um em cima do outro) -->
+  <div id="rail">
+    <div id="telemetry"></div>
+    <div id="chat" aria-live="polite"></div>
+    <!-- tarefas longas (Forja e o que estiver rodando) -->
+    <div id="forge" class="z" aria-live="polite">
+      <div class="label" style="letter-spacing:.42em">Tarefas</div>
+      <div id="fGoal"></div>
+      <div id="fStep"></div>
+      <div id="fTrack" aria-hidden="true"></div>
+      <ul id="fList"></ul>
+    </div>
+
+  </div>
 
   <!-- memória -->
   <div id="memPanel" class="z" role="dialog" aria-modal="true" aria-label="Memória do TELEX">
@@ -352,7 +357,7 @@ body.paused #pauseBox{display:block}
     </div>
     <div id="cmdWrap"><input id="cmd" autocomplete="off" spellcheck="false" placeholder="Digite ou diga Bom dia, TELEX"></div>
     <div id="response" aria-live="polite"></div>
-    <div id="keys">Enter envia · "Telex, stop" interrompe · "Repousar, Telex" · N memória · F9 emergência</div>
+    <div id="keys">Enter envia · N memória · F9 emergência</div>
   </div>
 </div>
 
@@ -1096,7 +1101,7 @@ setInterval(()=>{
 ------------------------------------------------------------------ */
 function handle(m){
   const patch={};
-  if(m.command!==undefined){ patch.command=m.command; if(m.command) DUQUE.telemetry([{k:'Último comando',v:esc(short(m.command))}],4200); }
+  if(m.command!==undefined){ patch.command=m.command; }
   if(m.action!==undefined){ patch.action=m.action; patch.currentTask=m.action; }
   if(m.level!==undefined) window.__ext(m.level);
   if(m.app&&m.appAction){ setAppLast(m.app,m.appAction); reactApp(m.app); }
@@ -1166,21 +1171,25 @@ async function speakResponse(text, voz){
   stopLocalSpeech();
   speechBusy=true;
   say('speaking','Falando');
-  try{
-    const r=await fetch('/api/fala',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(voz?{text:value,voz}:{text:value})});
-    if(!r.ok){ let msg='Falha ao gerar voz.'; try{ msg=(await r.json()).erro||msg; }catch(e){} throw new Error(msg); }
-    const url=URL.createObjectURL(await r.blob());
-    const el=new Audio(url);
-    currentSpeech=el;
-    el.onended=()=>{ speechBusy=false; currentSpeech=null; URL.revokeObjectURL(url); audioTarget=0; syncServerState(); };
-    el.onerror=()=>{ URL.revokeObjectURL(url); currentSpeech=null; if(!browserSpeak(value)){ speechBusy=false; syncServerState(); } };
-    await el.play();
-  }catch(error){
+  // Streaming: o áudio começa a tocar enquanto ainda está chegando do servidor.
+  const params=new URLSearchParams({text:value});
+  if(voz) params.set('voz',voz);
+  const el=new Audio('/api/fala?'+params.toString());
+  el.preload='auto';
+  currentSpeech=el;
+  const done=()=>{ if(currentSpeech===el) currentSpeech=null; speechBusy=false; audioTarget=0; syncServerState(); };
+  el.onended=done;
+  el.onerror=()=>{
+    // Sem a voz do servidor, o TELEX fica só no texto (a voz sintética do navegador
+    // soava robótica). Para religá-la: localStorage.setItem('telexVozNavegador','1').
+    let fallback=false; try{ fallback=localStorage.getItem('telexVozNavegador')==='1'; }catch(e){}
+    if(!(fallback && browserSpeak(value))){ DUQUE.telemetry([{k:'Voz',v:'Indisponível — resposta só em texto'}],3200); done(); }
+  };
+  try{ await el.play(); }
+  catch(error){
     // Navegador bloqueou o som (ainda sem clique na página): descarta, não enfileira.
-    if(error && error.name==='NotAllowedError'){ speechBusy=false; currentSpeech=null; audioTarget=0; syncServerState(); return; }
-    console.warn('TTS do servidor falhou:', error);
-    if(!browserSpeak(value)){ speechBusy=false; currentSpeech=null; audioTarget=0; syncServerState(); }
+    if(error && error.name==='NotAllowedError'){ done(); return; }
+    console.warn('Fala do HUD falhou:', error);
   }
 }
 
@@ -1217,7 +1226,6 @@ async function runCommand(text){
 function submit(text){
   const q=(text||'').trim(); if(!q) return;
   DUQUE.setState({command:q});
-  DUQUE.telemetry([{k:'Último comando',v:esc(short(q))}],3800);
   const r=$('cmd').getBoundingClientRect();
   flow({x:r.left+r.width/2,y:r.top+r.height/2},'core',650);
   runCommand(q);
@@ -1233,14 +1241,14 @@ let lastTurn=0, convBusy=false, voiceActive=false, convPrimed=false;
 const chatTurns=[];
 function renderChat(){
   const box=$('chat'); box.innerHTML='';
-  chatTurns.slice(-4).forEach(turn=>{
+  chatTurns.slice(-3).forEach(turn=>{
     const el=document.createElement('div');
     const who=turn.role==='user'?'Du':'TELEX';
     const via=turn.channel==='voz'?' · voz':(turn.channel==='aviso'?' · aviso':(turn.channel==='silencioso'?' · foco':''));
     el.className='t'+(turn.role==='assistant'?' duque':'')+(turn.channel==='aviso'?' aviso':'');
     const tag=document.createElement('b'); tag.textContent=who+via;
     el.appendChild(tag);
-    el.appendChild(document.createTextNode(turn.text.length>260?turn.text.slice(0,260)+'…':turn.text));
+    el.appendChild(document.createTextNode(turn.text.length>170?turn.text.slice(0,170)+'…':turn.text));
     box.appendChild(el);
   });
 }
@@ -1326,7 +1334,7 @@ async function pollTasks(){
     renderPause(d.pausa||{});
     const box=$('forge'), f=d.forja||{}, current=f.current, last=(f.history||[]).slice(-1)[0];
     const list=$('fList'); list.innerHTML='';
-    (d.tarefas||[]).slice(0,3).forEach(t=>{
+    (d.tarefas||[]).slice(0,2).forEach(t=>{
       const li=document.createElement('li'); li.textContent=t.descricao;
       const em=document.createElement('em'); em.textContent=fmtElapsed(t.segundos); li.appendChild(em); list.appendChild(li);
     });

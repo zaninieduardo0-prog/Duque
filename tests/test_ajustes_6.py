@@ -84,6 +84,21 @@ class LocalWakePhraseTests(unittest.TestCase):
             (Path(tmp) / "vosk-model-small-pt-0.3" / "am").mkdir(parents=True)
             self.assertEqual(find_model(tmp), Path(tmp) / "vosk-model-small-pt-0.3")
 
+    def test_find_model_accepts_old_flat_layout(self) -> None:
+        """Regressão: o small-pt-0.3 tem os arquivos soltos (sem am/ e conf/)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            inner = Path(tmp) / "vosk-model-small-pt-0.3"
+            (inner / "ivector").mkdir(parents=True)
+            for name in ("final.mdl", "HCLr.fst", "Gr.fst", "mfcc.conf"):
+                (inner / name).write_bytes(b"x")
+            self.assertEqual(find_model(tmp), inner)
+
+    def test_loose_names_only_in_free_mode(self) -> None:
+        self.assertIsNone(classify("bom dia tele"))
+        self.assertIsNotNone(classify("bom dia tele", loose=True))
+        self.assertIsNotNone(classify("então boa noite telecs", loose=True))
+        self.assertIsNone(classify("bom dia televisão ligada", loose=True))
+
 
 class FakeModel:
     def find_word(self, word: str) -> int:
@@ -132,13 +147,22 @@ class LocalWakeListenerTests(unittest.TestCase):
         self.assertIsNone(listener.feed(b""))
         self.assertIsNone(listener.feed(b""))
 
-    def test_model_without_the_name_is_rejected(self) -> None:
+    def test_model_without_the_name_listens_loosely(self) -> None:
         class Empty:
             def find_word(self, _word: str) -> int:
                 return -1
 
-        with self.assertRaises(RuntimeError):
-            LocalWake(Empty(), FakeRecognizer)
+        class FreeRecognizer(FakeRecognizer):
+            def __init__(self, _model: Any, rate: float) -> None:  # sem gramática
+                self.rate = rate
+                self.resets = 0
+
+        FakeRecognizer.script = [("partial", "ok bom dia telê")]
+        listener = LocalWake(Empty(), FreeRecognizer)
+        self.assertTrue(listener.loose)
+        heard = listener.feed(b"")
+        assert heard is not None
+        self.assertEqual(heard.kind, "wake")
 
 
 class EmergencyPauseTests(unittest.TestCase):

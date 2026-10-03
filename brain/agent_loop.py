@@ -28,11 +28,13 @@ from computer.visual_workflow import VisualWorkflow
 from computer.workspace import Workspace
 from computer.assistant_tools import AssistantTools
 from computer.messaging import Messaging
+from computer.notepad import NotepadWriter
 from computer.now_playing import NowPlaying
 from computer.screen_vision import ScreenVision
 from memory.conversation import ConversationStore
 from memory.memory import Memory, MemoryLayer
 from .agent_state import AgentContext
+from .compound import plan_steps, strip_name
 from .autonomous_loop import AutonomousLoop
 from .model import ModelAdapter, NullModel, OpenAIResponsesModel
 from .persona import text_system_prompt
@@ -363,6 +365,7 @@ class AgentLoop:
 
     # agenda, foco e visão ----------------------------------------------------
     def _register_life_tools(self) -> None:
+        self.notepad = NotepadWriter(None if isinstance(self.model, NullModel) else self._compose_text)
         self.routines = Routines(self.memory, self._run_routine_step, lambda: set(self.schemas.names()))
         self.messaging = Messaging(self.memory, self.assistant_tools.open_target)
         tools = [
@@ -374,13 +377,14 @@ class AgentLoop:
             (ToolSpec("contacts_list", "Lista os contatos salvos"), self.messaging.contacts_list),
             (ToolSpec("whatsapp_message", "Abre o WhatsApp com a mensagem pronta para o contato; o Du confere e envia", ("text",), {"contact": str, "text": str}), self.messaging.whatsapp_message),
             (ToolSpec("day_summary", "Resumo do dia: o que foi feito, o que falhou e a agenda de amanhã"), self.day_summary),
-            (ToolSpec("set_voice", "Troca a voz do Duque (ballad, cedar, ash, echo, verse, alloy, marin, sage)", ("name",), {"name": str}), lambda name: set_voice(self.memory, name)),
+            (ToolSpec("set_voice", "Troca a voz do TELEX (ballad, cedar, ash, echo, verse, alloy, marin, sage)", ("name",), {"name": str}), lambda name: set_voice(self.memory, name)),
             (ToolSpec("list_voices", "Lista as vozes disponíveis e a atual"), lambda: list_voices(self.memory)),
             (ToolSpec("reminder_at", "Cria um lembrete em data/hora (ex.: 'amanhã às 9h', 'sexta às 18:30'); sobrevive a reinícios", ("when",), {"when": str, "text": str}), self.reminder_at),
             (ToolSpec("reminders_list", "Lista os lembretes agendados"), self.reminders_list),
             (ToolSpec("reminder_cancel", "Cancela o lembrete de número indicado (0 = todos)", (), {"index": int}), self.reminder_cancel),
             (ToolSpec("focus_mode", "Modo foco/pomodoro: action 'start' (pausa a música e silencia avisos) ou 'stop'", (), {"action": str, "minutes": (int, float)}), self.focus_mode),
             (ToolSpec("describe_screen", "Olha a tela do Du e explica o que há nela (ou responde uma pergunta sobre ela)", (), {"question": str}), self.screen_vision.describe_screen),
+            (ToolSpec("notepad_write", "Escreve no Bloco de Notas: um texto ditado ou algo para criar (ex.: 'um poema sobre o mar', 'lista de compras')", ("request",), {"request": str}), self.notepad.notepad_write),
         ]
         for spec, function in tools:
             self.executor.register(spec.name, function)
@@ -558,6 +562,10 @@ class AgentLoop:
             "message": f"Modo foco por {label}." + (" Pausei a música." if paused else "") + " Seguro os avisos até lá.",
             "until": self._focus_until,
         }
+
+    def _compose_text(self, prompt: str) -> str:
+        """Texto criado pelo modelo para ferramentas (poema no Bloco de Notas...)."""
+        return self.model.respond([{"role": "user", "content": prompt}]).text
 
     def _chat_response(self, text: str) -> str:
         """Responde usando a persona e o histórico compartilhado de texto e voz."""
@@ -889,6 +897,14 @@ class AgentLoop:
                 f"Trabalho {job['id']}, posição {job['position']} na fila."
             )
 
+        # Pedidos em várias etapas ("abra o YouTube e toque X", "abra o Spotify e
+        # aumente o volume"): cada etapa passa pelo fluxo completo, em ordem.
+        steps = plan_steps(text) if not self._is_small_talk(text) else [text]
+        if len(steps) > 1:
+            return self._handle_sequence(steps, confirmed=confirmed, max_attempts=max_attempts)
+        if steps and steps[0] and steps[0] != strip_name(text).strip(" ,.;"):
+            text = steps[0]  # etapas unidas ("abra o YouTube e toque X" → "toque X no youtube")
+
         route = self.router.route(text, self._last_app)
         self.memory.remember(MemoryLayer.CONVERSATION, f"turn:{uuid4().hex}", {"role": "user", "text": text, "intent": route.intent.value})
         # Autonomia é uma capacidade disponível, não um modo obrigatório para toda mensagem.
@@ -971,6 +987,26 @@ class AgentLoop:
         last = report.results[-1].result if report.results else None
         self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "attempts": report.attempts, "result": last.value if last is not None else None})
         return AgentResult(self._execution_message(last), task.id, last, report.attempts)
+
+    def _handle_sequence(self, steps: list[str], *, confirmed: bool, max_attempts: int) -> AgentResult:
+        """Executa as etapas em ordem; para na primeira que falhar e conta onde parou."""
+        done: list[str] = []
+        last: AgentResult | None = None
+        for index, step in enumerate(steps, start=1):
+            result = self._handle(step, confirmed=confirmed, max_attempts=max_attempts)
+            last = result
+            failed = result.execution is not None and not result.execution.success
+            if self._pending_confirmation is not None:
+                prefix = (" ".join(done) + " ") if done else ""
+                return AgentResult(prefix + result.text, result.task_id, result.execution, result.attempts)
+            if failed or result.text.startswith(("Não consegui", "Não consigo")):
+                head = (" ".join(done) + " ") if done else ""
+                rest = len(steps) - index
+                tail = f" Parei aí; faltaram {rest} etapa(s)." if rest else ""
+                return AgentResult(f"{head}Na etapa {index} ({step}): {result.text}{tail}".strip(), result.task_id, result.execution, result.attempts)
+            done.append(result.text.strip().rstrip(".") + ".")
+        assert last is not None
+        return AgentResult(" ".join(done), last.task_id, last.execution, last.attempts)
 
     def _correct_steps(
         self,

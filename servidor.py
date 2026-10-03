@@ -207,6 +207,35 @@ def inicio():
     return Response(html, mimetype="text/html")
 
 
+@app.route("/api/fala", methods=["GET"])
+def falar_em_streaming():
+    """Fala do HUD em streaming: o navegador começa a tocar enquanto o áudio chega.
+
+    Antes o HUD esperava o MP3 inteiro (1–3 s de silêncio antes de cada resposta).
+    """
+    texto = (request.args.get("text") or "").strip()
+    if not texto:
+        return jsonify({"erro": "O texto para fala não pode ser vazio."}), 400
+    if openai_client is None:
+        return jsonify({"erro": "OPENAI_API_KEY não configurada."}), 503
+    pedida = request.args.get("voz")
+    voz: Any = pedida if pedida in VOICES else current_voice(agent.memory)
+    client = openai_client
+
+    def gerar():
+        with client.audio.speech.with_streaming_response.create(
+            model="gpt-4o-mini-tts",
+            voice=voz,
+            input=texto[:4000],
+            instructions=TTS_INSTRUCTIONS,
+            response_format="mp3",
+            speed=TTS_SPEED,
+        ) as resposta:
+            yield from resposta.iter_bytes(4096)
+
+    return Response(gerar(), mimetype="audio/mpeg", headers={"Cache-Control": "no-store"})
+
+
 @app.route("/api/fala", methods=["POST"])
 def gerar_fala():
     dados = request.get_json(silent=True) or {}

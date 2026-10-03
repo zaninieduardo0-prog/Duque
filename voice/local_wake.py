@@ -51,7 +51,13 @@ COMMANDS: dict[str, Kind] = {
 def plain(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", (text or "").casefold())
     no_accents = "".join(char for char in normalized if not unicodedata.combining(char))
+    no_accents = re.sub(r"\btele[\s-]+(x|xis|ex|cs|ks|es)\b", "telex", no_accents)
     return " ".join(re.findall(r"[a-z0-9]+", no_accents))
+
+
+# Modo livre (modelo sem a palavra "telex" no vocabulário): aceita o que soar
+# parecido — "teles", "telê", "telecs", "tele"...
+_LOOSE_NAME = re.compile(r"tele[a-z]{0,4}|tel[ei]?[ckx]s?|tel[ée]")
 
 
 _PLAIN_NAMES = frozenset(plain(name) for name in NAME_SPELLINGS)
@@ -69,14 +75,26 @@ class Heard:
         return (" ".join(words[:-1]).capitalize() + ", TELEX.") if len(words) > 1 else "TELEX."
 
 
-def classify(text: str) -> Heard | None:
-    """Frase exata (com o nome no fim) → o que fazer. Qualquer outra coisa → None."""
+def _is_name(word: str, loose: bool) -> bool:
+    return word in _PLAIN_NAMES or (loose and bool(_LOOSE_NAME.fullmatch(word)))
+
+
+def classify(text: str, *, loose: bool = False) -> Heard | None:
+    """Frase exata (com o nome no fim) → o que fazer. Qualquer outra coisa → None.
+
+    No modo livre, a frase pode vir no fim de uma fala maior ("ok, bom dia telê").
+    """
     words = plain(text).split()
-    if len(words) < 2 or words[-1] not in _PLAIN_NAMES:
+    if len(words) < 2 or not _is_name(words[-1], loose):
         return None
-    command = " ".join(words[:-1])
-    kind = COMMANDS.get(command)
-    return Heard(kind, f"{command} telex") if kind else None
+    candidates = [" ".join(words[:-1])]
+    if loose:
+        candidates += [" ".join(words[-3:-1]), " ".join(words[-2:-1])]
+    for command in candidates:
+        kind = COMMANDS.get(command)
+        if kind:
+            return Heard(kind, f"{command} telex")
+    return None
 
 
 def decide(heard: Heard | None, jarvis: bool, paused: bool) -> tuple[str, str | None]:
@@ -102,42 +120,66 @@ def grammar(known: Callable[[str], bool] | None = None) -> list[str]:
     return phrases + ["[unk]"]
 
 
+def is_model_dir(path: Path) -> bool:
+    """Modelos novos têm am/ e conf/; os antigos (como o small-pt-0.3) têm os arquivos soltos."""
+    if (path / "am").is_dir() or (path / "conf").is_dir():
+        return True
+    return any((path / name).is_file() for name in ("final.mdl", "mfcc.conf", "HCLr.fst", "Gr.fst"))
+
+
 def find_model(path: str | Path | None = None) -> Path | None:
     candidate = Path(path or os.getenv("DUQUE_VOSK_MODEL") or DEFAULT_MODEL_DIR)
-    if (candidate / "am").is_dir() or (candidate / "conf").is_dir():
+    if not candidate.is_dir():
+        return None
+    if is_model_dir(candidate):
         return candidate
-    # Zip extraído com a pasta interna (vosk-model-small-pt-0.3/...).
-    if candidate.is_dir():
-        for child in sorted(candidate.iterdir()):
-            if child.is_dir() and ((child / "am").is_dir() or (child / "conf").is_dir()):
-                return child
+    # Zip extraído com uma ou duas pastas por cima (vosk-model-small-pt-0.3/...).
+    for child in sorted(p for p in candidate.iterdir() if p.is_dir()):
+        if is_model_dir(child):
+            return child
+        for grandchild in sorted(p for p in child.iterdir() if p.is_dir()):
+            if is_model_dir(grandchild):
+                return grandchild
     return None
 
 
 class LocalWake:
     """Recebe áudio 16 kHz mono int16 (os frames do PvRecorder) e avisa as frases."""
 
-    def __init__(self, model: Any, recognizer_factory: Callable[[Any, float, str], Any]) -> None:
+    def __init__(self, model: Any, recognizer_factory: Callable[..., Any]) -> None:
         self.model = model
         self.phrases = grammar(self._knows if hasattr(model, "find_word") else None)
-        if len(self.phrases) <= 1:
-            raise RuntimeError("o modelo não conhece nenhuma grafia de 'telex'")
+        # Sem nenhuma grafia de "telex" no vocabulário, a gramática não serviria:
+        # o reconhecedor ouve livre e a frase é conferida com o nome aproximado.
+        self.loose = len(self.phrases) <= 1
+        if self.loose:
+            self.phrases = []
         self._factory = recognizer_factory
-        self._recognizer = recognizer_factory(model, SAMPLE_RATE, json.dumps(self.phrases))
+        self._recognizer = self._new_recognizer()
+
+    def _new_recognizer(self) -> Any:
+        if self.loose:
+            return self._factory(self.model, SAMPLE_RATE)
+        return self._factory(self.model, SAMPLE_RATE, json.dumps(self.phrases))
 
     def _knows(self, word: str) -> bool:
-        index: Any = self.model.find_word(word)
-        return int(index) >= 0
+        try:
+            index: Any = self.model.find_word(word)
+            return int(index) >= 0
+        except Exception:
+            return False
 
     @property
     def names(self) -> list[str]:
+        if self.loose:
+            return ["modo livre (nome aproximado)"]
         return sorted({phrase.split()[-1] for phrase in self.phrases if phrase != "[unk]"})
 
     def reset(self) -> None:
         try:
             self._recognizer.Reset()
         except Exception:
-            self._recognizer = self._factory(self.model, SAMPLE_RATE, json.dumps(self.phrases))
+            self._recognizer = self._new_recognizer()
 
     def feed(self, pcm: bytes) -> Heard | None:
         recognizer = self._recognizer
@@ -146,7 +188,7 @@ class LocalWake:
         else:
             # A frase completa já aparece no parcial: responde sem esperar o silêncio.
             text = _field(recognizer.PartialResult(), "partial")
-        heard = classify(text)
+        heard = classify(text, loose=self.loose)
         if heard is not None:
             self.reset()
         return heard
@@ -198,7 +240,8 @@ def download(target: Path = DEFAULT_MODEL_DIR, url: str = MODEL_URL) -> Path:
             zipped.extractall(extracted)
         inner = find_model(extracted)
         if inner is None:
-            raise RuntimeError("o arquivo baixado não parece um modelo Vosk")
+            found = sorted(str(p.relative_to(extracted)) for p in extracted.rglob("*"))[:12]
+            raise RuntimeError(f"o arquivo baixado não parece um modelo Vosk (conteúdo: {found})")
         if target.exists():
             shutil.rmtree(target)
         shutil.move(str(inner), str(target))

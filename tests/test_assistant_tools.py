@@ -168,7 +168,7 @@ class IntentAndPlanTests(unittest.TestCase):
 
     def test_shortcuts(self) -> None:
         cases = {
-            "toca lofi no youtube": [("youtube", {"query": "lofi"})],
+            "toca lofi no youtube": [("youtube_play", {"query": "lofi"})],
             "coloca Daft Punk no spotify": [("spotify", {"query": "Daft Punk"})],
             "como chego na Avenida Paulista?": [("maps", {"destination": "Avenida Paulista"})],
             "como está o computador?": [("system_status", {})],

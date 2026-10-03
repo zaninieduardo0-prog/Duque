@@ -295,11 +295,18 @@ class Planner:
                 number = re.search(r"\b(\d+)\b", lowered)
                 return single("Cancelar lembrete", "reminder_cancel", {"index": int(number.group(1)) if number else 0})
             return single("Ver a agenda", "reminders_list", {})
-        verbs = r"(?:toca|toque|tocar|coloca|coloque|bota|abre|abra|abrir|pesquise|pesquisa|procure|procura|busque|busca|ache|acha)"
+        notepad = Planner._notepad_request(goal)
+        if notepad is not None:
+            return single("Escrever no Bloco de Notas", "notepad_write", {"request": notepad})
+        play = r"(?:toca|toque|tocar|coloca|coloque|bota|ponha|p[oõ]e|reproduz[ai]?|reproduzir|play)"
+        verbs = r"(?:toca|toque|tocar|coloca|coloque|bota|ponha|p[oõ]e|reproduz[ai]?|reproduzir|play|abre|abra|abrir|pesquise|pesquisa|procure|procura|busque|busca|ache|acha)"
         for service in ("youtube", "spotify"):
-            match = re.search(rf"{verbs}\s+(.+?)\s+no {service}\b", goal, flags=re.IGNORECASE)
+            match = re.search(rf"({verbs})\s+(?:a |o |uma |um )?(.+?)\s+no {service}\b", goal, flags=re.IGNORECASE)
             if match:
-                return single(f"Abrir {service}", service, {"query": match.group(1).strip(" \"'")})
+                query = match.group(2).strip(" \"'")
+                if service == "youtube" and re.fullmatch(play, match.group(1), flags=re.IGNORECASE):
+                    return single("Tocar no YouTube", "youtube_play", {"query": query})
+                return single(f"Abrir {service}", service, {"query": query})
         match = re.search(r"(?:como (?:chego|chegar|vou)|rota|mapa)\s+(?:para|até|ate|em|no|na|ao|à|de|do|da)\s+(.+?)[?.!]*$", goal, flags=re.IGNORECASE)
         if match:
             return single("Abrir o mapa", "maps", {"destination": match.group(1).strip()})
@@ -316,6 +323,26 @@ class Planner:
             return single("Cancelar timers", "timer_cancel", {})
         if "timer" in lowered:
             return single("Listar timers", "timers_list", {})
+        return None
+
+    @staticmethod
+    def _notepad_request(goal: str) -> str | None:
+        """O que escrever no Bloco de Notas ("escreva no bloco de notas: X", "escreva X no bloco de notas")."""
+        text = re.sub(r"^\s*(?:telex|duque)[\s,!.:-]+", "", goal.strip(), flags=re.IGNORECASE)
+        if not re.search(r"\b(?:bloco de notas|notepad)\b", text, flags=re.IGNORECASE):
+            return None
+        match = re.match(
+            r"^(?:por favor[,]?\s+)?(?:escrev[ae]|escrever|digit[ae]|digitar|anot[ae])\s+(?:no|na)\s+(?:bloco de notas|notepad)[\s:,-]*(.+)$",
+            text, flags=re.IGNORECASE | re.DOTALL,
+        )
+        if match:
+            return match.group(1).strip(" \"“”")
+        match = re.match(
+            r"^(?:por favor[,]?\s+)?(?:escrev[ae]|escrever|digit[ae]|digitar)\s+(.+?)\s+(?:no|na)\s+(?:bloco de notas|notepad)\b.*$",
+            text, flags=re.IGNORECASE | re.DOTALL,
+        )
+        if match:
+            return match.group(1).strip(" \"“”:")
         return None
 
     @staticmethod

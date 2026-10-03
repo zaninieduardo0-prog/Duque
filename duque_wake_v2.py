@@ -27,7 +27,7 @@ from voice.gate import ListenGate
 from voice.session import PlaybackFence
 
 MODEL = os.getenv("DUQUE_REALTIME_MODEL", "gpt-realtime-2.1")
-VOICE = os.getenv("DUQUE_VOICE", "ballad")
+VOICE = os.getenv("DUQUE_VOICE", "cedar")
 # Microfones: definidos por DUQUE_WAKE_MIC / DUQUE_MIC ou escolhidos automaticamente.
 MICROFONE: int | None = int(os.environ["DUQUE_MIC"]) if os.getenv("DUQUE_MIC", "").strip() else None
 WAKE_MICROFONE = int(os.environ["DUQUE_WAKE_MIC"]) if os.getenv("DUQUE_WAKE_MIC", "").strip() else -1
@@ -63,6 +63,10 @@ LOCAL_VAD_INTERRUPT = os.getenv("DUQUE_VAD_INTERRUPT", "0").casefold() in {"1", 
 IDLE_SECONDS = float(os.getenv("DUQUE_VOICE_IDLE", "60"))
 PITCH_SEMITONES = float(os.getenv("DUQUE_PITCH", "-2.0"))
 VOICE_SPEED = float(os.getenv("DUQUE_VOICE_SPEED", "0.96"))
+# Colchão de áudio: a fala só começa a tocar com ~180 ms guardados. Sem ele,
+# qualquer atraso da rede virava um "buraco" no meio da frase (voz picotada).
+PREBUFFER_BYTES = int(24000 * 2 * float(os.getenv("DUQUE_PREBUFFER_MS", "180")) / 1000)
+PREBUFFER_MAX_WAIT = 0.35
 VOICE_PROCESSING = os.getenv("DUQUE_VOICE_PROCESSING", "0").casefold() in {"1", "true", "yes", "on"}
 
 FAREWELLS = (
@@ -138,6 +142,8 @@ TRACKER: RealtimePlaybackTracker | None = None
 FENCE = PlaybackFence()
 AUDIO = deque()
 AUDIO_LOCK = threading.Lock()
+PLAYING = False
+BUFFER_WAIT: float | None = None
 PROCESSING = bytearray()
 PROCESSING_LOCK = threading.Lock()
 CURRENT_ITEM: str | None = None
@@ -220,8 +226,10 @@ def cancelled(item_id: str | None) -> bool:
 
 
 def clear_audio() -> None:
+    global PLAYING, BUFFER_WAIT
     with AUDIO_LOCK:
         AUDIO.clear()
+        PLAYING, BUFFER_WAIT = False, None
     with PROCESSING_LOCK:
         PROCESSING.clear()
     FENCE.discard_audio(FENCE.state.generation)
@@ -270,12 +278,19 @@ def enqueue_audio(data: bytes, item_id: str, content_index: int, *, allow_shutdo
 def output_callback(outdata, frames, _time_info, status) -> None:
     if status:
         log(f"[PLAYER] {status}")
+    global PLAYING, BUFFER_WAIT
     needed = frames * 2 * CANAIS
     result = bytearray()
     played: list[tuple[str, int, bytes]] = []
     consumed: list[int] = []
     with AUDIO_LOCK:
-        while len(result) < needed and AUDIO:
+        if not PLAYING and AUDIO:
+            queued = sum(len(chunk[2]) for chunk in AUDIO)
+            now = time.monotonic()
+            BUFFER_WAIT = BUFFER_WAIT or now
+            if queued >= PREBUFFER_BYTES or now - BUFFER_WAIT >= PREBUFFER_MAX_WAIT:
+                PLAYING, BUFFER_WAIT = True, None
+        while PLAYING and len(result) < needed and AUDIO:
             item_id, content_index, data = AUDIO[0]
             if cancelled(item_id):
                 AUDIO.popleft()
@@ -291,6 +306,8 @@ def output_callback(outdata, frames, _time_info, status) -> None:
                 consumed.append(FENCE.state.generation)
             played.append((item_id, content_index, chunk))
         if not AUDIO:
+            # Acabou (ou faltou áudio): o próximo trecho espera o colchão de novo.
+            PLAYING, BUFFER_WAIT = False, None
             with PROCESSING_LOCK:
                 processing_empty = not PROCESSING
             if processing_empty:

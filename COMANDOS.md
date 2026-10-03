@@ -194,20 +194,20 @@ git reset --hard <código>
 
 ## Aplicar uma atualização nova do Claude (branch `duque/ajustes-N`)
 
-Troque `N` pelo número que o Claude informar (a última foi **6**). Um bloco por vez:
+Troque `N` pelo número que o Claude informar (a última foi **7**). Um bloco por vez:
 
 ```powershell
 cd C:\Users\zanin\Duque
 Get-Process pythonw -ErrorAction SilentlyContinue | Stop-Process
 git fetch origin
-git merge origin/duque/ajustes-6 -m "Ajustes 6"
+git merge origin/duque/ajustes-7 -m "Ajustes 7"
 git push origin main
 .\preparar_duque.bat
 wscript .\Duque.vbs
 ```
 
 > O `preparar_duque.bat` só é obrigatório quando a atualização traz pacote novo
-> (a 6 traz: o reconhecedor local do "Bom dia, TELEX"). Ele termina com o
+> (a 7 baixa de novo o modelo do "Bom dia, TELEX", que na 6 não instalou). Ele termina com o
 > diagnóstico; aperte uma tecla para fechar.
 
 Opcionais do TELEX (depois feche e abra):
@@ -215,10 +215,14 @@ Opcionais do TELEX (depois feche e abra):
 ```powershell
 setx DUQUE_HEY_JARVIS "0"
 setx DUQUE_LOCAL_WAKE "0"
+setx DUQUE_TTS_SPEED "1.12"
 ```
 
+`DUQUE_TTS_SPEED` é a velocidade da fala do HUD (1.0 normal, 1.2 mais rápida).
+
 O primeiro desliga o "Hey Jarvis" (fica só "Bom dia, TELEX"); o segundo desliga
-o "Bom dia, TELEX" (fica só "Hey Jarvis").
+o "Bom dia, TELEX" (fica só "Hey Jarvis"). Os textos que o TELEX escreve no
+Bloco de Notas ficam em `Documentos\TELEX` (mude com `setx DUQUE_NOTES_DIR "<pasta>"`).
 
 Opcionais da audição e do Chrome (depois feche e abra o Duque):
 

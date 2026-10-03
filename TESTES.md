@@ -154,6 +154,21 @@ Ajustes opcionais (PowerShell, depois reinicie o Duque):
 | 4F.13 | Pause, feche o TELEX e abra de novo | Volta em pausa e conta o que foi interrompido pelo reinício |
 | 4F.14 | Digite `Telex, pausa tudo` | Mesmo efeito do botão |
 
+## 4G. Pedidos em várias etapas, voz natural e HUD limpo
+
+| # | Ação | Esperado |
+|---|------|----------|
+| 4G.1 | `.\preparar_duque.bat` | Linha `[OK] ativação Bom dia, TELEX: ...` (pode dizer "modo livre" se o modelo não conhecer a palavra telex) |
+| 4G.2 | Diga `Bom dia, TELEX` | Acorda e responde |
+| 4G.3 | `abra o youtube e reproduza Numb do Linkin Park` | Abre o **vídeo** e começa a tocar (não fica só na lista de resultados) |
+| 4G.4 | `toque lofi no youtube` | Mesmo comportamento |
+| 4G.5 | `abra o bloco de notas e escreva um poema sobre o mar` | Bloco de Notas abre **com o poema escrito**; arquivo em Documentos\TELEX |
+| 4G.6 | `abra o bloco de notas e escreva: comprar pão, leite e café` | Abre com esse texto exato |
+| 4G.7 | `abra o spotify, aumente o volume e anote que o teste passou` | Faz as três coisas, em ordem, e responde dizendo cada uma |
+| 4G.8 | Converse por voz | Fala solta e no ritmo de conversa, sem pausas entre frases e sem picotes; voz nova **cedar** (dá para trocar no painel MEMÓRIA → Voz) |
+| 4G.9 | Digite uma pergunta (resposta pelo HUD) | Começa a falar bem mais rápido que antes (áudio em streaming) |
+| 4G.10 | Olhe o HUD com conversa, Spotify e Forja ao mesmo tempo | Nada fica um em cima do outro; coluna da direita empilhada (avisos → conversa → tarefas) |
+
 ## 5. Forja
 
 | # | Ação | Esperado |

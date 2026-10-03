@@ -1,4 +1,4 @@
-"""Voz do Duque: qual voz usar e como ela deve soar.
+"""Voz do TELEX: qual voz usar e como ela deve soar.
 
 A mesma escolha vale para a resposta falada do texto (TTS do HUD) e para a
 conversa "Hey Jarvis" (Realtime). Só entram vozes que existem nos dois.
@@ -11,13 +11,14 @@ from typing import Any
 
 from memory.memory import Memory, MemoryLayer
 
-KEY = "voz"
-DEFAULT_VOICE = "ballad"
+# Chave nova: a escolha antiga ("ballad", lenta e teatral) não volta sozinha.
+KEY = "voz_telex"
+DEFAULT_VOICE = "cedar"
 
 # Vozes disponíveis tanto no TTS quanto no Realtime da OpenAI.
 VOICES: dict[str, str] = {
-    "ballad": "Masculina, suave e refinada. Boa candidata para o estilo Jarvis.",
-    "cedar": "Masculina, grave e encorpada (a voz antiga do Duque).",
+    "cedar": "Masculina, grave e natural (padrão do TELEX).",
+    "ballad": "Masculina, suave e refinada, mais lenta e teatral.",
     "ash": "Masculina, clara e firme.",
     "echo": "Masculina, neutra e calma.",
     "verse": "Masculina, expressiva e dinâmica.",
@@ -30,20 +31,22 @@ SAMPLE = "Às suas ordens, Du. Todos os sistemas estão operando normalmente. Em
 
 # Estilo "J.A.R.V.I.S." para o TTS (gpt-4o-mini-tts aceita instruções de voz).
 TTS_INSTRUCTIONS = (
-    "Você é o Duque, um assistente de inteligência artificial no estilo J.A.R.V.I.S., falando português do Brasil. "
-    "Voz masculina de mordomo britânico sofisticado: calma, segura, elegante e levemente irônica, com dicção precisa. "
-    "Fale com fluidez, num ritmo natural e contínuo, ligando as frases como numa conversa, sem pausas longas, "
-    "sem arrastar as palavras e sem soar robótico ou teatral. Sorria discretamente na voz. "
+    "Você é o TELEX, assistente pessoal falando português do Brasil com sotaque brasileiro neutro. "
+    "Fale como uma pessoa real numa conversa do dia a dia: ritmo de conversa, um pouco acelerado, "
+    "frases ligadas umas nas outras, entonação variada e descontraída, confiante e simpático. "
+    "Nada de pausas entre as frases, nada de dicção pausada de locutor, nada de tom teatral, solene ou robótico. "
     "Não leia símbolos, emojis nem formatação."
 )
-TTS_SPEED = 1.05
+TTS_SPEED = float(os.getenv("DUQUE_TTS_SPEED", "1.12"))
 
 # Mesmo estilo para a conversa por voz (vai nas instruções do Realtime).
 VOICE_DELIVERY = (
-    "COMO FALAR\n"
-    "- Tom de mordomo britânico sofisticado, no estilo J.A.R.V.I.S.: calmo, seguro, elegante, com humor seco.\n"
-    "- Fluidez: ritmo natural e contínuo, frases ligadas, sem pausas longas e sem soletrar números.\n"
-    "- Comece a responder rápido; prefira frases curtas e bem encadeadas."
+    "COMO FALAR (muito importante)\n"
+    "- Fale como um brasileiro de verdade numa conversa: natural, solto, ritmo normal para rápido, com entonação viva.\n"
+    "- Emende as frases. Não faça pausas entre elas, não fale pausado nem silabado, não use tom de locutor, de\n"
+    "  mordomo ou de robô. Confiante e simpático, com humor seco de vez em quando.\n"
+    "- Comece a falar logo. Respostas curtas, do jeito que alguém responderia em voz alta.\n"
+    "- Números, horas e datas do jeito falado (\"duas e meia\", \"vinte e três graus\")."
 )
 
 

@@ -64,7 +64,7 @@ class VoiceStyleTests(TempDirTestCase):
 
     def test_voice_delivery_in_instructions(self) -> None:
         text = voice_instructions()
-        self.assertIn("Fluidez", text)
+        self.assertIn("COMO FALAR", text)
         self.assertIn("Hey Jarvis", text)
         self.assertTrue(set(VOICES) >= {"ballad", "cedar", "ash"})
 

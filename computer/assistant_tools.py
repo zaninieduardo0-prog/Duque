@@ -12,6 +12,7 @@ import json
 import math
 import operator
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -137,6 +138,25 @@ def _http_json(url: str, timeout: float = 8) -> Any:
         return json.loads(response.read().decode("utf-8"))
 
 
+def _http_text(url: str, timeout: float = 8) -> str:
+    request = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36",
+        "Accept-Language": "pt-BR,pt;q=0.9",
+        "Cookie": "CONSENT=YES+1",
+    })
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read().decode("utf-8", errors="replace")
+
+
+_VIDEO_ID = re.compile(r'"videoId":"([\w-]{11})"')
+
+
+def first_video_id(html: str) -> str | None:
+    """Primeiro vídeo de uma página de busca do YouTube (ignora anúncios e shorts repetidos)."""
+    match = _VIDEO_ID.search(html or "")
+    return match.group(1) if match else None
+
+
 def web_alternative(target: str) -> str | None:
     """whatsapp://send?... -> https://web.whatsapp.com/send?... (app não instalado)."""
     if target.startswith("whatsapp://"):
@@ -191,6 +211,7 @@ class AssistantTools:
         *,
         notify: Callable[[str], Any] | None = None,
         fetch_json: Callable[[str], Any] = _http_json,
+        fetch_text: Callable[[str], str] = _http_text,
         open_target: Callable[[str], None] = _open_target,
         press_key: Callable[[int, int], None] = _press_key,
         clock: Callable[[], datetime] = datetime.now,
@@ -199,6 +220,7 @@ class AssistantTools:
         self.memory = memory
         self.notify = notify
         self.fetch_json = fetch_json
+        self.fetch_text = fetch_text
         self.open_target = open_target
         self.press_key = press_key
         self.clock = clock
@@ -420,6 +442,20 @@ class AssistantTools:
         self.open_target(url)
         return {"message": f"Abri o YouTube com '{query}'.", "url": url}
 
+    def youtube_play(self, query: str) -> dict[str, Any]:
+        """Toca o primeiro vídeo da busca (em vez de só abrir a lista de resultados)."""
+        search = "https://www.youtube.com/results?" + urllib.parse.urlencode({"search_query": query})
+        try:
+            video = first_video_id(self.fetch_text(search))
+        except Exception:
+            video = None
+        if not video:
+            self.open_target(search)
+            return {"message": f"Abri a busca de '{query}' no YouTube; não consegui escolher o vídeo sozinho.", "url": search, "playing": False}
+        url = f"https://www.youtube.com/watch?v={video}&autoplay=1"
+        self.open_target(url)
+        return {"message": f"Tocando '{query}' no YouTube.", "url": url, "video_id": video, "playing": True}
+
     def spotify(self, query: str) -> dict[str, Any]:
         uri = "spotify:search:" + urllib.parse.quote(query)
         try:
@@ -453,7 +489,8 @@ class AssistantTools:
         ("system_status", "CPU, memória, disco e bateria do computador", (), {}),
         ("open_folder", "Abre uma pasta (downloads, documentos, área de trabalho, imagens, músicas, vídeos ou um caminho)", ("name",), {"name": str}),
         ("find_files", "Procura arquivos pelo nome numa pasta (padrão: pasta pessoal)", ("name",), {"name": str, "folder": str, "limit": int}),
-        ("youtube", "Pesquisa e abre resultados no YouTube", ("query",), {"query": str}),
+        ("youtube", "Pesquisa e abre a lista de resultados no YouTube", ("query",), {"query": str}),
+        ("youtube_play", "Toca no YouTube o primeiro vídeo de uma busca (música, clipe, vídeo)", ("query",), {"query": str}),
         ("spotify", "Pesquisa uma música, artista ou playlist no Spotify", ("query",), {"query": str}),
         ("maps", "Abre o Google Maps para um local ou rota", ("destination",), {"destination": str}),
     ]
