@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
+from typing import Any
 
 from flask import Flask, jsonify, request, Response
 from openai import OpenAI
@@ -213,7 +214,7 @@ def gerar_fala():
     if openai_client is None:
         return jsonify({"erro": "OPENAI_API_KEY não configurada."}), 503
 
-    voz = dados.get("voz") if dados.get("voz") in VOICES else current_voice(agent.memory)
+    voz: Any = str(dados["voz"]) if dados.get("voz") in VOICES else current_voice(agent.memory)
     try:
         audio = openai_client.audio.speech.create(
             model="gpt-4o-mini-tts",
