@@ -169,6 +169,15 @@ Ajustes opcionais (PowerShell, depois reinicie o Duque):
 | 4G.9 | Digite uma pergunta (resposta pelo HUD) | Começa a falar bem mais rápido que antes (áudio em streaming) |
 | 4G.10 | Olhe o HUD com conversa, Spotify e Forja ao mesmo tempo | Nada fica um em cima do outro; coluna da direita empilhada (avisos → conversa → tarefas) |
 
+## 4H. Logo, letras e reconexão
+
+| # | Ação | Esperado |
+|---|------|----------|
+| 4H.1 | Abrir o TELEX | Logo do TELEX (o emblema enviado pelo Du) no canto; letras do meio menores; nada sobreposto, nem com a janela do Chrome menor |
+| 4H.2 | Com o TELEX aberto, feche só o servidor (ou espere um reinício) e digite algo | Aparece "TELEX reiniciando — sua mensagem será enviada assim que ele voltar"; quando ele volta, a mensagem é enviada e respondida |
+| 4H.3 | Depois de uma atualização | O HUD se recarrega sozinho com a versão nova |
+| 4H.4 | Se o TELEX cair | `Get-Content .\duque.log -Tail 80` mostra uma linha `[QUEDA]` com o motivo; mande para o Claude |
+
 ## 5. Forja
 
 | # | Ação | Esperado |

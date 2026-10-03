@@ -274,6 +274,32 @@ def voz_escolher():
     return jsonify(resultado), (400 if resultado.get("success") is False else 200)
 
 
+def _versao_atual() -> str:
+    """Identifica a versão rodando (commit + início do processo) para o HUD se recarregar."""
+    import subprocess
+
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+    except Exception:
+        commit = ""
+    return f"{commit or 'local'}-{int(_INICIO)}"
+
+
+import time as _time  # noqa: E402
+
+_INICIO = _time.time()
+_VERSAO: dict[str, str] = {}
+
+
+@app.route("/api/versao", methods=["GET"])
+def versao():
+    if "v" not in _VERSAO:
+        _VERSAO["v"] = _versao_atual()
+    return jsonify({"versao": _VERSAO["v"], "inicio": _INICIO})
+
+
 @app.route("/api/estado", methods=["GET"])
 def obter_estado():
     with state_lock:
@@ -392,13 +418,19 @@ def executar_comando():
         })
 
     except Exception as exc:
-        _set_state(
-            DuqueState.ERROR,
-            atividade=f"{type(exc).__name__}: {exc}"[:120],
-        )
+        import traceback
+
+        print(f"[COMANDO] falhou em {texto!r}:\n{traceback.format_exc()}", flush=True)
+        try:
+            _set_state(
+                DuqueState.ERROR,
+                atividade=f"{type(exc).__name__}: {exc}"[:120],
+            )
+        except Exception:
+            pass
         return jsonify({
             "ok": False,
-            "erro": f"{type(exc).__name__}: {exc}",
+            "erro": f"Não consegui processar: {type(exc).__name__}: {exc}",
         }), 500
 
 

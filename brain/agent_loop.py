@@ -401,6 +401,10 @@ class AgentLoop:
         return subject.strip(" ,.!?") or "o compromisso"
 
     def reminder_at(self, when: str, text: str = "") -> dict[str, object]:
+        from computer.assistant_tools import MAX_REMINDER_TEXT
+
+        if len((text or "").strip()) > MAX_REMINDER_TEXT:
+            return {"success": False, "error": "Esse texto parece uma instrução, não um lembrete; peça a tarefa diretamente."}
         parsed = parse_when(when)
         if parsed is None:
             return {"success": False, "error": f"Não entendi a data ou a hora em '{when}'. Diga, por exemplo, 'amanhã às 9h'."}

@@ -351,7 +351,7 @@ class EmergencyEndpointTests(unittest.TestCase):
 class HudTelexTests(unittest.TestCase):
     def test_hud_has_logo_pause_and_tasks(self) -> None:
         html = (Path(__file__).resolve().parent.parent / "interface" / "index.html").read_text(encoding="utf-8")
-        for needle in ('id="logo"', ">TELEX<", 'id="panicBtn"', 'id="pauseBox"', "/api/emergencia", "/api/tarefas", "F9"):
+        for needle in ('id="logo"', 'alt="TELEX"', 'id="panicBtn"', 'id="pauseBox"', "/api/emergencia", "/api/tarefas", "F9"):
             self.assertIn(needle, html)
         self.assertNotIn('<div class="brand">DUQUE</div>', html)
 

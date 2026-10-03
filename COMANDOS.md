@@ -194,20 +194,20 @@ git reset --hard <código>
 
 ## Aplicar uma atualização nova do Claude (branch `duque/ajustes-N`)
 
-Troque `N` pelo número que o Claude informar (a última foi **7**). Um bloco por vez:
+Troque `N` pelo número que o Claude informar (a última foi **8**). Um bloco por vez:
 
 ```powershell
 cd C:\Users\zanin\Duque
 Get-Process pythonw -ErrorAction SilentlyContinue | Stop-Process
 git fetch origin
-git merge origin/duque/ajustes-7 -m "Ajustes 7"
+git merge origin/duque/ajustes-8 -m "Ajustes 8"
 git push origin main
 .\preparar_duque.bat
 wscript .\Duque.vbs
 ```
 
 > O `preparar_duque.bat` só é obrigatório quando a atualização traz pacote novo
-> (a 7 baixa de novo o modelo do "Bom dia, TELEX", que na 6 não instalou). Ele termina com o
+> (a 8 inclui a 7, que baixa de novo o modelo do "Bom dia, TELEX"). Ele termina com o
 > diagnóstico; aperte uma tecla para fechar.
 
 Opcionais do TELEX (depois feche e abra):

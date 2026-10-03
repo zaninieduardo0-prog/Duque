@@ -29,6 +29,9 @@ from uuid import uuid4
 from memory.memory import Memory, MemoryLayer
 
 IS_WINDOWS = sys.platform.startswith("win")
+# Lembrete é uma frase curta ("tomar água"). Textos longos são instruções que o
+# modelo tentou "agendar" (ex.: "Organize o restante do dia..."): recusados.
+MAX_REMINDER_TEXT = 140
 
 WEEKDAYS = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
 MONTHS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
@@ -308,6 +311,8 @@ class AssistantTools:
         seconds = float(seconds)
         if not 1 <= seconds <= 7 * 24 * 3600:
             return {"success": False, "error": "O timer precisa ter entre 1 segundo e 7 dias."}
+        if len(label.strip()) > MAX_REMINDER_TEXT:
+            return {"success": False, "error": "Esse texto parece uma instrução, não um lembrete; peça a tarefa diretamente."}
         timer_id = uuid4().hex[:6]
         name = label.strip() or "timer"
 

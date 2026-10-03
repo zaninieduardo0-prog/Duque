@@ -29,6 +29,24 @@ LOG_FILE = LOG_PATH.open("a", encoding="utf-8", buffering=1)
 sys.stdout = LOG_FILE
 sys.stderr = LOG_FILE
 
+# Diagnóstico de quedas: qualquer erro não tratado (inclusive em threads e falhas
+# nativas de áudio) fica registrado no duque.log com a pilha completa.
+import faulthandler  # noqa: E402
+import traceback  # noqa: E402
+
+faulthandler.enable(file=LOG_FILE, all_threads=True)
+
+
+def _log_crash(kind: str, exc_type, exc, tb) -> None:
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{stamp}] [QUEDA] {kind}: {exc_type.__name__}: {exc}\n{''.join(traceback.format_tb(tb))}", flush=True)
+
+
+sys.excepthook = lambda t, e, tb: _log_crash("processo", t, e, tb)
+threading.excepthook = lambda args: _log_crash(
+    f"thread {args.thread.name if args.thread else '?'}", args.exc_type, args.exc_value, args.exc_traceback
+)
+
 
 URL = "http://127.0.0.1:5000"
 
@@ -84,11 +102,11 @@ def main() -> None:
     import duque_wake_v3 as voice_runtime
 
     print("=" * 64, flush=True)
-    print("DUQUE — SISTEMA INTEGRADO", flush=True)
+    print(f"TELEX — SISTEMA INTEGRADO ({time.strftime('%Y-%m-%d %H:%M:%S')})", flush=True)
     print("=" * 64, flush=True)
     print(f"Workspace: {ROOT}", flush=True)
     print("Texto: interface + /api/comando", flush=True)
-    print('Voz: wake word "Hey Jarvis" + conversa Realtime', flush=True)
+    print('Voz: "Bom dia, TELEX" / "Hey Jarvis" + conversa Realtime', flush=True)
     print("Autonomia: habilitada", flush=True)
 
     print("[DUQUE] Servidor ainda não estava ativo; iniciando agora.", flush=True)
