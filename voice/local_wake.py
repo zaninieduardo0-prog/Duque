@@ -119,8 +119,8 @@ class LocalWake:
 
     def __init__(self, model: Any, recognizer_factory: Callable[[Any, float, str], Any]) -> None:
         self.model = model
-        known = getattr(model, "find_word", None)
-        self.phrases = grammar((lambda word: known(word) >= 0) if callable(known) else None)
+        known: Any = getattr(model, "find_word", None)
+        self.phrases = grammar((lambda word: int(known(word)) >= 0) if callable(known) else None)
         if len(self.phrases) <= 1:
             raise RuntimeError("o modelo não conhece nenhuma grafia de 'telex'")
         self._factory = recognizer_factory
