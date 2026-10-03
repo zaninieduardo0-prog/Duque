@@ -117,6 +117,20 @@ def check_microphones() -> list[Check]:
     return checks
 
 
+def check_chrome() -> Check:
+    if sys.platform != "win32":
+        return Check(OK, "Chrome", "não é Windows: links abrem no navegador padrão")
+    from computer.chrome import chrome_executable, resolve_profile, wanted_profile
+
+    executable = chrome_executable()
+    if not executable:
+        return Check(WARN, "Chrome", "não encontrado: links abrem no navegador padrão")
+    profile = resolve_profile()
+    if not profile:
+        return Check(WARN, "Chrome", f"perfil '{wanted_profile()}' não encontrado: o Chrome pode pedir para escolher a conta")
+    return Check(OK, "Chrome", f"perfil '{profile}' (procurado: {wanted_profile()})")
+
+
 def check_git(root: Path = ROOT) -> list[Check]:
     def git(*args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(["git", *args], cwd=str(root), capture_output=True, text=True, timeout=20)
@@ -157,7 +171,7 @@ def run_tests() -> Check:
 
 
 def collect(with_tests: bool = False) -> list[Check]:
-    checks = [check_python(), *check_packages(), *check_keys(), check_wakeword(), *check_microphones(), *check_git(), check_port()]
+    checks = [check_python(), *check_packages(), *check_keys(), check_wakeword(), *check_microphones(), check_chrome(), *check_git(), check_port()]
     if with_tests:
         checks.append(run_tests())
     return checks

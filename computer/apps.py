@@ -54,6 +54,7 @@ KNOWN_APPS.update({
     "relógio": ["cmd.exe", "/c", "start", "", "ms-clock:"],
     "youtube": ["cmd.exe", "/c", "start", "", "https://www.youtube.com"],
     "gmail": ["cmd.exe", "/c", "start", "", "https://mail.google.com"],
+    "instagram": ["cmd.exe", "/c", "start", "", "https://www.instagram.com"],
     "chatgpt": ["cmd.exe", "/c", "start", "", "https://chatgpt.com"],
     "github": ["cmd.exe", "/c", "start", "", "https://github.com"],
 })
@@ -73,8 +74,9 @@ PROCESS_NAMES: dict[str, list[str]] = {
     "edge": ["msedge.exe"],
     "microsoft edge": ["msedge.exe"],
     "paint": ["mspaint.exe"],
-    "whatsapp": ["whatsapp.exe"],
-    "whatsapp desktop": ["whatsapp.exe"],
+    # O WhatsApp novo (loja da Microsoft) roda como WhatsApp.Root.exe.
+    "whatsapp": ["whatsapp.exe", "whatsapp.root.exe"],
+    "whatsapp desktop": ["whatsapp.exe", "whatsapp.root.exe"],
     "spotify": ["spotify.exe"],
     "vscode": ["code.exe"],
     "vs code": ["code.exe"],
@@ -111,3 +113,37 @@ def find_app_in_text(text: str) -> str | None:
         if re.search(rf"(?<![\w]){re.escape(name)}(?![\w])", value):
             return name
     return None
+
+
+# Versão web usada quando o app não está instalado (ou não respondeu).
+WEB_FALLBACK: dict[str, str] = {
+    "whatsapp": "https://web.whatsapp.com/",
+    "whatsapp desktop": "https://web.whatsapp.com/",
+    "spotify": "https://open.spotify.com/",
+    "discord": "https://discord.com/app",
+    "youtube": "https://www.youtube.com/",
+    "gmail": "https://mail.google.com/",
+}
+
+# Protocolo do Windows que precisa estar registrado para o comando funcionar.
+PROTOCOLS: dict[str, str] = {
+    "whatsapp": "whatsapp",
+    "whatsapp desktop": "whatsapp",
+    "spotify": "spotify",
+    "discord": "discord",
+}
+
+CHROME_NAMES = frozenset({"chrome", "google chrome", "navegador", "browser"})
+
+
+def protocol_registered(protocol: str) -> bool:
+    """O Windows sabe abrir "<protocolo>:"? (sem isso aparece a janela "Procurar app")."""
+    try:
+        import winreg  # type: ignore[import-not-found]
+    except ImportError:
+        return True
+    try:
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, protocol):  # type: ignore[attr-defined]
+            return True
+    except OSError:
+        return False

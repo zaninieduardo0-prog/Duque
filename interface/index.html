@@ -9,17 +9,16 @@
 <link href="https://fonts.googleapis.com/css2?family=Saira:wght@200;300;400&family=Saira+Condensed:wght@200;300&display=swap" rel="stylesheet">
 <style>
 :root{
-  --black:#020303;
-  --black-blue:#040608;
-  --gold-deep:#8a5a12;
-  --gold:#c9902f;
-  --amber:#e8a838;
-  --gold-hot:#ffd489;
-  --warm-white:#f6ead6;
-  --line:rgba(201,144,47,.22);
-  --line-soft:rgba(201,144,47,.11);
-  --txt:rgba(246,234,214,.62);
-  --txt-dim:rgba(246,234,214,.34);
+  --black:#02050d;
+  --blue-deep:#1d4bb8;
+  --blue:#3d86ff;
+  --azure:#5aa8ff;
+  --ice:#a9d6ff;
+  --white:#eaf3ff;
+  --acc:90,168,255;
+  --line:rgba(90,168,255,.24);
+  --txt:rgba(214,230,255,.68);
+  --txt-dim:rgba(170,196,245,.4);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:var(--black);overflow:hidden}
@@ -32,214 +31,172 @@ body{
 #scene{position:fixed;inset:0;display:block}
 .vignette{
   position:fixed;inset:0;pointer-events:none;
-  background:radial-gradient(120% 90% at 42% 52%,rgba(0,0,0,0) 35%,rgba(0,0,0,.55) 78%,rgba(0,0,0,.9) 100%);
-  mix-blend-mode:multiply;
+  background:radial-gradient(120% 95% at 47% 52%,rgba(0,0,0,0) 40%,rgba(0,2,10,.38) 80%,rgba(0,2,10,.72) 100%);
 }
 #hud{position:fixed;inset:0;pointer-events:none;z-index:3}
 #hud .z{pointer-events:auto}
 
 /* ---------- tipografia de telemetria ---------- */
-.label{
-  font-size:10.5px;font-weight:300;letter-spacing:.34em;
-  color:var(--txt-dim);text-transform:uppercase;
-}
-.value{
-  font-size:18px;font-weight:200;letter-spacing:.18em;
-  color:var(--warm-white);
-}
-.value.sm{font-size:14px;letter-spacing:.2em;color:rgba(246,234,214,.78)}
-.value.gold{color:var(--gold-hot)}
+.label{font-size:10.5px;font-weight:300;letter-spacing:.34em;color:var(--txt-dim);text-transform:uppercase}
+.value{font-size:18px;font-weight:200;letter-spacing:.18em;color:var(--white)}
+.value.sm{font-size:14px;letter-spacing:.2em;color:rgba(234,243,255,.8)}
+.value.hot{color:var(--ice)}
 .stack{display:flex;flex-direction:column;gap:2px}
 .group{display:flex;flex-direction:column;gap:14px}
 
-/* ---------- cantos ---------- */
+/* ---------- canto superior direito ---------- */
 .corner{position:absolute;opacity:0;animation:boot 1.6s ease forwards}
-.tl{top:34px;left:40px;animation-delay:.25s}
 .tr{top:34px;right:44px;text-align:right;animation-delay:.45s}
-.bl{bottom:38px;left:40px;animation-delay:.9s}
-.br{bottom:38px;right:44px;text-align:right;animation-delay:1.05s}
 @keyframes boot{from{opacity:0;transform:translateY(6px);filter:blur(4px)}to{opacity:1;transform:none;filter:none}}
+.dot{width:4px;height:4px;background:var(--azure);box-shadow:0 0 10px rgba(90,168,255,.9);transform:rotate(45deg)}
+.dot.idle{background:var(--blue-deep);box-shadow:none}
+.rule{height:1px;background:linear-gradient(270deg,var(--line),transparent);width:132px;margin:10px 0 10px auto}
 
-.tick{display:flex;align-items:center;gap:9px}
-.tr .tick{justify-content:flex-end}
-.dot{width:4px;height:4px;background:var(--amber);box-shadow:0 0 10px rgba(232,168,56,.85);transform:rotate(45deg)}
-.dot.idle{background:var(--gold-deep);box-shadow:none}
-.rule{height:1px;background:linear-gradient(90deg,var(--line),transparent);width:132px;margin:10px 0}
-.tr .rule{background:linear-gradient(270deg,var(--line),transparent);margin-left:auto}
+/* ---------- dock (esquerda) ---------- */
+.dock{position:absolute;left:0;top:0;width:150px;height:100%;pointer-events:none}
+.app{
+  position:absolute;display:grid;place-items:center;padding:0;border-radius:50%;cursor:pointer;pointer-events:auto;outline:0;
+  border:1px solid rgba(var(--acc),.3);
+  background:radial-gradient(circle at 35% 28%,rgba(var(--acc),.26),rgba(var(--acc),.05) 70%);
+  backdrop-filter:blur(6px);
+  box-shadow:inset 0 0 14px rgba(var(--acc),.14),0 0 18px -4px rgba(var(--acc),.5);
+  filter:saturate(.85) brightness(.94);will-change:width,height,top;
+}
+.app svg{display:block;width:60%;height:60%}
+.app:hover,.app:focus-visible,.app.active{filter:saturate(1.05) brightness(1.15);border-color:rgba(var(--acc),.7)}
+.app.active{box-shadow:inset 0 0 16px rgba(var(--acc),.28),0 0 26px -2px rgba(var(--acc),.75)}
+#dlabel{
+  position:absolute;left:0;top:0;padding:5px 12px;border-radius:999px;font-size:11.5px;letter-spacing:.14em;color:var(--white);
+  background:rgba(6,16,42,.62);backdrop-filter:blur(8px);border:1px solid rgba(var(--acc),.26);
+  opacity:0;pointer-events:none;white-space:nowrap;transition:opacity .25s;text-transform:none;font-weight:300;
+}
+#dlabel em{font-style:normal;color:var(--txt-dim);margin-left:8px}
 
 /* ---------- estado central ---------- */
-#stateBlock{
-  position:absolute;left:50%;transform:translateX(-50%);
-  bottom:19%;text-align:center;width:min(520px,80vw);
-}
+#stateBlock{position:absolute;left:50%;transform:translateX(-50%);bottom:19%;text-align:center;width:min(520px,80vw)}
 #stateName{
-  font-size:15px;font-weight:200;letter-spacing:.62em;text-indent:.62em;
-  color:var(--gold-hot);text-transform:uppercase;
-  text-shadow:0 0 22px rgba(232,168,56,.45);
-  transition:opacity .5s ease;
+  font-size:15px;font-weight:200;letter-spacing:.62em;text-indent:.62em;color:var(--ice);text-transform:uppercase;
+  text-shadow:0 0 22px rgba(var(--acc),.55);transition:opacity .5s ease;
 }
-#stateTask{
-  margin-top:9px;font-size:11px;letter-spacing:.3em;color:var(--txt-dim);
-  text-transform:uppercase;min-height:14px;
-}
-#stateBar{
-  margin:16px auto 0;width:180px;height:1px;background:rgba(201,144,47,.14);position:relative;overflow:hidden;
-}
-#stateBar i{position:absolute;inset:0;width:34%;background:linear-gradient(90deg,transparent,var(--amber),transparent);
+#stateTask{margin-top:9px;font-size:11px;letter-spacing:.3em;color:var(--txt-dim);text-transform:uppercase;min-height:14px}
+#stateBar{margin:16px auto 0;width:180px;height:1px;background:rgba(var(--acc),.16);position:relative;overflow:hidden}
+#stateBar i{position:absolute;inset:0;width:34%;background:linear-gradient(90deg,transparent,var(--azure),transparent);
   transform:translateX(-120%);animation:sweep 4.2s cubic-bezier(.45,0,.25,1) infinite}
 @keyframes sweep{0%{transform:translateX(-120%)}55%{transform:translateX(320%)}100%{transform:translateX(320%)}}
 
-/* ---------- telemetria contextual (direita, flutuante) ---------- */
-#telemetry{
-  position:absolute;right:44px;top:50%;transform:translateY(-50%);
-  width:236px;display:flex;flex-direction:column;gap:11px;align-items:flex-end;text-align:right;
-}
+/* ---------- telemetria contextual (direita, efêmera) ---------- */
+#telemetry{position:absolute;right:44px;top:50%;transform:translateY(-50%);width:250px;display:flex;flex-direction:column;gap:11px;align-items:flex-end;text-align:right}
 .tel{opacity:0;animation:telIn .6s ease forwards}
 .tel.out{animation:telOut .7s ease forwards}
-.tel .k{font-size:9.5px;letter-spacing:.34em;color:rgba(201,144,47,.55);text-transform:uppercase}
-.tel .v{font-size:15px;font-weight:200;letter-spacing:.14em;color:var(--warm-white);margin-top:2px}
-.tel .v em{font-style:normal;color:var(--gold-hot)}
+.tel .k{font-size:9.5px;letter-spacing:.34em;color:rgba(var(--acc),.7);text-transform:uppercase}
+.tel .v{font-size:15px;font-weight:200;letter-spacing:.14em;color:var(--white);margin-top:2px;overflow-wrap:anywhere}
+.tel .v em{font-style:normal;color:var(--ice)}
 @keyframes telIn{from{opacity:0;transform:translateX(14px);filter:blur(3px)}to{opacity:1;transform:none;filter:none}}
 @keyframes telOut{to{opacity:0;transform:translateX(10px);filter:blur(3px)}}
 
-/* ---------- atividade recente (esquerda baixa) ---------- */
-#activity{position:absolute;left:40px;bottom:215px;display:flex;flex-direction:column;gap:7px}
-#activity div{
-  font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:rgba(246,234,214,.3);
-  display:flex;align-items:center;gap:8px;animation:telIn .5s ease both;
-}
-#activity div:first-child{color:rgba(246,234,214,.7)}
-#activity span.i{width:14px;height:1px;background:var(--gold-deep);display:inline-block}
-#activity div:first-child span.i{background:var(--amber);box-shadow:0 0 8px rgba(232,168,56,.6)}
-
-/* ---------- spotify ---------- */
-#spotify{
-  position:absolute;left:40px;bottom:38px;width:262px;
-  opacity:0;animation:boot 1.4s ease .95s forwards;
-}
-#spotify .head{display:flex;align-items:center;justify-content:space-between}
-#spotify .head .label{letter-spacing:.42em}
-#sTrack{margin-top:10px;font-size:14px;font-weight:200;letter-spacing:.1em;color:var(--warm-white);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#sArtist{margin-top:2px;font-size:10.5px;letter-spacing:.26em;text-transform:uppercase;color:var(--txt-dim)}
-#sBarWrap{margin-top:12px;height:1px;background:rgba(201,144,47,.16);position:relative}
-#sBar{position:absolute;left:0;top:0;height:1px;width:0%;
-  background:linear-gradient(90deg,rgba(201,144,47,.5),var(--gold-hot));box-shadow:0 0 8px rgba(232,168,56,.5)}
-#sBar::after{content:'';position:absolute;right:-1px;top:-1.5px;width:2px;height:4px;background:var(--gold-hot)}
-#sMeta{margin-top:7px;display:flex;justify-content:space-between;font-size:9.5px;letter-spacing:.2em;color:rgba(246,234,214,.28)}
-#sCtl{margin-top:12px;display:flex;align-items:center;gap:18px}
-#sCtl button,.ghost{
-  background:none;border:0;padding:0;color:rgba(246,234,214,.5);cursor:pointer;
-  font-family:inherit;font-size:11px;letter-spacing:.24em;text-transform:uppercase;
-  transition:color .25s ease,text-shadow .25s ease;
-}
-#sCtl button:hover,.ghost:hover,#sCtl button:focus-visible,.ghost:focus-visible{
-  color:var(--gold-hot);text-shadow:0 0 14px rgba(232,168,56,.55);outline:none}
-#sCtl button svg{display:block}
-#sOpen{margin-top:14px;display:inline-block;text-decoration:none}
-
 /* ---------- comando / rodapé ---------- */
-#voice{position:absolute;left:0;right:0;margin:0 auto;width:fit-content;max-width:100%;bottom:38px;text-align:center;
-  opacity:0;animation:boot 1.4s ease 1.2s forwards}
-#voiceLine{display:flex;align-items:center;gap:10px;justify-content:center}
+#voice{position:absolute;left:50%;transform:translateX(-50%);bottom:38px;text-align:center;opacity:0;animation:boot 1.4s ease 1.2s forwards}
+#voiceLine{display:flex;align-items:center;gap:10px;justify-content:center;cursor:pointer}
+#cmdWrap{position:relative;margin-top:14px;width:min(430px,70vw)}
 #cmd{
-  margin-top:14px;width:min(430px,70vw);background:none;border:0;border-bottom:1px solid rgba(201,144,47,.18);
-  color:var(--warm-white);font-family:inherit;font-size:12.5px;letter-spacing:.2em;padding:7px 2px;text-align:center;
-  transition:border-color .3s ease;
+  width:100%;background:none;border:0;border-bottom:1px solid rgba(var(--acc),.22);
+  color:var(--white);font-family:inherit;font-size:12.5px;letter-spacing:.2em;padding:7px 2px;text-align:center;transition:border-color .3s ease;
 }
-#cmd::placeholder{color:rgba(246,234,214,.2);letter-spacing:.3em;text-transform:uppercase;font-size:10.5px}
-#cmd:focus{outline:none;border-color:rgba(232,168,56,.55)}
-#response{margin:16px auto 0;width:min(560px,78vw);min-height:18px;font-size:11px;line-height:1.6;letter-spacing:.12em;color:rgba(246,234,214,.58);text-transform:none;opacity:0;transform:translateY(4px);transition:opacity .35s ease,transform .35s ease}
-#response.show{opacity:1;transform:none}
-#response .who{color:var(--gold-hot);letter-spacing:.22em;text-transform:uppercase;font-size:9px;margin-right:7px}
-#keys{margin-top:12px;font-size:9px;letter-spacing:.24em;color:rgba(246,234,214,.18);text-transform:uppercase}
+#cmd::placeholder{color:rgba(190,212,255,.3);letter-spacing:.3em;text-transform:uppercase;font-size:10.5px}
+#cmd:focus{outline:none;border-color:rgba(var(--acc),.75)}
+#cmdWrap::after{content:"";position:absolute;left:-30%;bottom:0;width:30%;height:1px;opacity:0;
+  background:linear-gradient(90deg,transparent,#cfe6ff,transparent)}
+#cmdWrap:focus-within::after,body[data-state=listening] #cmdWrap::after{opacity:1;animation:run 2.2s linear infinite}
+@keyframes run{to{left:100%}}
+#keys{margin-top:12px;font-size:9px;letter-spacing:.24em;color:rgba(170,196,245,.24);text-transform:uppercase}
+
+/* ---------- canto superior esquerdo ---------- */
+.tl{top:34px;left:44px;animation-delay:.3s}
+.brand{font-size:13px;font-weight:200;letter-spacing:.62em;color:var(--ice);text-shadow:0 0 18px rgba(var(--acc),.55)}
+.ghost{background:none;border:0;padding:0;color:rgba(214,230,255,.5);cursor:pointer;font-family:inherit;font-size:11px;
+  letter-spacing:.24em;text-transform:uppercase;transition:color .25s ease,text-shadow .25s ease}
+.ghost:hover,.ghost:focus-visible{color:var(--ice);text-shadow:0 0 14px rgba(var(--acc),.6);outline:none}
+#memBtn{margin-top:14px;display:block;text-align:left}
+
+/* ---------- spotify (esquerda baixa) ---------- */
+#spotify{position:absolute;left:44px;bottom:38px;width:250px;opacity:0;animation:boot 1.4s ease .95s forwards}
+#spotify .head{display:flex;align-items:center;justify-content:space-between}
+#sTrack{margin-top:10px;font-size:14px;font-weight:200;letter-spacing:.1em;color:var(--white);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sArtist{margin-top:2px;font-size:10.5px;letter-spacing:.26em;text-transform:uppercase;color:var(--txt-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sBarWrap{margin-top:12px;height:1px;background:rgba(var(--acc),.16);position:relative}
+#sBar{position:absolute;left:0;top:0;height:1px;width:0%;background:linear-gradient(90deg,rgba(var(--acc),.4),var(--ice));box-shadow:0 0 8px rgba(var(--acc),.6);transition:width .6s ease}
+#sCtl{margin-top:12px;display:flex;align-items:center;gap:18px}
+#sCtl button{background:none;border:0;padding:0;color:rgba(214,230,255,.5);cursor:pointer;transition:color .25s ease}
+#sCtl button:hover,#sCtl button:focus-visible{color:var(--ice);outline:none}
+#sCtl button svg{display:block}
 
 /* ---------- conversa única (texto + voz) ---------- */
-#chat{position:absolute;right:44px;bottom:118px;width:300px;display:flex;flex-direction:column;justify-content:flex-end;
-  gap:8px;text-align:right;max-height:44vh;overflow:hidden}
+#chat{position:absolute;right:44px;bottom:150px;width:290px;display:flex;flex-direction:column;justify-content:flex-end;
+  gap:8px;text-align:right;max-height:30vh;overflow:hidden}
+#chat .t{font-size:11px;line-height:1.55;letter-spacing:.08em;color:rgba(214,230,255,.42);animation:telIn .45s ease both}
 #chat .t:nth-last-child(3){opacity:.62}
 #chat .t:nth-last-child(n+4){opacity:.32}
-#chat .t{font-size:11px;line-height:1.55;letter-spacing:.08em;color:rgba(246,234,214,.42);animation:telIn .45s ease both}
-#chat .t.duque{color:rgba(246,234,214,.78)}
-#chat .t.aviso{color:var(--gold-hot)}
-#chat .t b{font-weight:400;font-size:8.5px;letter-spacing:.3em;text-transform:uppercase;color:rgba(201,144,47,.7);margin-right:8px}
-#chat .t.duque b{color:var(--gold-hot)}
+#chat .t.duque{color:rgba(234,243,255,.82)}
+#chat .t.aviso{color:var(--ice)}
+#chat .t b{font-weight:400;font-size:8.5px;letter-spacing:.3em;text-transform:uppercase;color:rgba(var(--acc),.7);margin-right:8px}
+#chat .t.duque b{color:var(--ice)}
+#response{margin:14px auto 0;width:min(520px,78vw);min-height:16px;font-size:11px;line-height:1.6;letter-spacing:.12em;
+  color:rgba(255,170,180,.75);opacity:0;transition:opacity .35s ease}
+#response.show{opacity:1}
 
 /* ---------- forja ---------- */
 #forge{position:absolute;right:44px;bottom:38px;width:262px;text-align:right;opacity:0;transition:opacity .5s ease}
 #forge.on{opacity:1}
-#forge .label{letter-spacing:.42em}
-#fGoal{margin-top:9px;font-size:12.5px;font-weight:200;letter-spacing:.08em;color:var(--warm-white);
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+#fGoal{margin-top:9px;font-size:12.5px;font-weight:200;letter-spacing:.08em;color:var(--white);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 #fStep{margin-top:5px;font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--txt-dim)}
-#fStep.ok{color:var(--gold-hot)}
+#fStep.ok{color:var(--ice)}
 
 /* ---------- memória ---------- */
-#memBtn{margin-top:18px;display:block;align-self:flex-start;text-align:left;width:auto}
-#memPanel{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
-  background:rgba(0,0,0,.72);backdrop-filter:blur(3px);z-index:20}
+#memPanel{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,3,12,.72);backdrop-filter:blur(3px);z-index:20}
 #memPanel.on{display:flex}
-#memCard{width:min(520px,88vw);max-height:76vh;overflow:auto;border:1px solid rgba(201,144,47,.22);
-  background:rgba(8,6,3,.92);padding:26px 28px;animation:telIn .4s ease both}
-#memCard h3{margin:0 0 4px;font-weight:200;font-size:13px;letter-spacing:.42em;text-transform:uppercase;color:var(--gold-hot)}
+#memCard{position:relative;width:min(520px,88vw);max-height:76vh;overflow:auto;border:1px solid rgba(var(--acc),.24);background:rgba(4,10,28,.94);padding:26px 28px;animation:telIn .4s ease both}
+#memCard h3{margin:0 0 4px;font-weight:200;font-size:13px;letter-spacing:.42em;text-transform:uppercase;color:var(--ice)}
 #memCard .sub{font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--txt-dim);margin-bottom:18px}
 #memCard section{margin-top:18px}
 #memCard ul{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:7px}
-#memCard li{display:flex;justify-content:space-between;gap:14px;font-size:12px;letter-spacing:.06em;color:rgba(246,234,214,.82);line-height:1.5}
+#memCard li{display:flex;justify-content:space-between;gap:14px;font-size:12px;letter-spacing:.06em;color:rgba(234,243,255,.84);line-height:1.5}
 #memCard li .x{flex:none}
-#memCard .empty{font-size:11px;color:rgba(246,234,214,.3);letter-spacing:.1em}
-#memNew{margin-top:12px;width:100%;background:none;border:0;border-bottom:1px solid rgba(201,144,47,.22);
-  color:var(--warm-white);font-family:inherit;font-size:12px;letter-spacing:.1em;padding:7px 2px}
-#memNew:focus{outline:none;border-color:rgba(232,168,56,.6)}
+#memCard .empty{font-size:11px;color:rgba(214,230,255,.32);letter-spacing:.1em}
+#memNew{margin-top:12px;width:100%;background:none;border:0;border-bottom:1px solid rgba(var(--acc),.24);color:var(--white);font-family:inherit;font-size:12px;letter-spacing:.1em;padding:7px 2px}
+#memNew:focus{outline:none;border-color:rgba(var(--acc),.7)}
 #memClose{position:absolute;top:22px;right:28px}
 #memVoices li{align-items:center}
-#memVoices li.on span:first-child{color:var(--gold-hot)}
-#memVoices .desc{display:block;font-size:10px;letter-spacing:.06em;color:rgba(246,234,214,.42);margin-top:2px}
+#memVoices li.on span:first-child{color:var(--ice)}
+#memVoices .desc{display:block;font-size:10px;letter-spacing:.06em;color:rgba(214,230,255,.42);margin-top:2px}
 #memVoices .acts{display:flex;gap:14px;flex:none}
 
 @media (max-width:820px){
   #telemetry{display:none}
-  #spotify{width:calc(100% - 80px);bottom:150px}
-  #voice{bottom:24px}
-  #activity{display:none}
   #forge{display:none}
+  #spotify{display:none}
+  .tl{top:24px;left:24px}
   #chat{left:24px;right:24px;width:auto;bottom:calc(30% + 64px);max-height:16vh;text-align:left}
-  .tl,.tr{top:24px}
-  .tl{left:24px}.tr{right:24px}
-  #spotify{left:24px}
+  #voice{bottom:24px}
+  .tr{top:24px;right:24px}
   #stateBlock{bottom:30%}
+  .dock{width:84px}
 }
 @media (prefers-reduced-motion:reduce){
-  .corner,#spotify,#voice{animation-duration:.01ms}
+  .corner,#voice,#spotify{animation-duration:.01ms}
   #stateBar i{animation:none;transform:translateX(100%)}
 }
 </style>
 </head>
-<body>
+<body data-state="standby">
 <canvas id="scene"></canvas>
 <div class="vignette"></div>
 
 <div id="hud">
   <!-- topo esquerda -->
-  <div class="corner tl group">
-    <div class="stack">
-      <div class="label">System</div>
-      <div class="tick"><span class="dot" id="sysDot"></span><span class="value sm" id="sysState">Online</span></div>
-    </div>
-    <div class="rule"></div>
-    <div class="stack">
-      <div class="label">Neural core</div>
-      <div class="value sm gold" id="coreState">Active</div>
-    </div>
-    <div class="stack">
-      <div class="label">Nodes · links</div>
-      <div class="value sm" id="nodeCount">0000 · 000</div>
-    </div>
-    <div class="stack">
-      <div class="label">Coherence</div>
-      <div class="value sm" id="coherence">0.000</div>
-    </div>
-    <button id="memBtn" class="ghost z" title="Memória (tecla N)">Memória</button>
+  <div class="corner tl z">
+    <div class="brand">DUQUE</div>
+    <div class="label" id="sysState" style="margin-top:6px">Online</div>
+    <button id="memBtn" class="ghost" title="Memória (tecla N)">Memória</button>
   </div>
 
   <!-- topo direita -->
@@ -254,11 +211,15 @@ body{
     </div>
     <div class="rule"></div>
     <div class="stack">
-      <div class="label" id="city">Localizando</div>
-      <div class="value gold" id="temp">--°</div>
+      <div class="label" id="city">Piracicaba</div>
+      <div class="value hot" id="temp">--°</div>
       <div class="label" id="sky" style="letter-spacing:.24em">—</div>
     </div>
   </div>
+
+  <!-- dock de aplicativos -->
+  <nav id="dock" class="dock" aria-label="Aplicativos"></nav>
+  <span id="dlabel"></span>
 
   <!-- estado central -->
   <div id="stateBlock">
@@ -270,116 +231,105 @@ body{
   <!-- telemetria contextual -->
   <div id="telemetry"></div>
 
-  <!-- atividade recente -->
-  <div id="activity"></div>
-
-  <!-- spotify -->
+  <!-- spotify (real, via Windows) -->
   <div id="spotify" class="z">
     <div class="head">
-      <span class="label">Spotify</span>
-      <span class="label" id="sStatus" style="letter-spacing:.24em">Pausado</span>
+      <span class="label" style="letter-spacing:.42em">Spotify</span>
+      <span class="label" id="sStatus" style="letter-spacing:.24em">—</span>
     </div>
     <div id="sTrack">Nenhuma faixa</div>
     <div id="sArtist">—</div>
     <div id="sBarWrap"><div id="sBar"></div></div>
-    <div id="sMeta"><span id="sCur">0:00</span><span id="sDur">0:00</span></div>
     <div id="sCtl">
       <button id="sPrev" title="Faixa anterior" aria-label="Faixa anterior">
-        <svg width="13" height="11" viewBox="0 0 13 11" fill="none"><path d="M12 1 4 5.5 12 10V1Z" stroke="currentColor" stroke-width="1"/><path d="M1 1v9" stroke="currentColor" stroke-width="1"/></svg>
+        <svg width="14" height="12" viewBox="0 0 14 12" fill="none"><path d="M1 1v10M13 1L4 6l9 5V1Z" stroke="currentColor" stroke-width="1"/></svg>
       </button>
-      <button id="sPlay" title="Tocar" aria-label="Tocar" style="color:var(--gold-hot)">
+      <button id="sPlay" title="Tocar" aria-label="Tocar" style="color:var(--ice)">
         <svg width="12" height="13" viewBox="0 0 12 13" fill="none" id="sIcon"><path d="M1 1l10 5.5L1 12V1Z" stroke="currentColor" stroke-width="1"/></svg>
       </button>
       <button id="sNext" title="Próxima faixa" aria-label="Próxima faixa">
-        <svg width="13" height="11" viewBox="0 0 13 11" fill="none"><path d="M1 1l8 4.5L1 10V1Z" stroke="currentColor" stroke-width="1"/><path d="M12 1v9" stroke="currentColor" stroke-width="1"/></svg>
+        <svg width="14" height="12" viewBox="0 0 14 12" fill="none"><path d="M13 1v10M1 1l9 5-9 5V1Z" stroke="currentColor" stroke-width="1"/></svg>
       </button>
     </div>
-    <a id="sOpen" class="ghost" href="spotify:" rel="noopener">Abrir Spotify</a>
   </div>
 
-  <!-- rodapé central -->
+  <!-- forja -->
   <div id="forge" class="z" aria-live="polite">
-    <div class="label">Forja</div>
+    <div class="label" style="letter-spacing:.42em">Forja</div>
     <div id="fGoal"></div>
     <div id="fStep"></div>
   </div>
 
+  <!-- conversa -->
   <div id="chat" aria-live="polite"></div>
 
+  <!-- memória -->
   <div id="memPanel" class="z" role="dialog" aria-modal="true" aria-label="Memória do Duque">
-    <button id="memClose" class="ghost">Fechar</button>
     <div id="memCard">
+      <button id="memClose" class="ghost">Fechar</button>
       <h3>Memória</h3>
       <div class="sub">O que o Duque sabe e está acompanhando</div>
-      <section>
-        <div class="label">Voz do Duque</div>
-        <ul id="memVoices"></ul>
-      </section>
+      <section><div class="label">Voz do Duque</div><ul id="memVoices"></ul></section>
       <section>
         <div class="label">Anotações</div>
         <ul id="memNotes"></ul>
         <input id="memNew" autocomplete="off" placeholder="Nova anotação + Enter">
       </section>
-      <section>
-        <div class="label">Agenda</div>
-        <ul id="memAgenda"></ul>
-      </section>
-      <section>
-        <div class="label">Timers ativos</div>
-        <ul id="memTimers"></ul>
-      </section>
-      <section>
-        <div class="label">Rotinas</div>
-        <ul id="memRoutines"></ul>
-      </section>
-      <section>
-        <div class="label">Contatos</div>
-        <ul id="memContacts"></ul>
-      </section>
+      <section><div class="label">Agenda</div><ul id="memAgenda"></ul></section>
+      <section><div class="label">Timers ativos</div><ul id="memTimers"></ul></section>
+      <section><div class="label">Rotinas</div><ul id="memRoutines"></ul></section>
+      <section><div class="label">Contatos</div><ul id="memContacts"></ul></section>
     </div>
   </div>
 
+  <!-- rodapé central -->
   <div id="voice" class="z">
     <div id="voiceLine">
       <span class="dot idle" id="micDot"></span>
       <span class="label" style="letter-spacing:.42em">Canal de voz</span>
-      <span class="value sm" id="micState" style="font-size:12px">Inativo</span>
+      <span class="value sm" id="micState" style="font-size:12px">Em espera</span>
     </div>
-    <input id="cmd" autocomplete="off" spellcheck="false" placeholder="Digite ou diga Hey Jarvis">
+    <div id="cmdWrap"><input id="cmd" autocomplete="off" spellcheck="false" placeholder="Digite ou diga Hey Jarvis"></div>
     <div id="response" aria-live="polite"></div>
-    <div id="keys">Enter envia · a resposta é falada · Hey Jarvis continua por voz</div>
+    <div id="keys">Enter envia · a resposta é falada · "Duque, stop" interrompe · N memória</div>
   </div>
 </div>
 
 <script>
 /* =========================================================
-   DUQUE — HUD NEURAL
-   Estado global observável. Tudo aqui pode ser alimentado por
-   WebSocket / backend Python sem recarregar a página:
+   DUQUE — HUD NEURAL (azul)
+   Estado global observável. Tudo pode ser alimentado pelo backend:
      DUQUE.setState({ state:'processing', currentTask:'...' })
+     DUQUE.handle({ state, command, action, level, app, appAction })
      DUQUE.telemetry([{k:'label', v:'valor'}], ms)
-     DUQUE.activity('WEB SEARCH')
-     DUQUE.audioLevel(0..1)        // se preferir enviar nível externo
+     DUQUE.audioLevel(0..1)
+     DUQUE.addApp({id,name,svg|icon,url}) · removeApp(id) · appAction(id,texto)
+   Estados: standby | listening | processing | speaking | executing | error | completed
+   (aliases aceitos: thinking→processing, done→completed, idle→standby)
+   Conexão opcional:  window.DUQUE_CONFIG = { wsUrl:'ws://localhost:8000/ws', apiUrl:'http://localhost:8000' }
    ========================================================= */
+const CFG = Object.assign({ wsUrl:'', apiUrl:'' }, window.DUQUE_CONFIG);
+const ALIAS = { thinking:'processing', done:'completed', complete:'completed', idle:'standby', speak:'speaking',
+  // estados do servidor do Duque (/api/estado)
+  ouvindo:'listening', processando:'processing', executando:'executing', falando:'speaking', dormindo:'standby', erro:'error' };
 const DUQUE = (() => {
-  const state = {
-    state:'standby',           // standby | listening | processing | speaking | executing
-    date:'', time:'', temperature:null, city:'', sky:'',
-    currentTask:'',
-    spotify:{ playing:false, track:'Nenhuma faixa', artist:'—', progress:0, duration:0 }
-  };
+  const state = { state:'standby', date:'', time:'', temperature:null, city:'Piracicaba', sky:'', currentTask:'', command:'', action:'' };
   const subs = [];
   return {
     get:()=>state,
     on:f=>subs.push(f),
     setState(patch){
-      if(patch.spotify) Object.assign(state.spotify, patch.spotify), delete patch.spotify;
+      if(patch.state) patch.state = ALIAS[patch.state] || patch.state;
       Object.assign(state, patch);
       subs.forEach(f=>f(state));
     },
     telemetry:(items,ms)=>window.__tel(items,ms),
-    activity:t=>window.__act(t),
-    audioLevel:v=>window.__ext(v)
+    activity:()=>{},
+    audioLevel:v=>window.__ext(v),
+    handle:m=>window.__handle(m),
+    addApp:a=>window.__addApp(a),
+    removeApp:id=>window.__rmApp(id),
+    appAction:(id,t)=>window.__appAct(id,t)
   };
 })();
 window.DUQUE = DUQUE;
@@ -388,6 +338,11 @@ window.DUQUE = DUQUE;
 const cv = document.getElementById('scene');
 const ctx = cv.getContext('2d', { alpha:false });
 let W=0,H=0,DPR=1,CX=0,CY=0,R=1;
+const TAU = Math.PI*2;
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const lerp=(a,b,t)=>a+(b-a)*t;
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const $=id=>document.getElementById(id);
 
 function layout(){
   DPR = Math.min(2, window.devicePixelRatio||1);
@@ -395,552 +350,870 @@ function layout(){
   cv.width = Math.floor(W*DPR); cv.height = Math.floor(H*DPR);
   cv.style.width = W+'px'; cv.style.height = H+'px';
   ctx.setTransform(DPR,0,0,DPR,0,0);
-  // composição assimétrica: núcleo fora do centro geométrico
-  CX = W<820 ? W*0.5 : W*0.415;
-  CY = W<820 ? H*0.40 : H*0.50;
-  R  = Math.min(W,H) * (W<820 ? 0.30 : 0.255);
+  const mob = W<820;
+  CX = mob ? W*0.5 : W*0.47;
+  CY = mob ? H*0.38 : H*0.45;
+  R  = Math.min(W,H) * (mob ? 0.30 : 0.31);
+  $('stateBlock').style.left = CX+'px';
+  $('voice').style.left = CX+'px';
 }
-addEventListener('resize', ()=>{ layout(); buildStars(); });
+addEventListener('resize', ()=>{ layout(); buildStars(); buildDust(); });
 layout();
 
-const rnd=(a,b)=>a+Math.random()*(b-a);
-const lerp=(a,b,t)=>a+(b-a)*t;
-const clamp=(v,a,b)=>v<a?a:v>b?b:v;
-
-/* ---------------- núcleo: conjunção de estrelas ----------------
-   Distribuição irregular: aglomerados em torno de atratores +
-   casca deformada por harmônicos + satélites distantes.        */
-const PARTS = [];
-const LINKS = [];
-let NP = 0;
-
-function shellDeform(x,y,z){
-  return 1
-    + 0.20*Math.sin(2.7*x + 1.1)*Math.cos(2.1*y - .4)
-    + 0.13*Math.sin(3.6*z + 2.2)
-    - 0.09*Math.cos(4.3*y*x + .8);
+/* ---------------- paleta azul ---------------- */
+const PAL=[[34,84,238],[58,138,255],[84,208,255],[146,108,255],[226,243,255]];
+function palCol(h){
+  const x=clamp(h,0,.999)*(PAL.length-1), i=x|0, f=x-i, a=PAL[i], b=PAL[i+1];
+  return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f];
 }
+function makeGlow(rgb){
+  const c=document.createElement('canvas'); c.width=c.height=64; const x=c.getContext('2d');
+  const g=x.createRadialGradient(32,32,0,32,32,32);
+  g.addColorStop(0,`rgba(${rgb},1)`); g.addColorStop(.25,`rgba(${rgb},.45)`); g.addColorStop(1,`rgba(${rgb},0)`);
+  x.fillStyle=g; x.fillRect(0,0,64,64); return c;
+}
+const GL_BLUE=makeGlow('90,170,255'), GL_ICE=makeGlow('205,236,255'), GL_RED=makeGlow('255,100,112');
+
+/* ---------------- cérebro: superfície ----------------
+   Elipsoide com fissura longitudinal, lobos, cerebelo, tronco e giros. */
+function surf(nx,ny,nz){
+  const sx=.78, sy=.74, sz=1.0;
+  let r=1/Math.sqrt((nx/sx)*(nx/sx)+(ny/sy)*(ny/sy)+(nz/sz)*(nz/sz));
+  const top=Math.max(0,ny);
+  r*=1-.24*Math.exp(-(nx*nx)/.010)*(.25+.75*top);                                                        // fissura longitudinal
+  if(ny<0) r*=1+ny*.22;                                                                                  // base mais achatada
+  r*=1+.34*Math.exp(-(Math.pow(Math.abs(nx)-.55,2)/.07+Math.pow(ny+.45,2)/.035+Math.pow(nz-.32,2)/.06)); // lobo temporal
+  r*=1-.10*Math.exp(-(Math.pow(ny+.18,2)/.010+Math.pow(nz-.30,2)/.04))*Math.min(1,Math.abs(nx)*2.2);   // sulco lateral
+  r*=1+.46*Math.exp(-(nx*nx/.14+Math.pow(ny+.60,2)/.03+Math.pow(nz+.60,2)/.04));                         // cerebelo
+  r*=1+.60*Math.exp(-(nx*nx/.025+Math.pow(ny+.92,2)/.012+Math.pow(nz+.06,2)/.02));                       // tronco
+  const f=Math.sin(11*nx+3*nz)*Math.sin(9*ny-5*nz+1.3)+.6*Math.sin(15*nz+7*nx*ny);                       // giros
+  return r*(1+.04*f);
+}
+function randDir(){ const u=rnd(-1,1), th=rnd(0,TAU), s=Math.sqrt(1-u*u); return [s*Math.cos(th),u,s*Math.sin(th)]; }
+function norm(v){ const l=Math.hypot(v[0],v[1],v[2])||1; return [v[0]/l,v[1]/l,v[2]/l]; }
+
+/* ---------------- núcleo: partículas + rede neural ---------------- */
+const PARTS=[], MESH=[], HUBS=[], LONG=[];
+let NP=0, SX,SY,SZ,SK;
 
 function buildCore(){
-  PARTS.length = 0; LINKS.length = 0;
-  const area = innerWidth*innerHeight;
-  NP = Math.round(clamp(area/1150, 620, 1500));
+  PARTS.length=0; MESH.length=0; HUBS.length=0; LONG.length=0;
+  const area=innerWidth*innerHeight;
+  NP=Math.round(clamp(area/560,1100,2600));
+  SX=new Float32Array(NP); SY=new Float32Array(NP); SZ=new Float32Array(NP); SK=new Float32Array(NP);
 
-  const attractors = [];
-  for(let i=0;i<16;i++){
-    const u=rnd(-1,1), th=rnd(0,Math.PI*2), s=Math.sqrt(1-u*u);
-    attractors.push({x:s*Math.cos(th), y:u, z:s*Math.sin(th), w:rnd(.5,1)});
-  }
-
+  const attr=[]; for(let i=0;i<18;i++) attr.push({d:randDir(),w:rnd(.5,1)});
   for(let i=0;i<NP;i++){
-    let x,y,z;
-    const mode = Math.random();
-    if(mode < .62){                       // aglomerados
-      const a = attractors[(Math.random()*attractors.length)|0];
-      const sp = rnd(.05,.34);
-      x = a.x + rnd(-sp,sp); y = a.y + rnd(-sp,sp); z = a.z + rnd(-sp,sp);
-    } else if(mode < .93){                // casca irregular
-      const u=rnd(-1,1), th=rnd(0,Math.PI*2), s=Math.sqrt(1-u*u);
-      x=s*Math.cos(th); y=u; z=s*Math.sin(th);
-    } else {                              // satélites afastados
-      const u=rnd(-1,1), th=rnd(0,Math.PI*2), s=Math.sqrt(1-u*u);
-      const k=rnd(1.25,1.85);
-      x=s*Math.cos(th)*k; y=u*k; z=s*Math.sin(th)*k;
-    }
-    const len = Math.hypot(x,y,z)||1;
-    const nx=x/len, ny=y/len, nz=z/len;
-    const rr = len * shellDeform(nx,ny,nz) * rnd(.86,1.04);
-    const far = rr > 1.2;
-
+    const m=Math.random(); let d, k;
+    if(m<.5){ const a=attr[(Math.random()*attr.length)|0], sp=.30; d=norm([a.d[0]+rnd(-sp,sp),a.d[1]+rnd(-sp,sp),a.d[2]+rnd(-sp,sp)]); k=rnd(.9,1.03); }
+    else if(m<.88){ d=randDir(); k=rnd(.9,1.03); }
+    else { d=randDir(); k=rnd(.4,.85); }
+    const rr=surf(d[0],d[1],d[2])*k;
+    // regiões de cor suaves (como um mapa de atividade) + variação individual
+    const reg=.5+.5*Math.sin(d[0]*2.3+d[1]*1.7+d[2]*2.9);
+    let h=.02+.78*reg+rnd(-.1,.1); const c=Math.random();
+    if(c<.07) h=rnd(.72,.86); else if(c<.12) h=rnd(.92,1);
     PARTS.push({
-      x:nx*rr*R, y:ny*rr*R, z:nz*rr*R,
-      ox:nx*rr*R, oy:ny*rr*R, oz:nz*rr*R,
-      dx:0, dy:0, dz:0,
-      ph: rnd(0,Math.PI*2),
-      sp: rnd(.25,1.1),
-      s: far ? rnd(.5,.9) : rnd(.55,1.75),
-      b: far ? rnd(.16,.38) : rnd(.3,1),
-      far
+      ux:d[0]*rr, uy:-d[1]*rr, uz:d[2]*rr, dx:0,dy:0,dz:0,
+      ph:rnd(0,TAU), sp:rnd(.25,1.1),
+      s: rnd(.8,2.0), b: rnd(.4,1), col:palCol(h), er:Math.random()<.3,
+      hub:false, flash:0, fd:0, links:[]
     });
   }
+  // hubs: neurônios principais, na superfície
+  const cand=[]; for(let i=0;i<NP;i++){ const p=PARTS[i], r=Math.hypot(p.ux,p.uy,p.uz); if(r>.8) cand.push(i); }
+  for(let i=cand.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [cand[i],cand[j]]=[cand[j],cand[i]]; }
+  const hubIdx=[];
+  for(const c of cand){
+    if(hubIdx.length>=46) break;
+    const p=PARTS[c]; let ok=true;
+    for(const o of hubIdx){ const q=PARTS[o]; if(Math.hypot(p.ux-q.ux,p.uy-q.uy,p.uz-q.uz)<.3){ ok=false; break; } }
+    if(ok) hubIdx.push(c);
+  }
+  hubIdx.forEach(i=>{ const p=PARTS[i]; p.hub=true; p.s=rnd(2.2,3.1); p.b=1; p.col=palCol(rnd(.35,.55)); HUBS.push(i); });
 
-  // conexões finas entre vizinhos próximos (limitadas)
-  const maxD = R*0.24, cap = 260;
-  for(let i=0;i<PARTS.length && LINKS.length<cap;i+=2){
-    for(let j=i+1;j<PARTS.length;j+=7){
-      const a=PARTS[i], b=PARTS[j];
-      const d=Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z);
-      if(d<maxD && d>R*0.07){ LINKS.push({a:i,b:j,t:Math.random(),v:rnd(.15,.5)}); break; }
+  // fibras longas entre hubs
+  const seen=new Set(); const addLong=(a,b)=>{
+    const key=a<b?a+'_'+b:b+'_'+a; if(seen.has(key)||a===b) return; seen.add(key);
+    const A=PARTS[a], B=PARTS[b], mx=(A.ux+B.ux)/2, my=(A.uy+B.uy)/2, mz=(A.uz+B.uz)/2;
+    const len=Math.hypot(A.ux-B.ux,A.uy-B.uy,A.uz-B.uz), o=norm([mx,my,mz]), off=.12+len*.22;
+    const L={a,b,cx:mx+o[0]*off,cy:my+o[1]*off,cz:mz+o[2]*off,v:rnd(.6,1),px:[0,0,0,0,0,0],dep:.5};
+    PARTS[a].links.push(LONG.length); PARTS[b].links.push(LONG.length); LONG.push(L);
+  };
+  for(const a of HUBS){
+    const A=PARTS[a], ds=HUBS.filter(b=>b!==a).map(b=>[b,Math.hypot(A.ux-PARTS[b].ux,A.uy-PARTS[b].uy,A.uz-PARTS[b].uz)]).sort((x,y)=>x[1]-y[1]);
+    addLong(a,ds[0][0]); addLong(a,ds[1][0]); addLong(a,ds[Math.min(ds.length-1,2+((Math.random()*4)|0))][0]);
+    if(Math.random()<.5) addLong(a,ds[(Math.random()*ds.length)|0][0]);
+  }
+  // malha curta (vizinhos próximos) via grade espacial
+  const cell=.2, grid=new Map(), key=(x,y,z)=>x+','+y+','+z;
+  for(let i=0;i<NP;i++){ const p=PARTS[i], k=key(Math.floor(p.ux/cell),Math.floor(p.uy/cell),Math.floor(p.uz/cell)); (grid.get(k)||grid.set(k,[]).get(k)).push(i); }
+  const cap=620;
+  for(let i=0;i<NP && MESH.length<cap;i++){
+    if(Math.random()<.45) continue;
+    const p=PARTS[i], cx=Math.floor(p.ux/cell), cy=Math.floor(p.uy/cell), cz=Math.floor(p.uz/cell); let best=-1, bd=1e9;
+    for(let x=-1;x<=1;x++) for(let y=-1;y<=1;y++) for(let z=-1;z<=1;z++){
+      const arr=grid.get(key(cx+x,cy+y,cz+z)); if(!arr) continue;
+      for(const j of arr){ if(j===i) continue; const q=PARTS[j], d=Math.hypot(p.ux-q.ux,p.uy-q.uy,p.uz-q.uz);
+        if(d>.05 && d<.2 && d<bd && Math.random()<.5){ bd=d; best=j; } }
     }
+    if(best>=0) MESH.push({a:i,b:best,v:rnd(.3,.9),t:Math.random()});
   }
 }
 buildCore();
 
-/* ---------------- órbitas e geometria ---------------- */
+/* contornos do córtex: anéis de latitude e meridianos sobre a superfície do cérebro */
+const CONT=[];
+(function(){
+  const N=72;
+  const loop=f=>{ const pts=[]; for(let i=0;i<=N;i++){ const d=f(i/N*TAU), r=surf(d[0],d[1],d[2]); pts.push([d[0]*r,-d[1]*r,d[2]*r]); } CONT.push({pts,ph:CONT.length*.55}); };
+  for(const c of [-.2,.42]) loop(th=>{ const q=Math.sqrt(1-c*c), w=.08*Math.sin(4*th+c*9); return [q*Math.cos(th+w),c+.05*Math.sin(5*th),q*Math.sin(th+w)]; });
+  for(let j=0;j<16;j++){ const al=j/16*Math.PI, f=3+(j%4), ph=j*1.7; // meridianos ondulados = giros do córtex
+    loop(th=>{ const a=al+.16*Math.sin(f*th+ph); return [Math.sin(th)*Math.cos(a),Math.cos(th),Math.sin(th)*Math.sin(a)]; }); }
+})();
+
+/* ---------------- poeira estelar em volta do centro ---------------- */
+const DUST=[];
+function buildDust(){
+  DUST.length=0;
+  const n=Math.round(clamp(innerWidth*innerHeight/4800,200,480));
+  for(let i=0;i<n;i++){
+    const r=rnd(1.18,2.8)*(Math.random()<.2?1.25:1), th=rnd(0,TAU);
+    DUST.push({r, th, y:rnd(-.8,.8)*r*.5, sp:rnd(.008,.045)*(Math.random()<.5?-1:1), ph:rnd(0,TAU), tw:rnd(.6,2.2),
+      b:rnd(.25,1), s:rnd(.5,1.5), flare:Math.random()<.11, col:palCol(rnd(.1,.55)+(Math.random()<.2?.4:0))});
+  }
+}
+buildDust();
+
+/* ---------------- órbitas ---------------- */
 const ORBITS=[];
 function buildOrbits(){
   ORBITS.length=0;
   const defs=[
-    {r:1.24,e:.62,a0:-0.4,a1:2.5,seg:1,w:.9,m:3},
-    {r:1.42,e:.88,a0:1.9,a1:4.3,seg:1,w:.7,m:2},
-    {r:1.02,e:.45,a0:2.6,a1:6.0,seg:1,w:.8,m:2},
-    {r:1.66,e:.74,a0:.2,a1:1.7,seg:1,w:.6,m:1},
-    {r:1.9,e:.55,a0:3.4,a1:5.2,seg:1,w:.5,m:2},
-    {r:1.15,e:.95,a0:4.6,a1:6.2,seg:1,w:.6,m:1},
-    {r:2.15,e:.68,a0:1.2,a1:2.2,seg:1,w:.45,m:1}
+    {r:1.24,e:.62,a0:-0.4,a1:2.5,w:.9,m:3},{r:1.42,e:.88,a0:1.9,a1:4.3,w:.7,m:2},{r:1.02,e:.45,a0:2.6,a1:6.0,w:.8,m:2},
+    {r:1.66,e:.74,a0:.2,a1:1.7,w:.6,m:1},{r:1.9,e:.55,a0:3.4,a1:5.2,w:.5,m:2},{r:1.15,e:.95,a0:4.6,a1:6.2,w:.6,m:1},{r:2.15,e:.68,a0:1.2,a1:2.2,w:.45,m:1}
   ];
-  defs.forEach((d,i)=>{
-    ORBITS.push({
-      rad:R*d.r, ecc:d.e, a0:d.a0, a1:d.a1, w:d.w, markers:d.m,
-      tiltX:rnd(-1.1,1.1), tiltZ:rnd(-1.2,1.2),
-      spin:rnd(.02,.09)*(Math.random()<.5?-1:1),
-      phase:rnd(0,6.28), dash: i%3===0
-    });
-  });
+  defs.forEach((d,i)=>ORBITS.push({
+    rad:d.r, ecc:d.e, a0:d.a0, a1:d.a1, w:d.w, markers:d.m,
+    tiltX:rnd(-1.1,1.1), tiltZ:rnd(-1.2,1.2), spin:rnd(.02,.09)*(Math.random()<.5?-1:1), phase:rnd(0,6.28), dash:i%3===0
+  }));
 }
 buildOrbits();
 
 /* ---------------- estrelas de fundo ---------------- */
 let STARS=[];
 function buildStars(){
-  STARS=[];
-  const n = Math.round(clamp(innerWidth*innerHeight/14000, 60, 170));
-  for(let i=0;i<n;i++) STARS.push({x:Math.random(),y:Math.random(),s:rnd(.4,1.1),b:rnd(.05,.3),ph:rnd(0,6.3),d:rnd(.2,1)});
+  STARS=[]; const n=Math.round(clamp(innerWidth*innerHeight/9000,90,260));
+  for(let i=0;i<n;i++) STARS.push({x:Math.random(),y:Math.random(),s:rnd(.4,1.3),b:rnd(.1,.5),ph:rnd(0,6.3),d:rnd(.2,1),big:Math.random()<.05});
 }
 buildStars();
 
-/* ---------------- ondas de energia ---------------- */
-const WAVES=[];
+/* ---------------- efeitos dinâmicos ---------------- */
+const WAVES=[], SIG=[], TRACES=[], FLOWS=[], SPARKS=[], TRAIL=[];
 function spawnWave(strength=1){ WAVES.push({r:R*0.15, life:1, str:strength, tilt:rnd(-1,1)}); }
 
-/* ---------------- pulsos de dados nas órbitas ---------------- */
-const PULSES=[];
-function spawnPulse(){ PULSES.push({o:(Math.random()*ORBITS.length)|0, t:0, sp:rnd(.25,.6)}); }
-
 /* ---------------- estado visual ---------------- */
-const ENERGY={ standby:.10, listening:.42, processing:.95, speaking:.62, executing:.75 };
-let energy=.1, energyTarget=.1;
-let audio=0, audioTarget=0, extAudio=null;
-let rotY=0, rotX=-0.18, mouseX=0, mouseY=0, pMx=0, pMy=0;
-let boot = 0;
+const ENERGY={ standby:.10, listening:.42, processing:.95, speaking:.62, executing:.78, error:.6, completed:.7 };
+let energy=.1, energyTarget=.1, audio=0, audioTarget=0, extAudio=null, extT=0;
+let swing=0, rotX=-0.18, mouseX=0, mouseY=0, pMx=0, pMy=0, boot=0, kick=0, errk=0, Q=1, traceT=0;
+let mpx=-1e4, mpy=-1e4, mspeed=0;
+const nowS=()=>performance.now()/1000;
 
-addEventListener('pointermove', e=>{ mouseX=(e.clientX/W-.5); mouseY=(e.clientY/H-.5); }, {passive:true});
+addEventListener('pointermove', e=>{
+  mouseX=(e.clientX/W-.5); mouseY=(e.clientY/H-.5);
+  if(mpx>-1e3) mspeed=Math.min(40,mspeed+Math.hypot(e.clientX-mpx,e.clientY-mpy)*.12);
+  mpx=e.clientX; mpy=e.clientY;
+  if(Math.hypot(mpx-(CX+pMx),mpy-(CY+pMy))<R*1.3 && mspeed>3){ TRAIL.push({x:mpx,y:mpy,t:nowS()}); if(TRAIL.length>34) TRAIL.shift(); }
+},{passive:true});
+document.addEventListener('pointerleave',()=>{ mpx=mpy=-1e4; });
 
 function rotate(p, ry, rx){
   const c=Math.cos(ry), s=Math.sin(ry);
   const x=p.x*c - p.z*s, z0=p.x*s + p.z*c;
   const c2=Math.cos(rx), s2=Math.sin(rx);
-  const y=p.y*c2 - z0*s2, z=p.y*s2 + z0*c2;
-  return {x,y,z};
+  return {x, y:p.y*c2 - z0*s2, z:p.y*s2 + z0*c2};
 }
 const FOC=1250;
 function project(p){ const k=FOC/(FOC-p.z); return {x:CX+p.x*k+pMx, y:CY+p.y*k+pMy, k}; }
 
 /* ---------------- render ---------------- */
-let last=performance.now(), frame=0, coherence=0;
+let last=performance.now(), frame=0, ema=.016;
 
 function draw(now){
-  const dt = Math.min(.05, (now-last)/1000); last=now; frame++;
-  const t = now/1000;
-  boot = Math.min(1, boot + dt*0.55);
+  const dt=Math.min(.05,(now-last)/1000)||.016; last=now; frame++;
+  const t=now/1000, st=DUQUE.get().state;
+  boot=Math.min(1,boot+dt*0.55); ema+=(dt-ema)*.05;
+  if(frame%60===0) Q = ema>.024 ? Math.max(.45,Q*.88) : (ema<.0165 && Q<1 ? Math.min(1,Q*1.06) : Q);
 
-  // energia e áudio suavizados
-  energyTarget = ENERGY[DUQUE.get().state] ?? .1;
-  energy = lerp(energy, energyTarget, 1-Math.pow(.004, dt));
-  if(extAudio!==null) audioTarget = extAudio;
-  audio = lerp(audio, audioTarget, 1-Math.pow(.0008, dt));
+  energyTarget=ENERGY[st]??.1;
+  energy=lerp(energy,energyTarget,1-Math.pow(.004,dt));
+  if(extAudio!==null){ if(now-extT>500) extAudio=null; else audioTarget=extAudio; }
+  audio=lerp(audio,audioTarget,1-Math.pow(.0008,dt));
+  kick*=Math.exp(-dt*1.3); mspeed*=Math.exp(-dt*3);
+  errk=lerp(errk, st==='error'?1:0, 1-Math.pow(.02,dt));
 
-  // parallax do mouse
-  pMx = lerp(pMx, mouseX*-26, 1-Math.pow(.02,dt));
-  pMy = lerp(pMy, mouseY*-18, 1-Math.pow(.02,dt));
-  rotY += dt*(0.045 + energy*0.16) ;
-  rotX = lerp(rotX, -0.18 + mouseY*0.22, 1-Math.pow(.05,dt));
-  const ry = rotY + mouseX*0.30;
-
-  // fundo
-  ctx.globalCompositeOperation='source-over';
-  ctx.fillStyle='#020303';
-  ctx.fillRect(0,0,W,H);
+  pMx=lerp(pMx,mouseX*-26,1-Math.pow(.02,dt));
+  pMy=lerp(pMy,mouseY*-18,1-Math.pow(.02,dt));
+  swing+=dt*(0.11+energy*0.22);
+  rotX=lerp(rotX,-0.08+mouseY*0.2,1-Math.pow(.05,dt));
+  const ry=Math.PI/2+Math.sin(swing)*.6+mouseX*.3;   // balança em torno da vista lateral: o cérebro permanece legível
 
   drawBackdrop(t);
-
   ctx.globalCompositeOperation='lighter';
   drawBloom(t);
-  drawOrbits(t, ry, rotX, -1);   // metade de trás
-  drawCore(t, dt, ry, rotX);
-  drawOrbits(t, ry, rotX, 1);    // metade da frente
-  drawWaves(dt, ry, rotX);
+  drawOrbits(t,ry,rotX,-1);
+  drawDust(t,dt,ry,rotX);
+  drawCore(t,dt,ry,rotX);
+  drawOrbits(t,ry,rotX,1);
+  drawTraces(t,ry,rotX);
+  drawWaves(dt,ry,rotX,st);
+  drawTrail(t);
+  drawFx(t,dt);
   ctx.globalCompositeOperation='source-over';
   drawScanlines(t);
-
-  updateHudFast();
+  updateDock(dt);
   requestAnimationFrame(draw);
 }
 
 function drawBackdrop(t){
-  // estrelas distantes
+  ctx.globalCompositeOperation='source-over';
+  const bg=ctx.createRadialGradient(CX,CY,0,CX,CY,Math.max(W,H)*.78);
+  bg.addColorStop(0,'#0b1d46'); bg.addColorStop(.45,'#061230'); bg.addColorStop(1,'#02050f');
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+  // brumas azuis difusas, fixas, só para dar profundidade
+  let g=ctx.createRadialGradient(W*.82,H*.16,0,W*.82,H*.16,W*.42);
+  g.addColorStop(0,'rgba(40,80,200,.13)'); g.addColorStop(1,'rgba(40,80,200,0)'); ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  g=ctx.createRadialGradient(W*.12,H*.88,0,W*.12,H*.88,W*.38);
+  g.addColorStop(0,'rgba(60,70,190,.10)'); g.addColorStop(1,'rgba(60,70,190,0)'); ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
   for(const s of STARS){
-    const tw = .6 + .4*Math.sin(t*s.d + s.ph);
-    ctx.fillStyle = `rgba(226,196,150,${(s.b*tw*boot).toFixed(3)})`;
-    ctx.fillRect(s.x*W + pMx*s.d*.4, s.y*H + pMy*s.d*.4, s.s, s.s);
-  }
-  // pequenas linhas técnicas
-  ctx.strokeStyle='rgba(201,144,47,.05)'; ctx.lineWidth=1;
-  ctx.beginPath();
-  ctx.moveTo(0, H*0.5+.5); ctx.lineTo(W*0.06, H*0.5+.5);
-  ctx.moveTo(W, H*0.5+.5); ctx.lineTo(W*0.94, H*0.5+.5);
-  ctx.moveTo(CX+pMx, 0); ctx.lineTo(CX+pMx, H*0.05);
-  ctx.moveTo(CX+pMx, H); ctx.lineTo(CX+pMx, H*0.95);
-  ctx.stroke();
-  // ruído digital sutil
-  if(frame%2===0){
-    ctx.fillStyle='rgba(255,220,170,.012)';
-    for(let i=0;i<26;i++) ctx.fillRect(Math.random()*W, Math.random()*H, Math.random()*30+4, 1);
+    const tw=.6+.4*Math.sin(t*s.d+s.ph), x=s.x*W+pMx*s.d*.4, y=s.y*H+pMy*s.d*.4;
+    ctx.fillStyle=`rgba(190,218,255,${(s.b*tw*boot).toFixed(3)})`;
+    ctx.fillRect(x,y,s.s,s.s);
+    if(s.big){ ctx.fillStyle=`rgba(190,218,255,${(s.b*tw*.35*boot).toFixed(3)})`; ctx.fillRect(x-5,y+s.s/2-.3,11,.6); ctx.fillRect(x+s.s/2-.3,y-5,.6,11); }
   }
 }
 
 function drawBloom(t){
-  const breathe = 1 + Math.sin(t*(0.5+energy))*0.05;
-  const g1 = ctx.createRadialGradient(CX+pMx,CY+pMy,0,CX+pMx,CY+pMy,R*2.1*breathe);
-  const a = (0.05 + energy*0.10 + audio*0.10) * boot;
-  g1.addColorStop(0,`rgba(255,196,110,${a})`);
-  g1.addColorStop(.35,`rgba(190,120,35,${a*0.34})`);
-  g1.addColorStop(1,'rgba(0,0,0,0)');
-  ctx.fillStyle=g1; ctx.fillRect(CX+pMx-R*2.2, CY+pMy-R*2.2, R*4.4, R*4.4);
+  const breathe=1+Math.sin(t*(0.5+energy))*0.05, cx=CX+pMx, cy=CY+pMy;
+  const a=(0.08+energy*0.14+audio*0.12+kick*.1)*boot;
+  let g=ctx.createRadialGradient(cx,cy,0,cx,cy,R*2.3*breathe);
+  g.addColorStop(0,`rgba(140,198,255,${a})`); g.addColorStop(.3,`rgba(50,112,240,${a*0.5})`); g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g; ctx.fillRect(cx-R*2.4,cy-R*2.4,R*4.8,R*4.8);
+  g=ctx.createRadialGradient(cx+R*.5,cy-R*.35,0,cx+R*.5,cy-R*.35,R*1.5);
+  g.addColorStop(0,`rgba(118,96,245,${a*.36})`); g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g; ctx.fillRect(cx-R,cy-R*1.9,R*3,R*3);
+  if(energy>.5){
+    g=ctx.createRadialGradient(cx,cy,0,cx,cy,R*.95);
+    g.addColorStop(0,`rgba(120,230,255,${(energy-.5)*.2})`); g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=g; ctx.fillRect(cx-R,cy-R,R*2,R*2);
+  }
+  if(errk>.02){
+    g=ctx.createRadialGradient(cx,cy,0,cx,cy,R*1.3);
+    g.addColorStop(0,`rgba(255,80,100,${errk*.07})`); g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=g; ctx.fillRect(cx-R*1.4,cy-R*1.4,R*2.8,R*2.8);
+  }
 }
 
-function drawCore(t, dt, ry, rx){
-  const pulse = 1 + Math.sin(t*1.4)*0.012 + audio*0.075 + energy*0.02;
-  const excite = energy;
-  const proj = [];
+/* ---------- poeira estelar ---------- */
+function drawDust(t,dt,ry,rx){
+  const n=Math.floor(DUST.length*Q), MR=R*.7, MR2=MR*MR;
+  for(let i=0;i<n;i++){
+    const d=DUST[i]; d.th+=d.sp*dt*(.5+energy*1.5);
+    const q=rotate({x:Math.cos(d.th)*d.r*R,y:d.y*R,z:Math.sin(d.th)*d.r*R},ry*.45,rx*.6), s=project(q);
+    let x=s.x, y=s.y;
+    if(mpx>-1e3){ const ax=mpx-x, ay=mpy-y, d2=ax*ax+ay*ay; if(d2<MR2){ const dd=Math.sqrt(d2), f=(1-dd/MR); x+=ax*f*f*.1; y+=ay*f*f*.1; } }
+    const depth=clamp((q.z/R+2.8)/5.6,.15,1), tw=.55+.45*Math.sin(t*d.tw+d.ph);
+    const a=Math.min(1,d.b*tw*depth*(.8+energy*.3)*boot*1.25), c=d.col, sz=Math.max(.8,d.s*s.k*depth*1.45);
+    if(a<.02) continue;
+    ctx.fillStyle=`rgba(${(lerp(c[0],235,.45))|0},${(lerp(c[1],245,.45))|0},255,${a.toFixed(3)})`;
+    ctx.fillRect(x-sz/2,y-sz/2,sz,sz);
+    if(d.flare && tw>.78){
+      const L=(6+d.b*9)*depth; ctx.fillStyle=`rgba(190,226,255,${(a*.45).toFixed(3)})`;
+      ctx.fillRect(x-L,y-.3,L*2,.6); ctx.fillRect(x-.3,y-L,.6,L*2);
+      ctx.globalAlpha=a*.5; ctx.drawImage(GL_ICE,x-9,y-9,18,18); ctx.globalAlpha=1;
+    }
+  }
+}
 
+/* ---------- núcleo: partículas, malha, fibras, sinapses ---------- */
+function drawCore(t,dt,ry,rx){
+  const kdt=1-Math.pow(.02,dt), st=DUQUE.get().state;
+  const pulse=1+Math.sin(t*1.4)*0.012+audio*0.09+energy*0.02+kick*0.12;
+  const deform=(st==='speaking'||st==='listening')?audio*.055:0;
+  const amp=R*(0.010+energy*0.04+audio*0.05)*(1+errk*2.4);
+  const MR=R*.6, MR2=MR*MR, mOn=mpx>-1e3;
+
+  // posições projetadas
   for(let i=0;i<PARTS.length;i++){
     const p=PARTS[i];
-    // deriva orgânica — reorganização sutil e constante
-    const w = t*p.sp*(0.35 + excite*1.5) + p.ph;
-    const amp = R*(0.012 + excite*0.05 + audio*0.05);
-    p.dx = lerp(p.dx, Math.sin(w)*amp, 1-Math.pow(.02,dt));
-    p.dy = lerp(p.dy, Math.cos(w*0.83+1.2)*amp, 1-Math.pow(.02,dt));
-    p.dz = lerp(p.dz, Math.sin(w*1.17-.6)*amp, 1-Math.pow(.02,dt));
-
-    const q = rotate({x:(p.ox+p.dx)*pulse, y:(p.oy+p.dy)*pulse, z:(p.oz+p.dz)*pulse}, ry, rx);
-    p.px=q.x; p.py=q.y; p.pz=q.z;
-    const s = project(q);
-    proj.push({i, x:s.x, y:s.y, k:s.k, z:q.z, p});
+    const w=t*p.sp*(0.35+energy*1.5)+p.ph;
+    p.dx=lerp(p.dx,Math.sin(w)*amp,kdt); p.dy=lerp(p.dy,Math.cos(w*0.83+1.2)*amp,kdt); p.dz=lerp(p.dz,Math.sin(w*1.17-.6)*amp,kdt);
+    const sc=pulse+deform*Math.sin(p.ux*4+t*7);
+    const q=rotate({x:p.ux*R*sc+p.dx,y:p.uy*R*sc+p.dy,z:p.uz*R*sc+p.dz},ry,rx), s=project(q);
+    let x=s.x, y=s.y;
+    if(mOn){ // o cursor atua como uma pequena massa gravitacional
+      const ax=mpx-x, ay=mpy-y, d2=ax*ax+ay*ay;
+      if(d2<MR2){ const dd=Math.sqrt(d2), f=(1-dd/MR)*(1-dd/MR), k=dd<MR*.28?-.28:.16; x+=ax*f*k; y+=ay*f*k; }
+    }
+    SX[i]=x; SY[i]=y; SZ[i]=q.z; SK[i]=s.k;
   }
-  proj.sort((a,b)=>a.z-b.z);
 
-  // conexões
-  const linkA = clamp((energy-.08)*0.85 + audio*.3, 0, .55) * boot;
-  if(linkA > 0.02){
-    ctx.lineWidth = .6;
-    for(const L of LINKS){
-      const a=PARTS[L.a], b=PARTS[L.b];
-      if(a.px===undefined) continue;
-      const pa=project({x:a.px,y:a.py,z:a.pz}), pb=project({x:b.px,y:b.py,z:b.pz});
-      const depth = clamp((((a.pz+b.pz)/2)/R+1.3)/2.4, .12, 1);
-      ctx.strokeStyle = `rgba(214,152,64,${(linkA*L.v*depth).toFixed(3)})`;
-      ctx.beginPath(); ctx.moveTo(pa.x,pa.y); ctx.lineTo(pb.x,pb.y); ctx.stroke();
+  // ---- contornos do córtex (varredura de luz percorre as fatias quando há processamento)
+  const cA=(.08+energy*.16+audio*.1)*boot;
+  ctx.lineWidth=.7;
+  for(let j=0;j<CONT.length;j++){
+    const C=CONT[j], pts=C.pts, scan=1+energy*1.1*Math.max(0,Math.sin(t*2.2-C.ph*2));
+    let prev=null;
+    for(let i=0;i<pts.length;i++){
+      const u=pts[i], sc=pulse+deform*Math.sin(u[0]*4+t*7);
+      const q=rotate({x:u[0]*R*sc,y:u[1]*R*sc,z:u[2]*R*sc},ry,rx), s=project(q);
+      let x=s.x, y=s.y;
+      if(mOn){ const ax=mpx-x, ay=mpy-y, d2=ax*ax+ay*ay; if(d2<MR2){ const dd=Math.sqrt(d2), f=(1-dd/MR)*(1-dd/MR); x+=ax*f*(dd<MR*.28?-.28:.16); y+=ay*f*(dd<MR*.28?-.28:.16); } }
+      if(prev){
+        const depth=clamp((q.z/R+1.2)/2.4,.08,1), a=cA*scan*depth*depth*(.4+.6*depth);
+        if(a>.012){ ctx.strokeStyle=errk>.3?`rgba(255,120,135,${a.toFixed(3)})`:`rgba(${(96+depth*50)|0},${(170+depth*40)|0},255,${Math.min(.7,a).toFixed(3)})`; ctx.beginPath(); ctx.moveTo(prev[0],prev[1]); ctx.lineTo(x,y); ctx.stroke(); }
+      }
+      prev=[x,y];
+    }
+  }
 
-      // pequeno pulso luminoso viajando pela conexão
-      if(energy>.5){
-        L.t += dt*(.25+energy*.5);
-        if(L.t>1) L.t-=1;
-        const px=lerp(pa.x,pb.x,L.t), py=lerp(pa.y,pb.y,L.t);
-        ctx.fillStyle=`rgba(255,222,160,${(linkA*depth*.9).toFixed(3)})`;
-        ctx.fillRect(px-.9,py-.9,1.8,1.8);
+  // ---- malha curta
+  const linkA=clamp(.16+(energy-.05)*0.8+audio*.3,0,.6)*boot;
+  if(linkA>.02){
+    const nM=Math.floor(MESH.length*Q), B=[[],[],[],[]];
+    for(let i=0;i<nM;i++){
+      const L=MESH[i], depth=clamp((((SZ[L.a]+SZ[L.b])/2)/R+1.3)/2.4,.12,1), a=linkA*L.v*depth, b=Math.min(3,(a*7)|0);
+      B[b].push(i,depth);
+    }
+    ctx.lineWidth=.6;
+    for(let b=0;b<4;b++){
+      if(!B[b].length) continue;
+      ctx.strokeStyle=errk>.3?`rgba(${lerp(70,255,errk*.5)|0},${lerp(150,110,errk*.5)|0},${lerp(240,130,errk*.5)|0},${((b+.5)/7).toFixed(3)})`:`rgba(76,150,250,${((b+.5)/7).toFixed(3)})`;
+      ctx.beginPath();
+      for(let k=0;k<B[b].length;k+=2){ const L=MESH[B[b][k]]; ctx.moveTo(SX[L.a],SY[L.a]); ctx.lineTo(SX[L.b],SY[L.b]); }
+      ctx.stroke();
+    }
+    if(energy>.5){
+      for(let i=0;i<nM;i+=2){
+        const L=MESH[i]; L.t+=dt*(.25+energy*.5); if(L.t>1) L.t-=1;
+        const depth=clamp((((SZ[L.a]+SZ[L.b])/2)/R+1.3)/2.4,.12,1);
+        ctx.fillStyle=`rgba(190,230,255,${(linkA*depth*.9).toFixed(3)})`;
+        ctx.fillRect(lerp(SX[L.a],SX[L.b],L.t)-.9,lerp(SY[L.a],SY[L.b],L.t)-.9,1.8,1.8);
       }
     }
   }
 
-  // partículas
-  for(const o of proj){
-    const p=o.p;
-    const depth = clamp((o.z/R+1.35)/2.5, 0, 1);
-    const twinkle = .78 + .22*Math.sin(t*(1.1+p.sp*1.6)+p.ph);
-    let a = p.b * (0.22 + depth*0.9) * twinkle * boot;
-    a *= (0.62 + energy*0.5 + audio*0.45);
-    if(a<=.004) continue;
-    const size = Math.max(.7, p.s*o.k*(0.85 + depth*0.5) * (1+audio*.35));
-    // cor quente varia com profundidade
-    const r=255, g=Math.round(lerp(150,214,depth)), b=Math.round(lerp(52,142,depth));
-    ctx.fillStyle=`rgba(${r},${g},${b},${a.toFixed(3)})`;
-    ctx.fillRect(o.x-size/2, o.y-size/2, size, size);
-    // halo apenas nas partículas mais brilhantes e próximas
-    if(depth>.72 && p.b>.75 && a>.35){
-      ctx.fillStyle=`rgba(255,200,120,${(a*0.16).toFixed(3)})`;
-      const hs=size*3.4;
-      ctx.fillRect(o.x-hs/2,o.y-hs/2,hs,hs);
+  // ---- fibras longas entre hubs (arcos)
+  const arcA=(.16+energy*.34+audio*.2)*boot;
+  ctx.lineWidth=.8;
+  for(const L of LONG){
+    const cq=rotate({x:L.cx*R*pulse,y:L.cy*R*pulse,z:L.cz*R*pulse},ry,rx), cp=project(cq);
+    L.px[0]=SX[L.a]; L.px[1]=SY[L.a]; L.px[2]=cp.x; L.px[3]=cp.y; L.px[4]=SX[L.b]; L.px[5]=SY[L.b];
+    L.dep=clamp((((SZ[L.a]+SZ[L.b])/2)/R+1.3)/2.4,.1,1);
+    const a=arcA*L.v*L.dep;
+    if(a<.015) continue;
+    ctx.strokeStyle=errk>.3&&(L.a&1)?`rgba(255,110,125,${a.toFixed(3)})`:`rgba(96,176,255,${a.toFixed(3)})`;
+    ctx.beginPath(); ctx.moveTo(L.px[0],L.px[1]); ctx.quadraticCurveTo(L.px[2],L.px[3],L.px[4],L.px[5]); ctx.stroke();
+  }
+
+  // ---- sinapses viajando e disparando hubs em cascata
+  const rate=energy*energy*7+.14+audio*3;
+  if(Math.random()<rate*dt*Q && SIG.length<110 && LONG.length){ SIG.push({L:(Math.random()*LONG.length)|0,dir:Math.random()<.5?1:-1,u:0,sp:rnd(.5,.9)}); }
+  for(let i=SIG.length-1;i>=0;i--){
+    const s=SIG[i]; s.u+=dt*s.sp*(1+energy*1.2);
+    const L=LONG[s.L], P=L.px, u=s.dir>0?s.u:1-s.u;
+    if(s.u>=1){
+      const h=PARTS[s.dir>0?L.b:L.a]; h.flash=1;
+      if(Math.random()<.32+energy*.5){
+        const n=1+(Math.random()<energy?1:0);
+        for(let k=0;k<n;k++){ const li=h.links[(Math.random()*h.links.length)|0]; if(li===undefined||li===s.L) continue; SIG.push({L:li,dir:LONG[li].a===(s.dir>0?L.b:L.a)?1:-1,u:0,sp:rnd(.5,.9)}); }
+      }
+      SIG.splice(i,1); continue;
+    }
+    for(let k=0;k<4;k++){
+      const uu=clamp(u-(s.dir>0?1:-1)*k*.025,0,1), v=1-uu;
+      const x=v*v*P[0]+2*v*uu*P[2]+uu*uu*P[4], y=v*v*P[1]+2*v*uu*P[3]+uu*uu*P[5];
+      const a=(1-k/4)*(.5+.5*L.dep)*Math.sin(Math.PI*s.u)*.95;
+      ctx.fillStyle=errk>.3?`rgba(255,150,160,${a.toFixed(3)})`:`rgba(205,236,255,${a.toFixed(3)})`;
+      const z=(k===0?2.6:1.8)*(.7+L.dep*.5); ctx.fillRect(x-z/2,y-z/2,z,z);
     }
   }
-  coherence = 0.72 + energy*0.24 + Math.sin(t*.4)*0.02;
+
+  // ---- partículas
+  const n=Math.floor(PARTS.length*Q), exc=.95+energy*.4+audio*.45;
+  for(let i=0;i<n;i++){
+    const p=PARTS[i]; if(p.hub) continue;
+    const depth=clamp((SZ[i]/R+1.35)/2.5,0,1), tw=.78+.22*Math.sin(t*(1.1+p.sp*1.6)+p.ph);
+    const a=p.b*(0.22+depth*0.9)*tw*boot*exc; if(a<=.004) continue;
+    const size=Math.max(.7,p.s*SK[i]*(0.85+depth*0.5)*(1+audio*.35)), c=p.col, wt=depth*.22;
+    let r=lerp(c[0],236,wt), g=lerp(c[1],245,wt), b=lerp(c[2],255,wt);
+    if(errk>.2 && p.er){ r=lerp(r,255,errk*.7); g=lerp(g,90,errk*.7); b=lerp(b,105,errk*.7); }
+    ctx.fillStyle=`rgba(${r|0},${g|0},${b|0},${a.toFixed(3)})`;
+    ctx.fillRect(SX[i]-size/2,SY[i]-size/2,size,size);
+    if(depth>.72 && p.b>.75 && a>.32){ const hs=size*7; ctx.globalAlpha=Math.min(1,a*.45); ctx.drawImage(GL_BLUE,SX[i]-hs/2,SY[i]-hs/2,hs,hs); ctx.globalAlpha=1; }
+  }
+
+  // ---- hubs (neurônios principais)
+  for(const hi of HUBS){
+    const p=PARTS[hi], depth=clamp((SZ[hi]/R+1.35)/2.5,.1,1);
+    if(p.fd>0){ p.fd-=dt; if(p.fd<=0) p.flash=1; }
+    p.flash*=Math.exp(-dt*2.2);
+    const base=(.2+.1*Math.sin(t*.9+p.ph)+energy*.2)*depth*boot, a=Math.min(1,base+p.flash*.9);
+    const gs=(15+p.flash*38)*SK[hi]*(.7+depth*.4), spr=(errk>.3&&(hi%3===0))?GL_RED:(p.flash>.3?GL_ICE:GL_BLUE);
+    ctx.globalAlpha=a; ctx.drawImage(spr,SX[hi]-gs/2,SY[hi]-gs/2,gs,gs); ctx.globalAlpha=1;
+    const z=(2.2+p.flash*2)*SK[hi]*(.7+depth*.4);
+    ctx.fillStyle=`rgba(225,244,255,${Math.min(1,.45+depth*.5+p.flash*.4).toFixed(3)})`; ctx.fillRect(SX[hi]-z/2,SY[hi]-z/2,z,z);
+  }
 }
 
-function orbitPoint(o, ang, ry, rx){
-  const x=Math.cos(ang)*o.rad, y=Math.sin(ang)*o.rad*o.ecc;
-  // inclinações próprias da órbita
-  const cz=Math.cos(o.tiltZ), sz=Math.sin(o.tiltZ);
-  const x1=x*cz - y*sz, y1=x*sz + y*cz;
+function orbitPoint(o,ang,ry,rx,k=R){
+  const x=Math.cos(ang)*o.rad*k, y=Math.sin(ang)*o.rad*o.ecc*k;
+  const cz=Math.cos(o.tiltZ), sz=Math.sin(o.tiltZ), x1=x*cz-y*sz, y1=x*sz+y*cz;
   const cx=Math.cos(o.tiltX), sx=Math.sin(o.tiltX);
-  const y2=y1*cx, z2=y1*sx;
-  return rotate({x:x1,y:y2,z:z2}, ry, rx);
+  return rotate({x:x1,y:y1*cx,z:y1*sx},ry,rx);
 }
 
-function drawOrbits(t, ry, rx, side){
+function drawOrbits(t,ry,rx,side){
   for(const o of ORBITS){
-    const a0=o.a0 + o.phase + t*o.spin*(1+energy*2.2);
-    const a1=o.a1 + o.phase + t*o.spin*(1+energy*2.2);
-    const steps=54;
-    ctx.lineWidth=o.w*0.9;
-    let started=false;
-    ctx.beginPath();
+    const a0=o.a0+o.phase+t*o.spin*(1+energy*2.2), a1=o.a1+o.phase+t*o.spin*(1+energy*2.2), steps=54;
+    ctx.lineWidth=o.w*0.9; let started=false; ctx.beginPath();
     for(let i=0;i<=steps;i++){
       const f=i/steps;
-      if(o.dash && (Math.sin(f*34)>.55)){ started=false; continue; }
-      const ang=lerp(a0,a1,f);
-      const q=orbitPoint(o,ang,ry,rx);
+      if(o.dash&&(Math.sin(f*34)>.55)){ started=false; continue; }
+      const q=orbitPoint(o,lerp(a0,a1,f),ry,rx);
       if(Math.sign(q.z||1)!==side){ started=false; continue; }
-      const s=project(q);
-      if(!started){ ctx.moveTo(s.x,s.y); started=true; } else ctx.lineTo(s.x,s.y);
+      const s=project(q); if(!started){ ctx.moveTo(s.x,s.y); started=true; } else ctx.lineTo(s.x,s.y);
     }
-    const base = side===1 ? .30 : .13;
-    ctx.strokeStyle=`rgba(201,144,47,${(base*(0.45+energy*0.7)*boot).toFixed(3)})`;
-    ctx.stroke();
-
-    // marcadores luminosos sobre a trajetória
+    const base=side===1?.32:.14;
+    ctx.strokeStyle=`rgba(96,170,255,${(base*(0.45+energy*0.7)*boot).toFixed(3)})`; ctx.stroke();
     for(let m=0;m<o.markers;m++){
-      const f=(m+1)/(o.markers+1);
-      const ang=lerp(a0,a1,(f + t*0.03*o.spin*8)%1);
-      const q=orbitPoint(o,ang,ry,rx);
+      const f=(m+1)/(o.markers+1), q=orbitPoint(o,lerp(a0,a1,(f+t*0.03*o.spin*8)%1),ry,rx);
       if(Math.sign(q.z||1)!==side) continue;
-      const s=project(q);
-      const a=(side===1?.85:.3)*(0.4+energy*.7)*boot;
-      ctx.fillStyle=`rgba(255,206,132,${a.toFixed(3)})`;
-      ctx.fillRect(s.x-1.4,s.y-1.4,2.8,2.8);
-      if(side===1){
-        ctx.strokeStyle=`rgba(232,168,56,${(a*.3).toFixed(3)})`;
-        ctx.lineWidth=.6; ctx.beginPath(); ctx.arc(s.x,s.y,5.5,0,6.283); ctx.stroke();
-      }
-    }
-  }
-
-  // dados percorrendo as órbitas quando há processamento
-  if(side===1){
-    if(energy>.55 && Math.random()<energy*0.09) spawnPulse();
-    for(let i=PULSES.length-1;i>=0;i--){
-      const pu=PULSES[i]; pu.t += 0.012*pu.sp*(1+energy);
-      if(pu.t>1){ PULSES.splice(i,1); continue; }
-      const o=ORBITS[pu.o];
-      const ang=lerp(o.a0+o.phase, o.a1+o.phase, pu.t) + t*o.spin;
-      const q=orbitPoint(o,ang,ry,rx);
-      const s=project(q);
-      const a=Math.sin(pu.t*Math.PI)*0.9;
-      ctx.fillStyle=`rgba(255,228,175,${a.toFixed(3)})`;
-      ctx.fillRect(s.x-1.5,s.y-1.5,3,3);
+      const s=project(q), a=(side===1?.85:.3)*(0.4+energy*.7)*boot;
+      ctx.fillStyle=`rgba(190,230,255,${a.toFixed(3)})`; ctx.fillRect(s.x-1.4,s.y-1.4,2.8,2.8);
+      if(side===1){ ctx.strokeStyle=`rgba(90,168,255,${(a*.3).toFixed(3)})`; ctx.lineWidth=.6; ctx.beginPath(); ctx.arc(s.x,s.y,5.5,0,TAU); ctx.stroke(); }
     }
   }
 }
 
-function drawWaves(dt, ry, rx){
-  if((DUQUE.get().state==='processing' && Math.random()<.02) ||
-     (DUQUE.get().state==='speaking' && audio>.35 && Math.random()<.05)) spawnWave(audio+.4);
+/* memória visual: rastros das ações recentes orbitando o núcleo */
+function drawTraces(t,ry,rx){
+  for(let i=TRACES.length-1;i>=0;i--){
+    const tr=TRACES[i], age=(t-tr.born)/tr.ttl; if(age>1){ TRACES.splice(i,1); continue; }
+    const env=age<.1?age/.1:Math.pow(1-(age-.1)/.9,1.5), head=tr.phase+t*tr.w;
+    for(let k=0;k<46;k++){
+      const q=orbitPoint(tr,head-k*.05,ry,rx), s=project(q), a=env*(1-k/46)*.9, z=(2.6-k*.04);
+      ctx.fillStyle=`rgba(170,226,255,${a.toFixed(3)})`; ctx.fillRect(s.x-z/2,s.y-z/2,z,z);
+    }
+  }
+}
+
+function drawWaves(dt,ry,rx,st){
+  if((st==='processing'&&Math.random()<.02)||(st==='speaking'&&audio>.35&&Math.random()<.05)||(st==='error'&&Math.random()<.03)) spawnWave(audio+.4);
   for(let i=WAVES.length-1;i>=0;i--){
-    const w=WAVES[i];
-    w.r += dt*R*1.05; w.life -= dt*0.55;
+    const w=WAVES[i]; w.r+=dt*R*1.05; w.life-=dt*0.55;
     if(w.life<=0){ WAVES.splice(i,1); continue; }
-    const a=w.life*w.life*0.30*w.str;
-    ctx.strokeStyle=`rgba(255,196,110,${a.toFixed(3)})`;
-    ctx.lineWidth=.9;
-    ctx.beginPath();
+    const a=w.life*w.life*0.32*w.str;
+    ctx.strokeStyle=errk>.3?`rgba(255,110,125,${a.toFixed(3)})`:`rgba(120,190,255,${a.toFixed(3)})`; ctx.lineWidth=.9; ctx.beginPath();
     for(let k=0;k<=46;k++){
-      const ang=k/46*6.283;
-      const q=rotate({x:Math.cos(ang)*w.r, y:Math.sin(ang)*w.r*0.42, z:Math.sin(ang*1.3)*w.r*0.18*w.tilt}, ry, rx);
-      const s=project(q);
-      k? ctx.lineTo(s.x,s.y) : ctx.moveTo(s.x,s.y);
+      const ang=k/46*TAU, q=rotate({x:Math.cos(ang)*w.r,y:Math.sin(ang)*w.r*0.42,z:Math.sin(ang*1.3)*w.r*0.18*w.tilt},ry,rx), s=project(q);
+      k?ctx.lineTo(s.x,s.y):ctx.moveTo(s.x,s.y);
     }
     ctx.stroke();
+  }
+}
+
+function drawTrail(t){
+  if(!TRAIL.length) return;
+  ctx.lineWidth=1;
+  for(let i=TRAIL.length-1;i>0;i--){
+    const a=1-(t-TRAIL[i].t)/1.8; if(a<=0){ TRAIL.splice(0,i); break; }
+    ctx.strokeStyle=`rgba(170,226,255,${(a*.32).toFixed(3)})`; ctx.beginPath(); ctx.moveTo(TRAIL[i-1].x,TRAIL[i-1].y); ctx.lineTo(TRAIL[i].x,TRAIL[i].y); ctx.stroke();
   }
 }
 
 function drawScanlines(t){
-  const y=(t*38)%H;
-  const g=ctx.createLinearGradient(0,y-60,0,y+60);
-  g.addColorStop(0,'rgba(232,168,56,0)');
-  g.addColorStop(.5,'rgba(232,168,56,.018)');
-  g.addColorStop(1,'rgba(232,168,56,0)');
+  const y=(t*38)%H, g=ctx.createLinearGradient(0,y-60,0,y+60);
+  g.addColorStop(0,'rgba(90,168,255,0)'); g.addColorStop(.5,'rgba(90,168,255,.016)'); g.addColorStop(1,'rgba(90,168,255,0)');
   ctx.fillStyle=g; ctx.fillRect(0,y-60,W,120);
+}
+
+/* ---------- fluxos de energia (comando → núcleo → app) e campo de força do dock ---------- */
+const bez=(f,u)=>{ const v=1-u; return [v*v*f.x0+2*v*u*f.cx+u*u*f.x1, v*v*f.y0+2*v*u*f.cy+u*u*f.y1]; };
+const corePt=()=>({x:CX+pMx,y:CY+pMy});
+function flow(from,to,ms,cb){
+  const a=from==='core'?corePt():from, b=to==='core'?corePt():to;
+  FLOWS.push({x0:a.x,y0:a.y,x1:b.x,y1:b.y,cx:(a.x+b.x)/2+(Math.random()-.5)*160,cy:(a.y+b.y)/2+(Math.random()-.5)*160,t:0,dur:(ms||800)/1000,core:to==='core',cb});
+}
+let NODES=[];
+function drawFx(t,dt){
+  for(let i=FLOWS.length-1;i>=0;i--){
+    const f=FLOWS[i]; f.t+=dt/f.dur;
+    for(let k=0;k<13;k++){ const [x,y]=bez(f,clamp(f.t-k*.018,0,1)); ctx.fillStyle=`rgba(200,230,255,${((1-k/13)*.8).toFixed(3)})`; ctx.beginPath(); ctx.arc(x,y,2.6-k*.15,0,TAU); ctx.fill(); }
+    const [hx,hy]=bez(f,Math.min(1,f.t)); if(SPARKS.length<80) SPARKS.push({x:hx,y:hy,vx:(Math.random()-.5)*40,vy:(Math.random()-.5)*40,l:.6});
+    if(f.t>=1){ FLOWS.splice(i,1); if(f.core){ spawnWave(.7); kick=Math.max(kick,.18); for(let k=0;k<5;k++) SIG.push({L:(Math.random()*LONG.length)|0,dir:1,u:0,sp:rnd(.7,1)}); } f.cb&&f.cb(); }
+  }
+  for(let i=SPARKS.length-1;i>=0;i--){ const s=SPARKS[i]; s.l-=dt; if(s.l<=0){ SPARKS.splice(i,1); continue; } s.x+=s.vx*dt; s.y+=s.vy*dt; ctx.fillStyle=`rgba(200,230,255,${(s.l*.7).toFixed(3)})`; ctx.fillRect(s.x,s.y,1.2,1.2); }
+  const cp=corePt();
+  for(const nd of NODES){
+    const x=nd.x,y=nd.y,r=nd.r,hv=nd.hover;
+    if(hv>.02){
+      ctx.strokeStyle=`rgba(200,230,255,${(.25*hv).toFixed(3)})`; ctx.lineWidth=.8; ctx.beginPath();
+      for(let a=0;a<=TAU+.15;a+=.15){ const rr=r*1.3+Math.sin(a*5+t*2.5)*r*.05*hv; a?ctx.lineTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr):ctx.moveTo(x+rr,y); }
+      ctx.stroke(); ctx.fillStyle=`rgba(200,230,255,${(.6*hv).toFixed(3)})`;
+      for(let j=0;j<12;j++){ const a=j/12*TAU+t*(.6+(j%3)*.2), rr=r*(1.45+.2*Math.sin(t*1.5+j)); ctx.fillRect(x+Math.cos(a)*rr,y+Math.sin(a)*rr,1.4,1.4); }
+    }
+    if(nd.active){ ctx.fillStyle='rgba(200,230,255,.55)'; for(let j=0;j<5;j++){ const a=j/5*TAU-t*.9; ctx.fillRect(x+Math.cos(a)*r*1.2,y+Math.sin(a)*r*1.2,1.6,1.6); } }
+    if(nd.pulse>.02){ ctx.strokeStyle=`rgba(200,230,255,${(nd.pulse*.5).toFixed(3)})`; ctx.beginPath(); ctx.arc(x,y,r*(1.2+(1-nd.pulse)*.9),0,TAU); ctx.stroke(); }
+    const al=Math.max(hv*.7,nd.active?.45:0);
+    if(al>.2){
+      const f={x0:x+r,y0:y,x1:cp.x,y1:cp.y,cx:(x+cp.x)/2,cy:Math.min(y,cp.y)-R*.3};
+      for(let j=0;j<9;j++){ const u=(t*.3+j/9)%1, [px,py]=bez(f,u); ctx.fillStyle=`rgba(200,230,255,${(al*Math.sin(Math.PI*u)*.7).toFixed(3)})`; ctx.fillRect(px,py,1.5,1.5); }
+    }
+  }
 }
 requestAnimationFrame(draw);
 
+/* ---------------- dock de aplicativos ---------------- */
+const ICONS={
+  whatsapp:'<circle cx="12" cy="12" r="11" fill="#25D366"/><path d="M7 17.2l.8-2.7A5.4 5.4 0 1 1 9.9 16.5z" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><path d="M10 9.6c0 2.4 2 4.4 4.4 4.4" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>',
+  instagram:'<defs><linearGradient id="ig" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#fdc468"/><stop offset=".45" stop-color="#e1306c"/><stop offset="1" stop-color="#5b51d8"/></linearGradient></defs><rect x="1.5" y="1.5" width="21" height="21" rx="6" fill="url(#ig)"/><rect x="6" y="6" width="12" height="12" rx="3.6" fill="none" stroke="#fff" stroke-width="1.6"/><circle cx="12" cy="12" r="2.8" fill="none" stroke="#fff" stroke-width="1.6"/><circle cx="16.1" cy="7.9" r=".9" fill="#fff"/>',
+  spotify:'<circle cx="12" cy="12" r="11" fill="#1DB954"/><path d="M6 9.2c4-1.1 8.4-.7 12 1.2M6.7 12.4c3.4-.9 7-.5 10 1.1M7.4 15.4c2.7-.7 5.4-.4 7.9.9" fill="none" stroke="#06140b" stroke-width="1.7" stroke-linecap="round"/>',
+  youtube:'<rect x="1" y="4.5" width="22" height="15" rx="4.5" fill="#FF0000"/><path d="M10 8.8l5.2 3.2-5.2 3.2z" fill="#fff"/>',
+  chrome:'<circle cx="12" cy="12" r="11" fill="#EA4335"/><path d="M12 12L21.5 6.5A11 11 0 0 1 12 23z" fill="#FBBC05"/><path d="M12 12L12 23A11 11 0 0 1 2.5 6.5z" fill="#34A853"/><circle cx="12" cy="12" r="5" fill="#fff"/><circle cx="12" cy="12" r="3.7" fill="#4285F4"/>',
+  dot:'<circle cx="12" cy="12" r="10" fill="#27418a"/><circle cx="12" cy="12" r="3.5" fill="#cfe0ff"/>'
+};
+const APPS=[], BASE=50, MAXS=86, GAP=18, X0=38;
+let activeApp=null, dmouse={x:-999,y:-999};
+function addApp(a){ APPS.push(Object.assign({icon:'dot',last:'',s:BASE,v:0,pulse:0},a)); renderDock(); }
+function removeApp(id){ const i=APPS.findIndex(a=>a.id===id); if(i>=0){ APPS.splice(i,1); renderDock(); } }
+function setAppLast(id,text){ const a=APPS.find(x=>x.id===id); if(a) a.last=text; }
+function renderDock(){
+  $('dock').innerHTML='';
+  APPS.forEach(a=>{
+    const b=a.el=document.createElement('button');
+    b.className='app'+(a.id===activeApp?' active':''); b.setAttribute('aria-label',a.name);
+    b.innerHTML=`<svg viewBox="0 0 24 24">${a.svg||ICONS[a.icon]||ICONS.dot}</svg>`;
+    b.onclick=()=>selectApp(a.id);
+    b.onfocus=()=>{ dmouse={x:X0,y:a.cy||0}; }; b.onblur=()=>{ dmouse={x:-999,y:-999}; };
+    $('dock').appendChild(b);
+  });
+}
+function selectApp(id){
+  activeApp=activeApp===id?null:id;
+  const a=APPS.find(x=>x.id===id);
+  APPS.forEach(x=>x.el&&x.el.classList.toggle('active',x.id===activeApp));
+  if(activeApp){ flow({x:X0+a.s/2,y:a.cy},'core',900,()=>{ a.pulse=1; }); openApp(a); }
+  setTimeout(()=>{ if(activeApp===id){ activeApp=null; APPS.forEach(x=>x.el&&x.el.classList.remove('active')); } },2500);
+}
+function reactApp(id){ // núcleo → ícone
+  const a=APPS.find(x=>x.id===id); if(!a) return;
+  flow('core',{x:X0+a.s/2,y:a.cy},850,()=>{ a.pulse=1; });
+}
+function updateDock(dt){
+  const n=APPS.length, pitch=BASE+GAP, top0=innerHeight/2-(n*pitch-GAP)/2; let total=0;
+  APPS.forEach((a,i)=>{   // influência gaussiana → onda de escala com física de mola
+    const rest=top0+i*pitch+BASE/2, d=Math.abs(dmouse.y-rest), ex=Math.max(0,dmouse.x-X0)/150;
+    const target=BASE+(MAXS-BASE)*Math.exp(-((d/80)*(d/80)))*Math.exp(-ex*ex)+(a.id===activeApp?6:0);
+    a.v+=(target-a.s)*190*dt; a.v*=Math.exp(-dt*20); a.s+=a.v*dt; total+=a.s;
+  });
+  let y=innerHeight/2-(total+(n-1)*GAP)/2, best=null; const nodes=[];
+  APPS.forEach(a=>{
+    const s=a.s; a.cy=y+s/2; y+=s+GAP;
+    if(a.el){ const st=a.el.style; st.left=X0+'px'; st.top=a.cy-s/2+'px'; st.width=st.height=s+'px'; }
+    const hover=clamp((s-BASE-(a.id===activeApp?6:0))/(MAXS-BASE),0,1);
+    a.pulse*=Math.exp(-dt*1.6);
+    nodes.push({x:X0+s/2,y:a.cy,r:s/2,hover,active:a.id===activeApp,pulse:a.pulse});
+    if(hover>.55&&(!best||hover>best.h)) best={a,h:hover};
+  });
+  NODES=nodes;
+  const L=$('dlabel');
+  if(best){ L.innerHTML=best.a.name+(best.a.last?`<em>${best.a.last}</em>`:''); L.style.opacity=Math.min(1,(best.h-.5)*2.5); L.style.transform=`translate(${X0+best.a.s+16}px,${best.a.cy-14}px)`; }
+  else L.style.opacity=0;
+}
+addEventListener('pointermove',e=>{ dmouse={x:e.clientX,y:e.clientY}; });
+document.addEventListener('pointerleave',()=>{ dmouse={x:-999,y:-999}; });
+addApp({id:'whatsapp',name:'WhatsApp',icon:'whatsapp',url:'https://web.whatsapp.com'});
+addApp({id:'instagram',name:'Instagram',icon:'instagram',url:'https://www.instagram.com'});
+addApp({id:'spotify',name:'Spotify',icon:'spotify',url:'https://open.spotify.com'});
+addApp({id:'youtube',name:'YouTube',icon:'youtube',url:'https://www.youtube.com'});
+addApp({id:'chrome',name:'Chrome',icon:'chrome',url:'https://www.google.com'});
+async function openApp(a){
+  DUQUE.telemetry([{k:'Abrindo',v:esc(a.name)}],2600);
+  try{
+    const r=await fetch('/api/abrir',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({app:a.id})});
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.erro||'falhou');
+    setAppLast(a.id, d.web ? 'versão web' : 'aberto');
+  }catch(e){
+    if(a.url) window.open(a.url,'_blank','noopener');   // servidor fora do ar: abre aqui mesmo
+  }
+}
+window.__addApp=addApp; window.__rmApp=removeApp; window.__appAct=(id,t)=>{ setAppLast(id,t); reactApp(id); };
+
 /* ---------------- HUD ---------------- */
-const $=id=>document.getElementById(id);
-const MONTHS=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
-const STATE_LABEL={standby:'Standby',ouvindo:'Listening',processando:'Processing',falando:'Speaking',executando:'Executing',dormindo:'Sleeping',erro:'Error',listening:'Listening',processing:'Processing',speaking:'Speaking',executing:'Executing'};
+const MONTHS=['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
+const STATE_LABEL={standby:'Standby',listening:'Ouvindo',processing:'Pensando',speaking:'Falando',executing:'Executando',error:'Erro',completed:'Concluído'};
 
 function tickClock(){
-  const d=new Date();
-  const p=n=>String(n).padStart(2,'0');
-  const time=`${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-  const date=`${p(d.getDate())} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
-  $('clock').textContent=time;
-  $('date').textContent=date;
+  const d=new Date(), p=n=>String(n).padStart(2,'0');
+  const time=`${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`, date=`${p(d.getDate())} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  $('clock').textContent=time; $('date').textContent=date;
   DUQUE.get().time=time; DUQUE.get().date=date;
 }
 setInterval(tickClock,1000); tickClock();
-try{ $('tz').textContent = Intl.DateTimeFormat().resolvedOptions().timeZone.replace('_',' '); }catch(e){}
+try{ $('tz').textContent=Intl.DateTimeFormat().resolvedOptions().timeZone.replace('_',' '); }catch(e){}
 
-let hudAcc=0;
-function updateHudFast(){
-  if(frame%10) return;
-  $('nodeCount').textContent = `${String(NP).padStart(4,'0')} · ${String(LINKS.length).padStart(3,'0')}`;
-  $('coherence').textContent = coherence.toFixed(3);
-}
-
+let prevState='standby', stTimer=0;
 function renderState(){
   const s=DUQUE.get();
-  $('stateName').textContent = STATE_LABEL[s.state]||s.state;
-  $('stateTask').textContent = s.currentTask||'';
-  $('coreState').textContent = s.state==='standby' ? 'Idle' : 'Active';
-  $('sysDot').className = 'dot' + (s.state==='standby'?' idle':'');
-  $('sysState').textContent = s.state==='standby' ? 'Online' : 'Engaged';
+  $('stateName').textContent=STATE_LABEL[s.state]||s.state;
+  $('stateTask').textContent=s.currentTask||'';
+  document.body.dataset.state=s.state;
+  if(s.state===prevState) return;
+  prevState=s.state; clearTimeout(stTimer);
+  if(s.state==='completed'){            // onda de confirmação + disparo em cascata dos neurônios
+    kick=1; spawnWave(1.3); setTimeout(()=>spawnWave(.9),260);
+    HUBS.forEach(h=>{ PARTS[h].fd=rnd(0,.8); });
+    stTimer=setTimeout(()=>DUQUE.setState({state:'standby',currentTask:''}),2800);
+  }
+  if(s.state==='error'){ kick=.3; stTimer=setTimeout(()=>DUQUE.setState({state:'standby',currentTask:''}),3500); }
+  if(s.state==='listening') spawnWave(.5);
 }
 DUQUE.on(renderState); renderState();
+setInterval(()=>{ // rastros de ações enquanto executa
+  if(DUQUE.get().state==='executing' && TRACES.length<4)
+    TRACES.push({rad:rnd(.7,1.5),ecc:rnd(.5,.95),tiltX:rnd(-1.1,1.1),tiltZ:rnd(-1.2,1.2),w:rnd(.3,.6)*(Math.random()<.5?-1:1),phase:rnd(0,TAU),born:nowS(),ttl:9});
+},1100);
 
-let serverSyncBusy=false;
+/* telemetria contextual efêmera */
+window.__tel=(items,ms=4200)=>{
+  const box=$('telemetry');
+  const nodes=items.map(it=>{ const el=document.createElement('div'); el.className='tel'; el.innerHTML=`<div class="k">${it.k}</div><div class="v">${it.v}</div>`; box.appendChild(el); return el; });
+  nodes.forEach((n,i)=>{ n.style.animationDelay=(i*0.09)+'s'; });
+  setTimeout(()=>{ nodes.forEach((n,i)=>{ n.classList.add('out'); n.style.animationDelay=(i*0.05)+'s'; setTimeout(()=>n.remove(),900+i*60); }); },ms);
+};
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const short=(s,n=28)=>s.length>n?s.slice(0,n)+'…':s;
+
+/* ---------------- clima (Piracicaba) ---------------- */
+async function weather(){
+  try{
+    const r=await fetch('https://api.open-meteo.com/v1/forecast?latitude=-22.7253&longitude=-47.6492&current=temperature_2m,weather_code&timezone=auto');
+    const j=await r.json(), temp=Math.round(j.current.temperature_2m), sky=skyText(j.current.weather_code);
+    DUQUE.get().temperature=temp; DUQUE.get().sky=sky;
+    $('temp').textContent=temp+'°C'; $('sky').textContent=sky;
+  }catch(e){ $('temp').textContent='--°C'; $('sky').textContent='Sem sinal'; }
+}
+function skyText(c){ if(c===0) return 'Céu limpo'; if(c<=3) return 'Nuvens'; if(c<=48) return 'Névoa'; if(c<=67) return 'Chuva'; if(c<=77) return 'Neve'; if(c<=82) return 'Pancadas'; return 'Tempestade'; }
+weather(); setInterval(weather,15*60*1000);
+
+/* ---------------- canal de voz ----------------
+   Quem ouve é o Duque (Python): "Hey Jarvis" abre a conversa, "Duque, ..." chama,
+   "Duque, stop" interrompe. Aqui só mostramos o estado. */
+const micOn=false;
+window.__ext=v=>{ extAudio=(v===null?null:clamp(v,0,1)); extT=performance.now(); };
+function renderVoiceLine(active){
+  $('micState').textContent = active ? 'Conversa aberta' : 'Em espera';
+  $('micState').title = active ? 'Diga "Duque, ..." para pedir; "Duque, stop" para interromper' : 'Diga "Hey Jarvis" para abrir a conversa';
+  $('micDot').className = active ? 'dot' : 'dot idle';
+}
+/* nível de áudio simulado quando o Duque "fala" */
+setInterval(()=>{
+  const s=DUQUE.get().state;
+  if(s==='speaking'&&!micOn&&extAudio===null) audioTarget=clamp(0.25+Math.random()*0.7,0,1);
+  else if(s==='processing'&&!micOn) audioTarget=0.12+Math.random()*0.12;
+  else if(!micOn&&s!=='listening'&&extAudio===null) audioTarget=0.02;
+},110);
+
+/* ---------------- ponte com o servidor do Duque ----------------
+   Estado:   GET  /api/estado      (250 ms)
+   Comando:  POST /api/comando     (resposta entra na conversa e é falada)
+   Conversa: GET  /api/conversa    (texto + voz, uma conversa só)
+   Fala:     POST /api/fala        (voz do HUD para o que foi digitado)
+   Também:   /api/midia (Spotify), /api/forja, /api/memoria, /api/voz, /api/saudacao, /api/abrir
+------------------------------------------------------------------ */
+function handle(m){
+  const patch={};
+  if(m.command!==undefined){ patch.command=m.command; if(m.command) DUQUE.telemetry([{k:'Último comando',v:esc(short(m.command))}],4200); }
+  if(m.action!==undefined){ patch.action=m.action; patch.currentTask=m.action; }
+  if(m.level!==undefined) window.__ext(m.level);
+  if(m.app&&m.appAction){ setAppLast(m.app,m.appAction); reactApp(m.app); }
+  else if(m.app&&(ALIAS[m.state]||m.state)==='executing') reactApp(m.app);
+  if(m.state) patch.state=m.state;
+  if(Object.keys(patch).length) DUQUE.setState(patch);
+}
+window.__handle=handle;
+
+const say=(state,task='')=>DUQUE.setState({state,currentTask:task});
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+var currentSpeech=null; // var: usados pelo syncServerState
+var speechBusy=false;
+
+/* estado do servidor → HUD (e o ícone do app reage quando o Duque executa) */
+let serverSyncBusy=false, lastExecTask='';
 async function syncServerState(){
   if(serverSyncBusy || speechBusy) return;
   serverSyncBusy=true;
   try{
-    const response=await fetch('/api/estado',{cache:'no-store'});
-    if(!response.ok) return;
-    const data=await response.json();
-    if(!data || !data.estado) return;
-    const current=DUQUE.get();
-    DUQUE.setState({
-      state:data.estado,
-      currentTask:data.tarefa||'',
-      serverActivity:data.atividade||''
-    });
-  }catch(e){
-    // O HUD continua funcional mesmo se o servidor estiver indisponível.
-  }finally{
-    serverSyncBusy=false;
-  }
+    const r=await fetch('/api/estado',{cache:'no-store'});
+    if(!r.ok) return;
+    const d=await r.json();
+    if(!d || !d.estado) return;
+    const task=d.tarefa||d.atividade||'';
+    DUQUE.setState({state:d.estado, currentTask:task});
+    $('sysState').textContent = d.estado==='standby' ? 'Online' : 'Engajado';
+    if(d.estado==='executando' && task!==lastExecTask){
+      lastExecTask=task;
+      const low=task.toLowerCase();
+      const app=APPS.find(a=>low.includes(a.id)||low.includes(a.name.toLowerCase()));
+      if(app) reactApp(app.id);
+    }
+    if(d.estado!=='executando') lastExecTask='';
+  }catch(e){ /* servidor indisponível: o HUD segue funcionando */ }
+  finally{ serverSyncBusy=false; }
 }
 syncServerState();
 setInterval(syncServerState,250);
 
-/* telemetria contextual efêmera */
-window.__tel=(items, ms=4200)=>{
-  const box=$('telemetry');
-  const nodes=items.map(it=>{
-    const el=document.createElement('div');
-    el.className='tel';
-    el.innerHTML=`<div class="k">${it.k}</div><div class="v">${it.v}</div>`;
-    box.appendChild(el); return el;
-  });
-  nodes.forEach((n,i)=>{ n.style.animationDelay=(i*0.09)+'s'; });
-  setTimeout(()=>{
-    nodes.forEach((n,i)=>{ n.classList.add('out'); n.style.animationDelay=(i*0.05)+'s';
-      setTimeout(()=>n.remove(), 900+i*60); });
-  }, ms);
-};
-
-/* atividade recente */
-const acts=[];
-window.__act=(txt)=>{
-  acts.unshift(txt); if(acts.length>4) acts.pop();
-  const box=$('activity'); box.innerHTML='';
-  acts.forEach((a,i)=>{
-    const d=document.createElement('div');
-    d.innerHTML=`<span class="i"></span>${i===0?'':''}${a}`;
-    d.style.animationDelay=(i*0.05)+'s';
-    box.appendChild(d);
-  });
-  clearTimeout(window.__actT);
-  window.__actT=setTimeout(()=>{ acts.length=0; box.innerHTML=''; }, 26000);
-};
-
-/* ---------------- clima ---------------- */
-async function weather(lat,lon,label){
+/* ---------------- fala do HUD (respostas ao que foi digitado) ---------------- */
+function showResponse(text){
+  const box=$('response');
+  box.textContent=text||'';
+  box.classList.toggle('show', Boolean(text));
+}
+function stopLocalSpeech(){
+  if(currentSpeech){ try{ currentSpeech.pause(); currentSpeech.currentTime=0; }catch(e){} currentSpeech=null; }
+  try{ if('speechSynthesis' in window) window.speechSynthesis.cancel(); }catch(e){}
+  speechBusy=false; audioTarget=0;
+}
+function browserSpeak(txt){
   try{
-    const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&timezone=auto`;
-    const r=await fetch(u); const j=await r.json();
-    const temp=Math.round(j.current.temperature_2m);
-    DUQUE.setState({temperature:temp, city:label, sky:skyText(j.current.weather_code)});
-    $('temp').textContent=temp+'°C';
-    $('city').textContent=label;
-    $('sky').textContent=skyText(j.current.weather_code);
-  }catch(e){
-    $('city').textContent=label; $('temp').textContent='--°C'; $('sky').textContent='Sem sinal';
+    if(!('speechSynthesis' in window)) return false;
+    const voices=window.speechSynthesis.getVoices()||[];
+    const chosen=voices.find(v=>/pt-BR|portuguese|brazil/i.test(v.lang||v.name||''))||voices[0];
+    const u=new SpeechSynthesisUtterance(txt);
+    u.lang='pt-BR'; if(chosen) u.voice=chosen;
+    u.onend=u.onerror=()=>{ speechBusy=false; audioTarget=0; syncServerState(); };
+    window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
+    return true;
+  }catch(e){ return false; }
+}
+async function speakResponse(text, voz){
+  const value=(text||'').trim();
+  if(!value) return;
+  stopLocalSpeech();
+  speechBusy=true;
+  say('speaking','Falando');
+  try{
+    const r=await fetch('/api/fala',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(voz?{text:value,voz}:{text:value})});
+    if(!r.ok){ let msg='Falha ao gerar voz.'; try{ msg=(await r.json()).erro||msg; }catch(e){} throw new Error(msg); }
+    const url=URL.createObjectURL(await r.blob());
+    const el=new Audio(url);
+    currentSpeech=el;
+    el.onended=()=>{ speechBusy=false; currentSpeech=null; URL.revokeObjectURL(url); audioTarget=0; syncServerState(); };
+    el.onerror=()=>{ URL.revokeObjectURL(url); currentSpeech=null; if(!browserSpeak(value)){ speechBusy=false; syncServerState(); } };
+    await el.play();
+  }catch(error){
+    // Navegador bloqueou o som (ainda sem clique na página): descarta, não enfileira.
+    if(error && error.name==='NotAllowedError'){ speechBusy=false; currentSpeech=null; audioTarget=0; syncServerState(); return; }
+    console.warn('TTS do servidor falhou:', error);
+    if(!browserSpeak(value)){ speechBusy=false; currentSpeech=null; audioTarget=0; syncServerState(); }
   }
 }
-function skyText(c){
-  if(c===0) return 'Céu limpo';
-  if(c<=3) return 'Nuvens';
-  if(c<=48) return 'Névoa';
-  if(c<=67) return 'Chuva';
-  if(c<=77) return 'Neve';
-  if(c<=82) return 'Pancadas';
-  return 'Tempestade';
-}
-// padrão: Piracicaba — substituído por geolocalização, se autorizada
-weather(-22.7253,-47.6492,'Piracicaba');
-if(navigator.geolocation){
-  navigator.geolocation.getCurrentPosition(async pos=>{
-    const {latitude:la, longitude:lo}=pos.coords;
-    let name='Local atual';
-    try{
-      const g=await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${la}&longitude=${lo}&localityLanguage=pt`);
-      const gj=await g.json(); name=gj.city||gj.locality||name;
-    }catch(e){}
-    weather(la,lo,name);
-  },()=>{},{timeout:8000});
-}
 
-/* ---------------- microfone ---------------- */
-let micOn=false, analyser=null, buf=null;
-window.__ext = v => { extAudio = (v===null?null:clamp(v,0,1)); };
-
-async function toggleMic(){
-  if(micOn){
-    micOn=false; $('micState').textContent='Inativo'; $('micDot').className='dot idle';
-    audioTarget=0; if(DUQUE.get().state==='listening') DUQUE.setState({state:'standby'});
+/* ---------------- envio de comando: campo → núcleo → servidor ---------------- */
+const STOP_RE=/^\s*(duque[\s,!.]*)?(stop|para|pare|chega|silêncio|silencio|cala a boca)[\s!.]*$/i;
+async function runCommand(text){
+  const q=(text||'').trim(); if(!q) return;
+  // "stop" digitado: cala a fala na hora (HUD e conversa de voz) e não vira pedido.
+  if(STOP_RE.test(q)){
+    stopLocalSpeech();
+    try{ await fetch('/api/parar',{method:'POST'}); }catch(e){}
+    DUQUE.telemetry([{k:'Fala',v:'<em>Interrompida</em>'}],1800);
+    syncServerState();
     return;
   }
+  const input=$('cmd');
+  input.disabled=true; showResponse('');
+  say('processing','Enviando ao núcleo');
   try{
-    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
-    const ac=new (window.AudioContext||window.webkitAudioContext)();
-    const src=ac.createMediaStreamSource(stream);
-    analyser=ac.createAnalyser(); analyser.fftSize=512; analyser.smoothingTimeConstant=.75;
-    src.connect(analyser); buf=new Uint8Array(analyser.frequencyBinCount);
-    micOn=true; $('micState').textContent='Aberto'; $('micDot').className='dot';
-    DUQUE.setState({state:'listening'});
-    (function loop(){
-      if(!micOn) return;
-      analyser.getByteFrequencyData(buf);
-      let sum=0; for(let i=0;i<buf.length;i++) sum+=buf[i];
-      audioTarget = clamp((sum/buf.length)/70, 0, 1);
-      requestAnimationFrame(loop);
-    })();
-  }catch(e){
-    $('micState').textContent='Negado';
+    const r=await fetch('/api/comando',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:q})});
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.erro||'Falha ao processar comando');
+    if(d.via==='voz') DUQUE.telemetry([{k:'Enviado à conversa',v:'<em>Voz</em>'}],2200);
+    else DUQUE.telemetry([{k:'Resposta',v:'<em>Pronta</em>'}],2600);
+    pollConversation();
+  }catch(error){
+    showResponse(error instanceof Error ? error.message : 'Não foi possível falar com o Duque.');
+    DUQUE.setState({state:'error',currentTask:'Falha de comunicação'});
+    setTimeout(syncServerState,900);
+  }finally{
+    input.disabled=false; input.focus();
   }
 }
+function submit(text){
+  const q=(text||'').trim(); if(!q) return;
+  DUQUE.setState({command:q});
+  DUQUE.telemetry([{k:'Último comando',v:esc(short(q))}],3800);
+  const r=$('cmd').getBoundingClientRect();
+  flow({x:r.left+r.width/2,y:r.top+r.height/2},'core',650);
+  runCommand(q);
+}
+$('cmd').addEventListener('keydown',e=>{
+  if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); const v=$('cmd').value; $('cmd').value=''; submit(v); }
+});
+$('cmd').addEventListener('focus',()=>spawnWave(.35));
+window.Duque={ submit, setState:p=>DUQUE.setState(p), handle };
 
-/* nível de áudio simulado quando o Duque "fala" */
-setInterval(()=>{
-  const s=DUQUE.get().state;
-  if(s==='speaking' && !micOn) audioTarget = clamp(0.25 + Math.random()*0.7, 0, 1);
-  else if(s==='processing' && !micOn) audioTarget = 0.12 + Math.random()*0.12;
-  else if(!micOn && s!=='listening') audioTarget = 0.02;
-}, 110);
+/* ---------------- conversa única (texto + voz) ---------------- */
+let lastTurn=0, convBusy=false, voiceActive=false, convPrimed=false;
+const chatTurns=[];
+function renderChat(){
+  const box=$('chat'); box.innerHTML='';
+  chatTurns.slice(-4).forEach(turn=>{
+    const el=document.createElement('div');
+    const who=turn.role==='user'?'Du':'Duque';
+    const via=turn.channel==='voz'?' · voz':(turn.channel==='aviso'?' · aviso':(turn.channel==='silencioso'?' · foco':''));
+    el.className='t'+(turn.role==='assistant'?' duque':'')+(turn.channel==='aviso'?' aviso':'');
+    const tag=document.createElement('b'); tag.textContent=who+via;
+    el.appendChild(tag);
+    el.appendChild(document.createTextNode(turn.text.length>260?turn.text.slice(0,260)+'…':turn.text));
+    box.appendChild(el);
+  });
+}
+async function pollConversation(){
+  if(convBusy) return;
+  convBusy=true;
+  try{
+    const r=await fetch('/api/conversa'+(lastTurn?`?desde=${lastTurn}`:''),{cache:'no-store'});
+    if(!r.ok) return;
+    const d=await r.json();
+    const was=voiceActive;
+    voiceActive=Boolean(d.voz_ativa);
+    if(voiceActive!==was || !convPrimed) renderVoiceLine(voiceActive);
+    // "Hey Jarvis" durante uma resposta falada pelo HUD: a voz assume na hora.
+    if(voiceActive && !was && speechBusy) stopLocalSpeech();
+    let changed=false;
+    for(const turn of (d.turnos||[])){
+      if(turn.id<=lastTurn) continue;
+      chatTurns.push(turn); changed=true;
+      const speakable=turn.role==='assistant' && (turn.channel==='texto'||turn.channel==='aviso');
+      if(convPrimed && speakable && !voiceActive) void speakResponse(turn.text);
+    }
+    lastTurn=Math.max(lastTurn, d.ultimo||0);
+    if(chatTurns.length>40) chatTurns.splice(0,chatTurns.length-40);
+    convPrimed=true;
+    if(changed) renderChat();
+  }catch(e){}
+  finally{ convBusy=false; }
+}
+pollConversation();
+setInterval(pollConversation,900);
 
-/* ---------------- spotify (real, via Windows) ----------------
-   O servidor lê o que está tocando pelo título da janela do Spotify
-   (GET /api/midia) e controla com as teclas de mídia (POST /api/midia).
-*/
-let mediaBusy=false;
+/* ---------------- spotify (real, via Windows) ---------------- */
+let mediaBusy=false, media={playing:false,running:false};
 async function pollMedia(){
   if(mediaBusy) return;
   mediaBusy=true;
@@ -948,291 +1221,48 @@ async function pollMedia(){
     const r=await fetch('/api/midia',{cache:'no-store'});
     if(!r.ok) return;
     const m=await r.json();
-    const track = m.playing ? m.track : (m.running ? 'Pausado' : 'Spotify fechado');
-    const artist = m.playing ? m.artist : (m.running ? 'Toque para continuar' : 'Diga "abre o Spotify"');
-    DUQUE.setState({spotify:{playing:Boolean(m.playing), track, artist, running:Boolean(m.running)}});
-    renderSpotify();
+    media={playing:Boolean(m.playing), running:Boolean(m.running)};
+    $('sTrack').textContent = m.playing ? (m.track||'—') : (m.running?'Pausado':'Spotify fechado');
+    $('sArtist').textContent = m.playing ? (m.artist||'—') : (m.running?'Toque para continuar':'Diga "Duque, abre o Spotify"');
+    $('sStatus').textContent = m.playing?'Tocando':(m.running?'Pausado':'Fechado');
+    $('sBar').style.width = m.playing?'100%':'0%';
+    $('sIcon').innerHTML = m.playing
+      ? '<path d="M2 1v11M10 1v11" stroke="currentColor" stroke-width="1"/>'
+      : '<path d="M1 1l10 5.5L1 12V1Z" stroke="currentColor" stroke-width="1"/>';
+    $('sPlay').title = m.playing?'Pausar':'Tocar';
+    if(m.playing && m.track) setAppLast('spotify', short(m.track,22));
   }catch(e){}
   finally{ mediaBusy=false; }
 }
 async function mediaAction(acao){
-  try{
-    await fetch('/api/midia',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({acao})});
-  }catch(e){}
+  try{ await fetch('/api/midia',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({acao})}); }catch(e){}
+  reactApp('spotify');
   setTimeout(pollMedia,700);
 }
-const Spotify = {
-  play(){ mediaAction('play_pause'); DUQUE.activity('SPOTIFY'); },
-  pause(){ mediaAction('play_pause'); },
-  next(){ mediaAction('next'); },
-  prev(){ mediaAction('previous'); }
-};
-function renderSpotify(){
-  const sp=DUQUE.get().spotify;
-  $('sTrack').textContent=sp.track||'—';
-  $('sArtist').textContent=sp.artist||'—';
-  $('sStatus').textContent=sp.playing?'Tocando':(sp.running?'Pausado':'Fechado');
-  $('sBar').style.width=sp.playing?'100%':'0%';
-  $('sBar').style.opacity=sp.playing?'.55':'0';
-  $('sMeta').style.visibility='hidden';
-  $('sIcon').innerHTML = sp.playing
-    ? '<path d="M2 1v11M10 1v11" stroke="currentColor" stroke-width="1"/>'
-    : '<path d="M1 1l10 5.5L1 12V1Z" stroke="currentColor" stroke-width="1"/>';
-  $('sPlay').title = sp.playing?'Pausar':'Tocar';
-}
-$('sPlay').onclick=()=>DUQUE.get().spotify.playing?Spotify.pause():Spotify.play();
-$('sNext').onclick=()=>Spotify.next();
-$('sPrev').onclick=()=>Spotify.prev();
+$('sPlay').onclick=()=>mediaAction('play_pause');
+$('sNext').onclick=()=>mediaAction('next');
+$('sPrev').onclick=()=>mediaAction('previous');
 pollMedia();
 setInterval(pollMedia,5000);
-
-/* ---------------- comando / backend real ----------------
-   O HUD conversa com o servidor Flask, que entrega o texto ao AgentLoop.
-   O estado visual continua sendo alimentado pela API /api/estado.
-*/
-function say(state, task=''){ DUQUE.setState({state, currentTask:task}); }
-
-var currentSpeech=null; // var: usado por syncServerState antes desta linha
-var speechBusy=false;
-
-function showResponse(text){
-  const box=$('response');
-  box.textContent=text||'';
-  box.classList.toggle('show', Boolean(text));
-}
-
-async function speakResponse(text, voz){
-  const value=(text||'').trim();
-  if(!value) return;
-
-  if(currentSpeech){
-    try{ currentSpeech.pause(); currentSpeech.currentTime=0; }catch(e){}
-    currentSpeech=null;
-  }
-
-  speechBusy=true;
-  say('speaking','Falando');
-  audioTarget=.45;
-
-  // Helper: fallback to browser TTS
-  const browserSpeak = (txt)=>{
-    try{
-      if('speechSynthesis' in window){
-        const voices = window.speechSynthesis.getVoices() || [];
-        const preferred = [/jarvis/i, /david/i, /mark/i, /daniel/i, /male/i, /alloy/i, /br/i];
-        let chosen = null;
-        for(const v of voices){
-          const n = (v.name||v.voiceURI||'').toString();
-          if(preferred.some(r=>r.test(n))){ chosen = v; break; }
-        }
-        if(!chosen && voices.length) chosen = voices.find(v=>/pt-BR|portuguese|brazil/i.test(v.lang||v.name||'')) || voices[0];
-        const u = new SpeechSynthesisUtterance(txt);
-        u.lang = 'pt-BR';
-        if(chosen) u.voice = chosen;
-        u.rate = 1.0;
-        u.volume = 1.0;
-        u.onend = ()=>{ speechBusy=false; audioTarget=0; syncServerState(); };
-        u.onerror = ()=>{ speechBusy=false; audioTarget=0; syncServerState(); };
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(u);
-        return true;
-      }
-    }catch(e){ /* ignore */ }
-    return false;
-  };
-
-  try{
-    const response=await fetch('/api/fala',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(voz ? {text:value, voz} : {text:value})
-    });
-    if(!response.ok){
-      let message='Falha ao gerar voz.';
-      try{ const data=await response.json(); message=data.erro||message; }catch(e){}
-      throw new Error(message);
-    }
-
-    const blob=await response.blob();
-    const url=URL.createObjectURL(blob);
-    const audioEl=new Audio(url);
-    currentSpeech=audioEl;
-
-    audioEl.onended=()=>{
-      speechBusy=false;
-      currentSpeech=null;
-      URL.revokeObjectURL(url);
-      audioTarget=0;
-      syncServerState();
-    };
-    audioEl.onerror=async()=>{
-      // If server TTS fails to play, try browser TTS as fallback
-      URL.revokeObjectURL(url);
-      currentSpeech=null;
-      audioTarget=0;
-      const ok = browserSpeak(value);
-      if(!ok){
-        speechBusy=false;
-        DUQUE.activity('VOICE ERROR');
-        syncServerState();
-      }
-    };
-
-    await audioEl.play();
-  }catch(error){
-    // Navegador bloqueou o som (ainda sem clique na página): não enfileira a fala
-    // para depois — antes ela "explodia" no primeiro clique.
-    if(error && error.name==='NotAllowedError'){
-      speechBusy=false; currentSpeech=null; audioTarget=0; syncServerState();
-      return;
-    }
-    // Server TTS failed: try browser TTS fallback
-    console.warn('TTS server error:', error);
-    const ok = browserSpeak(value);
-    if(!ok){
-      speechBusy=false;
-      currentSpeech=null;
-      audioTarget=0;
-      DUQUE.activity('VOICE ERROR');
-      console.warn('TTS fallback failed');
-      syncServerState();
-    }
-  }
-}
-
-async function runCommand(text){
-  const q=text.trim(); if(!q) return;
-  const input=$('cmd');
-  input.disabled=true;
-  showResponse('');
-  say('processing','Enviando ao núcleo');
-  DUQUE.telemetry([{k:'Comando recebido',v:q.length>26?q.slice(0,26)+'…':q}],3600);
-  try{
-    const response=await fetch('/api/comando',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({text:q})
-    });
-    const data=await response.json();
-    if(!response.ok) throw new Error(data.erro||'Falha ao processar comando');
-
-    if(data.via==='voz'){
-      // Conversa de voz ativa: a mensagem entrou na mesma sessão e a resposta sai falada por ela.
-      showResponse('');
-      DUQUE.telemetry([{k:'Enviado à conversa',v:'<em>Voz</em>'}],2200);
-      pollConversation();
-      return;
-    }
-    showResponse('');
-    pollConversation();
-    DUQUE.activity('RESPONSE');
-
-    // A resposta entra na conversa única; o polling a mostra e a fala pelo
-    // HUD (um único caminho, sem falar duas vezes).
-    DUQUE.telemetry([{k:'Resposta',v:'<em>Pronta</em>'}],2600);
-  }catch(error){
-    showResponse(error instanceof Error ? error.message : 'Não foi possível falar com o Duque.');
-    DUQUE.activity('ERROR');
-    DUQUE.setState({state:'erro',currentTask:'Falha de comunicação'});
-    setTimeout(()=>syncServerState(),900);
-  }finally{
-    input.disabled=false;
-    input.focus();
-  }
-}
-
-$('cmd').addEventListener('keydown', e=>{
-  if(e.key==='Enter' && !e.shiftKey){
-    e.preventDefault();
-    const value=$('cmd').value;
-    if(!value.trim()) return;
-    $('cmd').value='';
-    runCommand(value);
-  }
-});
-
-/* ---------------- conversa única (texto + voz) ----------------
-   O servidor guarda uma única conversa. Mensagens digitadas, falas da sessão
-   de voz e avisos (timers, Forja) aparecem aqui na ordem em que aconteceram.
-*/
-let lastTurn=0, convBusy=false, voiceActive=false, convPrimed=false;
-const chatTurns=[];
-
-function stopLocalSpeech(){
-  if(currentSpeech){ try{ currentSpeech.pause(); currentSpeech.currentTime=0; }catch(e){} currentSpeech=null; }
-  try{ if('speechSynthesis' in window) window.speechSynthesis.cancel(); }catch(e){}
-  speechBusy=false; audioTarget=0;
-}
-
-function renderChat(){
-  const box=$('chat'); box.innerHTML='';
-  chatTurns.slice(-4).forEach(turn=>{
-    const el=document.createElement('div');
-    const who = turn.role==='user' ? 'Du' : 'Duque';
-    const via = turn.channel==='voz' ? ' · voz' : (turn.channel==='aviso' ? ' · aviso' : (turn.channel==='silencioso' ? ' · foco' : ''));
-    el.className='t'+(turn.role==='assistant'?' duque':'')+(turn.channel==='aviso'?' aviso':'');
-    const tag=document.createElement('b'); tag.textContent=who+via;
-    el.appendChild(tag);
-    el.appendChild(document.createTextNode(turn.text.length>260 ? turn.text.slice(0,260)+'…' : turn.text));
-    box.appendChild(el);
-  });
-}
-
-async function pollConversation(){
-  if(convBusy) return;
-  convBusy=true;
-  try{
-    const r=await fetch('/api/conversa'+(lastTurn?`?desde=${lastTurn}`:''),{cache:'no-store'});
-    if(!r.ok) return;
-    const data=await r.json();
-    const wasActive=voiceActive;
-    voiceActive=Boolean(data.voz_ativa);
-    // "Hey Jarvis" durante uma resposta falada pelo HUD: a voz assume na hora.
-    if(voiceActive && !wasActive && speechBusy) stopLocalSpeech();
-    let changed=false;
-    for(const turn of (data.turnos||[])){
-      if(turn.id<=lastTurn) continue;
-      chatTurns.push(turn);
-      changed=true;
-      // Respostas ao que foi digitado (fora da sessão de voz) e avisos são falados pelo HUD.
-      const speakable = turn.role==='assistant' && (turn.channel==='texto' || turn.channel==='aviso');
-      if(convPrimed && speakable && !voiceActive) void speakResponse(turn.text);
-    }
-    lastTurn=Math.max(lastTurn, data.ultimo||0);
-    if(chatTurns.length>40) chatTurns.splice(0, chatTurns.length-40);
-    convPrimed=true;
-    // Só redesenha quando chega mensagem nova (antes piscava a cada segundo).
-    if(changed) renderChat();
-  }catch(e){ /* servidor indisponível: tenta de novo */ }
-  finally{ convBusy=false; }
-}
-pollConversation();
-setInterval(pollConversation,900);
 
 /* ---------------- forja ---------------- */
 async function pollForge(){
   try{
     const r=await fetch('/api/forja',{cache:'no-store'});
     if(!r.ok) return;
-    const data=await r.json();
+    const d=await r.json();
     const box=$('forge');
-    if(!data.ativa){ box.classList.remove('on'); return; }
-    const current=data.current;
-    const last=(data.history||[]).slice(-1)[0];
+    if(!d.ativa){ box.classList.remove('on'); return; }
+    const current=d.current, last=(d.history||[]).slice(-1)[0];
     if(current){
-      $('fGoal').textContent=current.goal;
-      $('fStep').textContent=current.step||'iniciando';
-      $('fStep').className='';
-      box.classList.add('on');
+      $('fGoal').textContent=current.goal; $('fStep').textContent=current.step||'iniciando'; $('fStep').className=''; box.classList.add('on');
     }else if(last){
       const labels={merged:'Aplicado',awaiting_approval:'Aguardando aprovação',no_changes:'Sem alterações',failed:'Falhou'};
       $('fGoal').textContent=last.goal;
-      $('fStep').textContent=(labels[last.status]||last.status)+(data.queued?` · ${data.queued} na fila`:'');
+      $('fStep').textContent=(labels[last.status]||last.status)+(d.queued?` · ${d.queued} na fila`:'');
       $('fStep').className=last.status==='merged'?'ok':'';
       box.classList.add('on');
-    }else{
-      box.classList.remove('on');
-    }
+    }else box.classList.remove('on');
   }catch(e){}
 }
 pollForge();
@@ -1242,12 +1272,12 @@ setInterval(pollForge,3000);
 function fmtRemaining(sec){
   sec=Math.max(0,Math.round(sec));
   const h=Math.floor(sec/3600), m=Math.floor(sec%3600/60), s2=sec%60;
-  return h ? `${h}h ${String(m).padStart(2,'0')}min` : `${m}:${String(s2).padStart(2,'0')}`;
+  return h?`${h}h ${String(m).padStart(2,'0')}min`:`${m}:${String(s2).padStart(2,'0')}`;
 }
+function pair(a,b){ const li=document.createElement('li'); const x=document.createElement('span'); x.textContent=a; const y=document.createElement('span'); y.textContent=b; li.append(x,y); return li; }
 async function loadMemory(){
   try{
-    const r=await fetch('/api/memoria',{cache:'no-store'});
-    const m=await r.json();
+    const m=await (await fetch('/api/memoria',{cache:'no-store'})).json();
     const notes=$('memNotes'); notes.innerHTML='';
     (m.notas||[]).forEach((note,i)=>{
       const li=document.createElement('li');
@@ -1258,56 +1288,34 @@ async function loadMemory(){
     });
     if(!(m.notas||[]).length) notes.innerHTML='<li class="empty">Nenhuma anotação. Diga "lembre que…" ou digite abaixo.</li>';
     const timers=$('memTimers'); timers.innerHTML='';
-    (m.timers||[]).forEach(t=>{
-      const li=document.createElement('li');
-      const a=document.createElement('span'); a.textContent=t.label;
-      const b=document.createElement('span'); b.textContent=fmtRemaining(t.remaining);
-      li.append(a,b); timers.appendChild(li);
-    });
-    if(!(m.timers||[]).length) timers.innerHTML='<li class="empty">Nenhum timer.</li>';
-    if(m.foco_ate){
-      const li=document.createElement('li');
-      const a=document.createElement('span'); a.textContent='Modo foco';
-      const b=document.createElement('span'); b.textContent=fmtRemaining(m.foco_ate - Date.now()/1000);
-      li.append(a,b); timers.prepend(li);
-    }
+    (m.timers||[]).forEach(t=>timers.appendChild(pair(t.label, fmtRemaining(t.remaining))));
+    if(m.foco_ate) timers.prepend(pair('Modo foco', fmtRemaining(m.foco_ate-Date.now()/1000)));
+    if(!timers.children.length) timers.innerHTML='<li class="empty">Nenhum timer.</li>';
     const agenda=$('memAgenda'); agenda.innerHTML='';
     (m.lembretes||[]).forEach(item=>{
-      const li=document.createElement('li');
-      const when=new Date(item.at*1000);
-      const a=document.createElement('span'); a.textContent=item.text;
-      const b=document.createElement('span');
-      b.textContent=when.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'})+' '+when.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-      li.append(a,b); agenda.appendChild(li);
+      const w=new Date(item.at*1000);
+      agenda.appendChild(pair(item.text, w.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'})+' '+w.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})));
     });
+    if(!(m.lembretes||[]).length) agenda.innerHTML='<li class="empty">Nada agendado. Diga "me lembra amanhã às 9h de…".</li>';
     const routines=$('memRoutines'); routines.innerHTML='';
-    Object.entries(m.rotinas||{}).forEach(([nome,cmds])=>{
-      const li=document.createElement('li');
-      const a=document.createElement('span'); a.textContent='modo '+nome;
-      const b=document.createElement('span'); b.textContent=cmds.join(' · '); b.style.textAlign='right'; b.style.opacity='.6';
-      li.append(a,b); routines.appendChild(li);
-    });
+    Object.entries(m.rotinas||{}).forEach(([nome,cmds])=>routines.appendChild(pair('modo '+nome, cmds.join(' · '))));
     if(!Object.keys(m.rotinas||{}).length) routines.innerHTML='<li class="empty">Nenhuma rotina.</li>';
     const contacts=$('memContacts');
-    contacts.innerHTML = (m.contatos||[]).length ? '' : '<li class="empty">Diga "salve o contato Nome 19 99999-9999".</li>';
+    contacts.innerHTML=(m.contatos||[]).length?'':'<li class="empty">Diga "salve o contato Nome 19 99999-9999".</li>';
     (m.contatos||[]).forEach(nome=>{ const li=document.createElement('li'); li.textContent=nome; contacts.appendChild(li); });
-    if(!(m.lembretes||[]).length) agenda.innerHTML='<li class="empty">Nada agendado. Diga "me lembra amanhã às 9h de…".</li>';
   }catch(e){}
 }
 async function loadVoices(){
   try{
-    const r=await fetch('/api/voz',{cache:'no-store'});
-    const v=await r.json();
+    const v=await (await fetch('/api/voz',{cache:'no-store'})).json();
     const box=$('memVoices'); box.innerHTML='';
     Object.entries(v.vozes||{}).forEach(([nome,desc])=>{
-      const li=document.createElement('li');
-      if(nome===v.atual) li.className='on';
-      const info=document.createElement('span');
-      info.textContent=nome+(nome===v.atual?' · atual':'');
+      const li=document.createElement('li'); if(nome===v.atual) li.className='on';
+      const info=document.createElement('span'); info.textContent=nome+(nome===v.atual?' · atual':'');
       const d=document.createElement('span'); d.className='desc'; d.textContent=desc; info.appendChild(d);
       const acts=document.createElement('span'); acts.className='acts';
       const ouvir=document.createElement('button'); ouvir.className='ghost'; ouvir.textContent='Ouvir';
-      ouvir.onclick=()=>speakResponse(v.amostra, nome);
+      ouvir.onclick=()=>speakResponse(v.amostra,nome);
       const usar=document.createElement('button'); usar.className='ghost'; usar.textContent=nome===v.atual?'Em uso':'Usar';
       usar.onclick=async()=>{ await fetch('/api/voz',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({voz:nome})}); loadVoices(); };
       acts.append(ouvir,usar); li.append(info,acts); box.appendChild(li);
@@ -1321,8 +1329,8 @@ $('memBtn').onclick=openMemory;
 $('memClose').onclick=closeMemory;
 $('memPanel').addEventListener('click',e=>{ if(e.target.id==='memPanel') closeMemory(); });
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape' && $('memPanel').classList.contains('on')) closeMemory();
-  if((e.key==='n'||e.key==='N') && document.activeElement.tagName!=='INPUT') { e.preventDefault(); openMemory(); }
+  if(e.key==='Escape'){ if($('memPanel').classList.contains('on')) closeMemory(); else { stopLocalSpeech(); fetch('/api/parar',{method:'POST'}).catch(()=>{}); } }
+  if((e.key==='n'||e.key==='N') && document.activeElement.tagName!=='INPUT'){ e.preventDefault(); openMemory(); }
 });
 $('memNew').addEventListener('keydown',async e=>{
   if(e.key!=='Enter') return;
@@ -1334,28 +1342,16 @@ $('memNew').addEventListener('keydown',async e=>{
 
 /* ---------------- saudação de início ---------------- */
 async function greet(){
-  try{
-    await fetch('/api/saudacao',{method:'POST'});
-    pollConversation();
-  }catch(e){}
+  try{ await fetch('/api/saudacao',{method:'POST'}); pollConversation(); }catch(e){}
 }
 
 /* sequência de inicialização */
-const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 (async()=>{
   await wait(900);
   DUQUE.telemetry([{k:'Núcleo neural',v:'<em>Online</em>'},{k:'Memória',v:'Sincronizada'}],3400);
-  DUQUE.activity('MEMORY');
   await wait(2600);
-  DUQUE.activity('VOICE');
   greet();
 })();
-
-/* ---------------- ponte para backend ----------------
-   Comandos usam POST /api/comando.
-   Estado visual usa GET /api/estado (sincronizado pelo servidor).
-   O payload visual segue o formato: { state, currentTask, spotify, ... }.
------------------------------------------------------------------- */
 </script>
 </body>
 </html>

@@ -42,6 +42,18 @@ class VoiceBridge:
         with self._lock:
             return self._send_text is not None
 
+    def stop_speech(self) -> bool:
+        """Interrompe a fala da conversa de voz ("stop" digitado no HUD)."""
+        with self._lock:
+            stopper = self._stop_speech
+        if stopper is None:
+            return False
+        try:
+            stopper()
+            return True
+        except Exception:
+            return False
+
     def send_to_voice(self, text: str) -> bool:
         """Entrega texto digitado à sessão de voz ativa (resposta sai falada nela)."""
         with self._lock:

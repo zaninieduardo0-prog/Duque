@@ -11,7 +11,21 @@ class ComputerController:
     """Interface controlada para ações no computador do usuário."""
 
     def open_url(self, url: str) -> None:
+        # Chrome com o perfil do Du (computer/chrome.py); senão, o navegador padrão.
+        if os.getenv("DUQUE_BROWSER", "chrome").casefold() == "chrome":
+            from .chrome import open_in_chrome
+
+            try:
+                if open_in_chrome(url):
+                    return
+            except Exception:
+                pass
         webbrowser.open(url)
+
+    def open_chrome(self) -> bool:
+        from .chrome import open_in_chrome
+
+        return open_in_chrome(None)
 
     def open_path(self, path: str | Path) -> None:
         target = str(Path(path).expanduser())

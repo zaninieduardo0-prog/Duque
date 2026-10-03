@@ -35,12 +35,14 @@ class OpenAppTests(unittest.TestCase):
         self.assertTrue(result["verified"])
 
     def test_reports_when_app_never_appears(self) -> None:
-        """Regressão: dizia "abri a calculadora" sem ela abrir."""
+        """Regressão: dizia "abri a calculadora" sem ela abrir; e não pode repetir a abertura."""
         tools = self.tools([])
         with mock.patch("platform.system", return_value="Windows"):
             result = tools.open_app("calculadora")
-        self.assertFalse(result["success"])
-        self.assertIn("não vi o processo", result["error"])
+        self.assertFalse(result["verified"])
+        self.assertNotIn("success", result)  # falha faria o Duque tentar de novo
+        self.assertIn("ainda não vi", result["message"])
+        self.assertEqual(len(tools.controller.launched), 1)  # type: ignore[attr-defined]
 
     def test_unknown_app_still_fails(self) -> None:
         with self.assertRaises(ValueError):

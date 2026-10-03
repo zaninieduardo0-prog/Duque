@@ -15,6 +15,14 @@ class CorrectionReport:
     last_error: str | None = None
 
 
+# Ações com efeito visível (abrir app, site, mensagem): repetir depois de uma
+# falha abria a mesma coisa várias vezes. Elas rodam uma vez só.
+NO_RETRY_TOOLS = frozenset({
+    "open_app", "open_url", "open_path", "google_search", "open_search_result",
+    "whatsapp_message", "media_control", "play_media", "spotify_play",
+})
+
+
 class SelfCorrection:
     """Laço simples de executar -> observar erro -> pedir nova tentativa."""
 
@@ -49,5 +57,8 @@ class SelfCorrection:
 
             if failed and failed.result.confirmation_required:
                 return CorrectionReport(False, attempt, all_results, error)
+            if any(item.tool in NO_RETRY_TOOLS for item in results):
+                return CorrectionReport(False, attempt, all_results, error)
 
         return CorrectionReport(False, attempts_limit, all_results, error)
+

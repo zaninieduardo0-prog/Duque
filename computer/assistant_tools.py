@@ -137,8 +137,28 @@ def _http_json(url: str, timeout: float = 8) -> Any:
         return json.loads(response.read().decode("utf-8"))
 
 
+def web_alternative(target: str) -> str | None:
+    """whatsapp://send?... -> https://web.whatsapp.com/send?... (app não instalado)."""
+    if target.startswith("whatsapp://"):
+        rest = target[len("whatsapp://"):]
+        return "https://web.whatsapp.com/" + rest
+    return None
+
+
 def _open_target(target: str) -> None:
     if IS_WINDOWS:
+        from .apps import protocol_registered
+        from .chrome import open_in_chrome
+
+        web = web_alternative(target)
+        if web and not protocol_registered(target.split(":", 1)[0]):
+            target = web
+        if target.startswith(("http://", "https://")) and os.getenv("DUQUE_BROWSER", "chrome").casefold() == "chrome":
+            try:
+                if open_in_chrome(target):
+                    return
+            except Exception:
+                pass
         os.startfile(target)  # type: ignore[attr-defined]  # noqa: S606
     else:
         subprocess.Popen(["xdg-open", target], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

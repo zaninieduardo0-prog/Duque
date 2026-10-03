@@ -17,9 +17,11 @@ from openwakeword.model import Model
 from pvrecorder import PvRecorder
 from pedalboard import Compressor, Gain, HighpassFilter, LowShelfFilter, Pedalboard, time_stretch  # pyright: ignore[reportPrivateImportUsage]
 from agents.realtime import OpenAIRealtimeWebSocketModel, RealtimeRunner, RealtimePlaybackTracker
+from agents.realtime.model_inputs import RealtimeModelSendRawMessage
 from agent.duque_realtime import duque_realtime, refresh_instructions
 from core.voice_bridge import bridge
 from voice.devices import match_input_device, pick_wake_device
+from voice.gate import ListenGate
 from voice.session import PlaybackFence
 
 MODEL = os.getenv("DUQUE_REALTIME_MODEL", "gpt-realtime-2.1")
@@ -52,6 +54,11 @@ LOCAL_VAD_THRESHOLD = float(os.getenv("DUQUE_VAD_THRESHOLD", "0.045"))
 LOCAL_VAD_BLOCKS = 3
 LOCAL_VAD_COOLDOWN = 0.8
 LOCAL_VAD_IGNORE_AFTER_SPEECH = 0.25
+# Interromper a fala por qualquer barulho do microfone. Desligado: agora só o
+# nome "Duque" interrompe (ver voice/gate.py). DUQUE_VAD_INTERRUPT=1 religa.
+LOCAL_VAD_INTERRUPT = os.getenv("DUQUE_VAD_INTERRUPT", "0").casefold() in {"1", "true", "yes", "on"}
+# Sem ser chamado por este tempo, a conversa fecha e volta a esperar "Hey Jarvis".
+IDLE_SECONDS = float(os.getenv("DUQUE_VOICE_IDLE", "60"))
 PITCH_SEMITONES = float(os.getenv("DUQUE_PITCH", "-2.0"))
 VOICE_SPEED = float(os.getenv("DUQUE_VOICE_SPEED", "0.96"))
 VOICE_PROCESSING = os.getenv("DUQUE_VOICE_PROCESSING", "0").casefold() in {"1", "true", "yes", "on"}
@@ -68,15 +75,21 @@ voice_board = Pedalboard([
     Gain(gain_db=-1.0),
 ])
 
-model = OpenAIRealtimeWebSocketModel(transport_config={
-    "ping_interval": 20.0, "ping_timeout": 60.0,
-    "handshake_timeout": 30.0, "max_size": 8 * 1024 * 1024,
-})
+def new_model() -> OpenAIRealtimeWebSocketModel:
+    # Um modelo novo por sessão: o objeto guarda o último item falado e, se fosse
+    # reaproveitado, a sessão seguinte pedia um item que não existe mais
+    # ("item_retrieve_invalid_item_id") e caía na hora.
+    return OpenAIRealtimeWebSocketModel(transport_config={
+        "ping_interval": 20.0, "ping_timeout": 60.0,
+        "handshake_timeout": 30.0, "max_size": 8 * 1024 * 1024,
+    })
+
+
 def build_runner(voice: str) -> RealtimeRunner:
     """Monta a sessão com a voz escolhida pelo Du (muda sem reiniciar o Duque)."""
     return RealtimeRunner(
         starting_agent=duque_realtime,
-        model=model,
+        model=new_model(),
         config={
             "model_settings": {
                 "model_name": MODEL,
@@ -87,10 +100,12 @@ def build_runner(voice: str) -> RealtimeRunner:
                         "transcription": {"model": "gpt-4o-mini-transcribe", "language": "pt"},
                         "turn_detection": {
                             # 500 ms de silêncio antes de responder: com 250 ms ele
-                            # cortava o Du no meio da frase.
-                            "type": "server_vad", "threshold": 0.4,
+                            # cortava o Du no meio da frase. Quem decide se responde
+                            # ou interrompe é o portão (voice/gate.py): som de fundo
+                            # não gera resposta nem corta a fala do Duque.
+                            "type": "server_vad", "threshold": 0.5,
                             "prefix_padding_ms": 300, "silence_duration_ms": 500,
-                            "interrupt_response": True, "create_response": True,
+                            "interrupt_response": False, "create_response": False,
                         },
                     },
                     "output": {"format": "pcm16", "voice": voice},
@@ -104,8 +119,6 @@ def build_runner(voice: str) -> RealtimeRunner:
 def current_voice() -> str:
     return bridge.voice(VOICE) or VOICE
 
-
-runner = build_runner(VOICE)
 
 state_lock = threading.Lock()
 REALTIME = False
@@ -130,6 +143,25 @@ SHUTDOWN_EVENT: asyncio.Event | None = None
 VAD_COUNT = 0
 LAST_INTERRUPT = 0.0
 SPEECH_STARTED_AT: float | None = None
+GATE = ListenGate()
+LAST_ACTIVITY = time.monotonic()
+LAST_ASSISTANT_TEXT = ""
+
+
+def touch() -> None:
+    """Marca atividade (pedido aceito, fala ou ferramenta) para o tempo de espera."""
+    global LAST_ACTIVITY
+    LAST_ACTIVITY = time.monotonic()
+
+
+def idle_expired(now: float | None = None) -> bool:
+    if IDLE_SECONDS <= 0 or DUQUE_SPEAKING or GATE.is_open:
+        return False
+    return ((time.monotonic() if now is None else now) - LAST_ACTIVITY) >= IDLE_SECONDS
+
+
+def hud_waiting() -> None:
+    hud("standby", 'Em espera — diga "Duque"')
 
 
 def hud(state: str, task: str = "") -> None:
@@ -263,7 +295,7 @@ def microphone_callback(indata, _frames, _time_info, status) -> None:
     if not REALTIME or not MIC_ACTIVE or LOOP is None or MIC_QUEUE is None:
         return
     audio = indata.copy().tobytes()
-    if DUQUE_SPEAKING and not SHUTTING_DOWN:
+    if LOCAL_VAD_INTERRUPT and DUQUE_SPEAKING and not SHUTTING_DOWN:
         now = time.perf_counter()
         if SPEECH_STARTED_AT is None or now - SPEECH_STARTED_AT >= LOCAL_VAD_IGNORE_AFTER_SPEECH:
             VAD_COUNT = VAD_COUNT + 1 if rms(audio) >= LOCAL_VAD_THRESHOLD else 0
@@ -322,11 +354,43 @@ async def send_microphone(session) -> None:
                 return
 
 
+async def respond_now(session) -> None:
+    """Pede a resposta à última fala aceita (o servidor não responde sozinho)."""
+    touch()
+    try:
+        await session.model.send_event(RealtimeModelSendRawMessage(message={"type": "response.create"}))
+    except Exception as exc:
+        log(f"[REALTIME] pedido de resposta falhou: {exc}")
+
+
+async def drop_item(session, item_id: str | None) -> None:
+    """Tira da conversa uma fala de fundo, para o modelo não responder a ela depois."""
+    if not item_id:
+        return
+    try:
+        await session.model.send_event(RealtimeModelSendRawMessage(
+            message={"type": "conversation.item.delete", "other_data": {"item_id": item_id}}
+        ))
+    except Exception as exc:
+        log(f"[GATE] não consegui descartar a fala de fundo: {exc}")
+
+
+async def idle_watch() -> None:
+    """Fecha a conversa depois de um tempo sem ser chamado (volta ao standby)."""
+    while REALTIME and not SHUTTING_DOWN:
+        await asyncio.sleep(1.0)
+        if idle_expired():
+            log(f"[GATE] {IDLE_SECONDS:.0f}s sem ser chamado; voltando a esperar \"Hey Jarvis\".")
+            return
+
+
 def send_text_to_session(text: str) -> bool:
     """Texto digitado no HUD durante a conversa de voz: entra na mesma sessão."""
     loop, session = LOOP, SESSION
     if loop is None or session is None or SHUTTING_DOWN:
         return False
+    touch()
+    GATE.close()
 
     async def deliver() -> None:
         if DUQUE_SPEAKING:
@@ -458,6 +522,8 @@ async def realtime_session() -> None:
         CANCELLED.clear()
     clear_audio()
     reset_voice_processor()
+    GATE.open()
+    touch()
     hud("ouvindo", "Escutando você...")
     player = None
     input_stream = None
@@ -489,7 +555,8 @@ async def realtime_session() -> None:
             mic_task = asyncio.create_task(send_microphone(session))
             event_task = asyncio.create_task(receive_events(session))
             shutdown_task = asyncio.create_task(SHUTDOWN_EVENT.wait())
-            done, pending = await asyncio.wait((mic_task, event_task, shutdown_task), return_when=asyncio.FIRST_COMPLETED)
+            idle_task = asyncio.create_task(idle_watch())
+            done, pending = await asyncio.wait((mic_task, event_task, shutdown_task, idle_task), return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
                 task.cancel()
             for task in pending:
@@ -535,6 +602,7 @@ async def realtime_session() -> None:
         DUQUE_SPEAKING = False
         SPEECH_STARTED_AT = None
         CURRENT_ITEM = None
+        GATE.close()
         hud("standby", "Sistema online")
 
 

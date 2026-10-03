@@ -4,6 +4,7 @@ import asyncio
 
 import duque_wake_v2 as runtime
 from core.voice_bridge import bridge
+from voice.gate import FOLLOW_UP_SECONDS, ends_with_question
 from voice.transcripts import speech_from_event
 
 log = runtime.log
@@ -40,7 +41,8 @@ def safe_microphone_callback(indata, _frames, _time_info, status) -> None:
         return
 
     audio = indata.copy().tobytes()
-    if runtime.DUQUE_SPEAKING and not runtime.SHUTTING_DOWN:
+    # Só o nome "Duque" interrompe (voice/gate.py); barulho não corta a fala.
+    if runtime.LOCAL_VAD_INTERRUPT and runtime.DUQUE_SPEAKING and not runtime.SHUTTING_DOWN:
         now = runtime.time.perf_counter()
         if (
             runtime.SPEECH_STARTED_AT is None
@@ -110,42 +112,120 @@ def request_shutdown() -> None:
         )
 
 
-async def receive_events(session) -> None:
-    """Consumidor de eventos sem despejar deltas de áudio Base64 no terminal."""
+def user_transcript(event) -> tuple[str, str] | None:
+    """(item_id, texto) de uma fala do Du já transcrita."""
+    if getattr(event, "type", "") != "raw_model_event":
+        return None
+    data = getattr(event, "data", None)
+    if getattr(data, "type", "") != "input_audio_transcription_completed":
+        return None
+    text = str(getattr(data, "transcript", "") or "").strip()
+    return (str(getattr(data, "item_id", "") or ""), text) if text else None
+
+
+def raw_server_type(event) -> str:
+    data = getattr(event, "data", None)
+    if getattr(data, "type", "") != "raw_server_event":
+        return ""
+    payload = getattr(data, "data", None)
+    return str(payload.get("type", "")) if isinstance(payload, dict) else ""
+
+
+def busy() -> bool:
+    return runtime.DUQUE_SPEAKING or RESPONDING
+
+
+RESPONDING = False
+TURN = 0
+
+
+async def finish_turn(turn: int, spoken: str) -> None:
+    """Depois que a fala terminou de tocar: trava a audição (ou abre, se perguntou)."""
+    await runtime.wait_playback()
+    if turn != TURN or RESPONDING or runtime.SHUTTING_DOWN or not runtime.REALTIME:
+        return  # outra resposta já começou
     runtime.DUQUE_SPEAKING = False
     runtime.SPEECH_STARTED_AT = None
+    runtime.touch()
+    if ends_with_question(spoken):
+        # Ele perguntou algo: a resposta vale sem dizer "Duque".
+        runtime.GATE.open(FOLLOW_UP_SECONDS)
+        runtime.hud("ouvindo", "Pode responder...")
+    else:
+        runtime.hud_waiting()
+
+
+async def handle_user_speech(session, item_id: str, text: str) -> None:
+    """Aplica o portão: só responde quando chamado; "Duque, stop" interrompe."""
+    speaking = busy()
+    decision = runtime.GATE.decide(text, speaking=speaking)
+    short = text if len(text) <= 70 else text[:67] + "..."
+    runtime.log(f"[GATE] {decision.action} ({decision.reason}): {short!r}")
+    if decision.action == "ignore":
+        await runtime.drop_item(session, item_id)
+        return
+    runtime.touch()
+    if decision.action == "stop":
+        if speaking:
+            await runtime.interrupt_session()
+            runtime.DUQUE_SPEAKING = False
+        await runtime.drop_item(session, item_id)
+        if runtime.GATE.is_open:
+            runtime.hud("ouvindo", "Pode falar...")
+        else:
+            runtime.hud_waiting()
+        return
+    if speaking:
+        await runtime.interrupt_session()
+        runtime.DUQUE_SPEAKING = False
+    await runtime.asyncio.to_thread(bridge.record, "user", text, "voz")
+    if runtime.is_farewell(text):
+        request_shutdown()
+    runtime.hud("processando", "Processando comando...")
+    await runtime.respond_now(session)
+
+
+async def receive_events(session) -> None:
+    """Consumidor de eventos sem despejar deltas de áudio Base64 no terminal."""
+    global RESPONDING, TURN
+    runtime.DUQUE_SPEAKING = False
+    runtime.SPEECH_STARTED_AT = None
+    RESPONDING = False
 
     async for event in session:
         if not runtime.REALTIME:
             return
         kind = getattr(event, "type", "")
 
-        # Registra as falas na conversa única (texto + voz).
+        heard = user_transcript(event)
+        if heard:
+            await handle_user_speech(session, *heard)
+            continue
+
+        # Registra as falas do Duque na conversa única (texto + voz). As do Du só
+        # entram quando o portão aceita (som de fundo fica de fora).
         speech = speech_from_event(event)
-        if speech:
-            role, text = speech
-            await runtime.asyncio.to_thread(bridge.record, role, text, "voz")
+        if speech and speech[0] == "assistant":
+            runtime.LAST_ASSISTANT_TEXT = speech[1]
+            await runtime.asyncio.to_thread(bridge.record, "assistant", speech[1], "voz")
 
         if kind == "tool_start":
+            runtime.touch()
             runtime.hud("executando", "Executando pedido...")
             continue
         if kind == "tool_end":
+            runtime.touch()
             runtime.hud("processando", "Resultado recebido")
             continue
 
         if kind == "raw_model_event":
-            data = getattr(event, "data", None)
-            raw_type = getattr(data, "type", "")
-            if raw_type == "input_audio_buffer.speech_started" and not runtime.SHUTTING_DOWN:
+            if (
+                raw_server_type(event) == "input_audio_buffer.speech_started"
+                and runtime.GATE.is_open
+                and not runtime.SHUTTING_DOWN
+                and not busy()
+            ):
                 runtime.hud("ouvindo", "Escutando você...")
-            text = runtime.extract_raw_text(data, raw_type)
-            if text and runtime.is_farewell(text):
-                request_shutdown()
-
-        elif kind == "history_added":
-            text = runtime.extract_text(getattr(event, "item", event)).strip()
-            if text and runtime.is_farewell(text):
-                request_shutdown()
 
         elif kind == "audio":
             item_id = event.audio.item_id
@@ -159,6 +239,7 @@ async def receive_events(session) -> None:
                 allow_shutdown=allow_shutdown,
             ):
                 continue
+            runtime.touch()
             if not runtime.DUQUE_SPEAKING:
                 runtime.DUQUE_SPEAKING = True
                 runtime.SPEECH_STARTED_AT = runtime.time.perf_counter()
@@ -179,17 +260,19 @@ async def receive_events(session) -> None:
             runtime.reset_voice_processor()
             runtime.DUQUE_SPEAKING = False
             runtime.SPEECH_STARTED_AT = None
+
             if runtime.TRACKER:
                 try:
                     runtime.TRACKER.on_interrupted()
                 except Exception:
                     pass
-            if not runtime.SHUTTING_DOWN:
-                runtime.hud("ouvindo", "Escutando você...")
 
         elif kind == "agent_start":
+            TURN += 1
+            RESPONDING = True
             runtime.DUQUE_SPEAKING = False
             runtime.SPEECH_STARTED_AT = None
+            runtime.touch()
             if not runtime.SHUTTING_DOWN:
                 runtime.hud("processando", "Processando comando...")
 
@@ -197,21 +280,23 @@ async def receive_events(session) -> None:
             pass
 
         elif kind == "agent_end":
-            await runtime.wait_playback()
-            runtime.DUQUE_SPEAKING = False
-            runtime.SPEECH_STARTED_AT = None
+            RESPONDING = False
             if runtime.SHUTTING_DOWN:
+                await runtime.wait_playback()
+                runtime.DUQUE_SPEAKING = False
                 if runtime.SHUTDOWN_EVENT:
                     runtime.SHUTDOWN_EVENT.set()
                 return
-            runtime.hud("ouvindo", "Escutando você...")
+            # Não espera o áudio terminar aqui: o laço precisa continuar lendo
+            # eventos para ouvir "Duque, stop" no meio de uma explicação.
+            spoken = runtime.LAST_ASSISTANT_TEXT
+            runtime.LAST_ASSISTANT_TEXT = ""
+            runtime.asyncio.create_task(finish_turn(TURN, spoken))
 
         elif kind == "error":
+            # Erros do servidor (ex.: resposta já em andamento) não derrubam a
+            # conversa; uma queda real da conexão encerra o laço sozinha.
             runtime.log(f"[REALTIME] erro: {getattr(event, 'error', event)}")
-            # Garante limpeza completa da sessão após erro do modelo/WebSocket.
-            if runtime.SHUTDOWN_EVENT:
-                runtime.SHUTDOWN_EVENT.set()
-            return
 
 
 patch_identity()

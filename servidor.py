@@ -431,6 +431,31 @@ def midia_controle():
     return jsonify({"ok": True, **resultado})
 
 
+@app.route("/api/parar", methods=["POST"])
+def parar_fala():
+    """ "Stop" pelo HUD: corta a fala da conversa de voz na hora."""
+    return jsonify({"ok": True, "voz": bridge.stop_speech()})
+
+
+HUD_APPS = {"whatsapp", "instagram", "spotify", "youtube", "chrome", "gmail", "discord"}
+
+
+@app.route("/api/abrir", methods=["POST"])
+def abrir_app():
+    """Ícones do HUD: abre o app (ou o site no Chrome do Du) sem passar pela conversa."""
+    dados = request.get_json(silent=True) or {}
+    nome = str(dados.get("app", "")).casefold().strip()
+    if nome not in HUD_APPS:
+        return jsonify({"erro": f"App não disponível no HUD: {nome}"}), 400
+    from computer.tools import ComputerTools
+
+    try:
+        resultado = ComputerTools().open_app(nome)
+    except Exception as exc:
+        return jsonify({"erro": f"{type(exc).__name__}: {exc}"}), 503
+    return jsonify({"ok": True, **{k: v for k, v in resultado.items() if k != "command"}})
+
+
 @app.route("/api/conversa", methods=["GET"])
 def conversa():
     if request.args.get("formato") == "texto":

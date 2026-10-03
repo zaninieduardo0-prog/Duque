@@ -44,7 +44,11 @@ def server_online() -> bool:
 def open_interface() -> None:
     time.sleep(2.0)
     try:
-        webbrowser.open_new_tab(URL)
+        from computer.chrome import open_in_chrome
+
+        # Chrome no perfil do Du (sem a tela de escolher conta); senão, o navegador padrão.
+        if not open_in_chrome(URL):
+            webbrowser.open_new_tab(URL)
     except Exception as exc:
         print(f"[DUQUE] Não consegui abrir a interface automaticamente: {exc}", flush=True)
 

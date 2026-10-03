@@ -113,11 +113,16 @@ class ComputerTools:
         return {"index": position, "title": str(result.get("title") or ""), "url": url, "opened": True}
 
     def open_app(self, name: str) -> dict[str, Any]:
-        """Abre um app e confere que ele realmente apareceu (executar ≠ concluir)."""
+        """Abre um app uma única vez e confere se ele apareceu.
+
+        Nunca devolve falha depois de mandar abrir: uma falha fazia o Duque
+        repetir a tentativa (e abrir o app várias vezes). Se o app não estiver
+        instalado, usa a versão web no Chrome do Du quando existir.
+        """
         import platform
         import time
 
-        from .apps import find_app_in_text
+        from .apps import CHROME_NAMES, PROTOCOLS, WEB_FALLBACK, find_app_in_text, protocol_registered
 
         command = resolve_app(name)
         if not command:
@@ -126,9 +131,30 @@ class ComputerTools:
                 name, command = known, resolve_app(known)
         if not command:
             raise ValueError(f"Aplicativo não encontrado: {name}")
-        self.controller.launch(command)
+        key = name.casefold().strip()
+        windows = platform.system() == "Windows"
         result: dict[str, Any] = {"app": name, "command": command, "opened": True}
-        if platform.system() == "Windows" and PROCESS_NAMES.get(name.casefold().strip()):
+
+        # Sites cadastrados como app (YouTube, Gmail...) abrem no Chrome do Du.
+        target = command[-1] if isinstance(command, list) and command else ""
+        if isinstance(target, str) and target.startswith(("http://", "https://")):
+            self.controller.open_url(target)
+            return {**result, "url": target, "message": f"Abri {name} no navegador."}
+
+        if key in CHROME_NAMES and windows and self.controller.open_chrome():
+            return {**result, "message": "Abri o Chrome no seu perfil."}
+
+        web = WEB_FALLBACK.get(key)
+        protocol = PROTOCOLS.get(key)
+        if windows and protocol and web and not protocol_registered(protocol):
+            self.controller.open_url(web)
+            return {
+                **result, "url": web, "web": True,
+                "message": f"O app do {name} não está instalado; abri a versão web no Chrome.",
+            }
+
+        self.controller.launch(command)
+        if windows and PROCESS_NAMES.get(key):
             deadline = time.monotonic() + self.verify_seconds
             while time.monotonic() < deadline:
                 try:
@@ -138,12 +164,11 @@ class ComputerTools:
                 except Exception:
                     break
                 time.sleep(0.7)
-            return {
-                **result,
-                "opened": False,
-                "success": False,
-                "error": f"Mandei abrir {name}, mas não vi o processo dele em {self.verify_seconds:g} s. Ele pode não estar instalado.",
-            }
+            result["verified"] = False
+            result["message"] = (
+                f"Mandei abrir o {name}; ainda não vi a janela, mas ele pode estar carregando. "
+                "Não tente abrir de novo sem o Du pedir."
+            )
         return result
 
     def open_url(self, url: str) -> dict[str, Any]:
