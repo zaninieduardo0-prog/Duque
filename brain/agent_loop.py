@@ -36,6 +36,7 @@ from .autonomous_loop import AutonomousLoop
 from .model import ModelAdapter, NullModel, OpenAIResponsesModel
 from .persona import text_system_prompt
 from .routines import Routines
+from .voice_style import list_voices, set_voice
 from .when import describe_moment, parse_when
 from .model_planner import ModelPlanner
 from .planner import Planner, StepKind
@@ -266,7 +267,8 @@ class AgentLoop:
             ToolSpec("is_app_running", "Verifica se um aplicativo está em execução", ("name",), {"name": str}),
             ToolSpec("open_url", "Abre uma URL no navegador; pode ser usada para serviços web como WhatsApp Web", ("url",), {"url": str}),
             ToolSpec("open_path", "Abre um caminho existente", ("path",), {"path": str}),
-            ToolSpec("web_search", "Pesquisa na web sem abrir o navegador", ("query",), {"query": str}),
+            ToolSpec("web_search", "Pesquisa na web sem abrir o navegador (se falhar, abre o Google)", ("query",), {"query": str}),
+            ToolSpec("google_search", "Abre a pesquisa do Google no navegador", ("query",), {"query": str}),
             ToolSpec("open_search_result", "Abre no navegador um resultado da pesquisa recente", (), {"index": int}),
             ToolSpec("read_file", "Lê um arquivo do workspace", ("path",), {"path": str}),
             ToolSpec("read_many_files", "Lê vários arquivos do workspace", ("paths",), {"paths": list}),
@@ -365,6 +367,8 @@ class AgentLoop:
             (ToolSpec("contacts_list", "Lista os contatos salvos"), self.messaging.contacts_list),
             (ToolSpec("whatsapp_message", "Abre o WhatsApp com a mensagem pronta para o contato; o Du confere e envia", ("text",), {"contact": str, "text": str}), self.messaging.whatsapp_message),
             (ToolSpec("day_summary", "Resumo do dia: o que foi feito, o que falhou e a agenda de amanhã"), self.day_summary),
+            (ToolSpec("set_voice", "Troca a voz do Duque (ballad, cedar, ash, echo, verse, alloy, marin, sage)", ("name",), {"name": str}), lambda name: set_voice(self.memory, name)),
+            (ToolSpec("list_voices", "Lista as vozes disponíveis e a atual"), lambda: list_voices(self.memory)),
             (ToolSpec("reminder_at", "Cria um lembrete em data/hora (ex.: 'amanhã às 9h', 'sexta às 18:30'); sobrevive a reinícios", ("when",), {"when": str, "text": str}), self.reminder_at),
             (ToolSpec("reminders_list", "Lista os lembretes agendados"), self.reminders_list),
             (ToolSpec("reminder_cancel", "Cancela o lembrete de número indicado (0 = todos)", (), {"index": int}), self.reminder_cancel),

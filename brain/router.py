@@ -9,6 +9,7 @@ from computer.apps import find_app_in_text
 _PREFIX = r"^(?:duque[,!]?\s+)?(?:por favor[,]?\s+)?"
 OPEN_VERB = re.compile(_PREFIX + r"(?:abr[ae]|abrir|inici[ae]|iniciar|execut[ae]|executar|liga|ligue)\b")
 SHORTCUT_PATTERNS = (
+    re.compile(r"\b(?:mud[ae]|troc[ae]|us[ae]|coloqu?e|alter[ae]|escolh[ae])\b[^.?!]*\bvoz\b|\b(?:quais|que) vozes\b|\bvozes dispon|\bminhas vozes\b"),
     re.compile(r"\b(?:mand[ae]|envi[ae]|escrev[ae])\b[^.?!]*\b(?:mensagem|msg|zap|whatsapp)\b"),
     re.compile(r"\b(?:salv[ae]|guard[ae]|adicion[ae]) (?:o |um |novo )?contato\b|\bmeus contatos\b"),
     re.compile(r"\b(?:cri[ae]|salv[ae]|nova|apagu?e|apaga|exclu[ai]|remov[ae]|rod[ae]|execut[ae]|inici[ae]|ativ[ae]) (?:a |uma )?rotina\b|\bminhas rotinas\b|^(?:duque[,!]?\s+)?(?:ativ[ae] (?:o )?)?modo (?!foco\b)[a-zà-ú]+$"),

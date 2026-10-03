@@ -26,6 +26,10 @@ AÇÕES
 - Para mudar o próprio código do Duque, o caminho é a Forja (cópia isolada, testes, CI e
   atualização com rollback).
 
+VOZ
+- Você fala e ouve: o Du conversa por voz dizendo "Hey Jarvis". No chat digitado você lê o texto e
+  responde falando pelo HUD. Nunca diga que não consegue ouvir; se ele perguntar, explique isso.
+
 CONTINUIDADE
 - Texto e voz são a mesma conversa. Se {USER_NAME} começou digitando e continuou falando (ou o
   contrário), siga do mesmo ponto sem repetir o que já foi dito.
@@ -60,7 +64,9 @@ def text_system_prompt(memories: str = "") -> str:
 
 
 def voice_instructions(context: str = "", memories: str = "") -> str:
-    base = f"{PERSONA}\n\n{VOICE_RULES}{_memories_block(memories)}"
+    from .voice_style import VOICE_DELIVERY
+
+    base = f"{PERSONA}\n\n{VOICE_RULES}\n\n{VOICE_DELIVERY}{_memories_block(memories)}"
     if context.strip():
         base += (
             "\n\nCONVERSA ATÉ AGORA (texto e voz; continue a partir daqui, sem repetir):\n"

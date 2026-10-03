@@ -192,6 +192,10 @@ body{
   color:var(--warm-white);font-family:inherit;font-size:12px;letter-spacing:.1em;padding:7px 2px}
 #memNew:focus{outline:none;border-color:rgba(232,168,56,.6)}
 #memClose{position:absolute;top:22px;right:28px}
+#memVoices li{align-items:center}
+#memVoices li.on span:first-child{color:var(--gold-hot)}
+#memVoices .desc{display:block;font-size:10px;letter-spacing:.06em;color:rgba(246,234,214,.42);margin-top:2px}
+#memVoices .acts{display:flex;gap:14px;flex:none}
 
 @media (max-width:820px){
   #telemetry{display:none}
@@ -307,6 +311,10 @@ body{
     <div id="memCard">
       <h3>Memória</h3>
       <div class="sub">O que o Duque sabe e está acompanhando</div>
+      <section>
+        <div class="label">Voz do Duque</div>
+        <ul id="memVoices"></ul>
+      </section>
       <section>
         <div class="label">Anotações</div>
         <ul id="memNotes"></ul>
@@ -993,7 +1001,7 @@ function showResponse(text){
   box.classList.toggle('show', Boolean(text));
 }
 
-async function speakResponse(text){
+async function speakResponse(text, voz){
   const value=(text||'').trim();
   if(!value) return;
 
@@ -1037,7 +1045,7 @@ async function speakResponse(text){
     const response=await fetch('/api/fala',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({text:value})
+      body:JSON.stringify(voz ? {text:value, voz} : {text:value})
     });
     if(!response.ok){
       let message='Falha ao gerar voz.';
@@ -1286,8 +1294,28 @@ async function loadMemory(){
     if(!(m.lembretes||[]).length) agenda.innerHTML='<li class="empty">Nada agendado. Diga "me lembra amanhã às 9h de…".</li>';
   }catch(e){}
 }
+async function loadVoices(){
+  try{
+    const r=await fetch('/api/voz',{cache:'no-store'});
+    const v=await r.json();
+    const box=$('memVoices'); box.innerHTML='';
+    Object.entries(v.vozes||{}).forEach(([nome,desc])=>{
+      const li=document.createElement('li');
+      if(nome===v.atual) li.className='on';
+      const info=document.createElement('span');
+      info.textContent=nome+(nome===v.atual?' · atual':'');
+      const d=document.createElement('span'); d.className='desc'; d.textContent=desc; info.appendChild(d);
+      const acts=document.createElement('span'); acts.className='acts';
+      const ouvir=document.createElement('button'); ouvir.className='ghost'; ouvir.textContent='Ouvir';
+      ouvir.onclick=()=>speakResponse(v.amostra, nome);
+      const usar=document.createElement('button'); usar.className='ghost'; usar.textContent=nome===v.atual?'Em uso':'Usar';
+      usar.onclick=async()=>{ await fetch('/api/voz',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({voz:nome})}); loadVoices(); };
+      acts.append(ouvir,usar); li.append(info,acts); box.appendChild(li);
+    });
+  }catch(e){}
+}
 let memTimer=null;
-function openMemory(){ $('memPanel').classList.add('on'); loadMemory(); memTimer=setInterval(loadMemory,1000); }
+function openMemory(){ $('memPanel').classList.add('on'); loadMemory(); loadVoices(); memTimer=setInterval(loadMemory,1000); }
 function closeMemory(){ $('memPanel').classList.remove('on'); clearInterval(memTimer); $('cmd').focus(); }
 $('memBtn').onclick=openMemory;
 $('memClose').onclick=closeMemory;

@@ -144,11 +144,13 @@ class Planner:
             )])
 
         if intent == "search":
-            if not tool_available("web_search"):
+            query = self.search_query(goal)
+            lowered = goal.casefold()
+            wants_browser = any(word in lowered for word in ("google", "navegador", "página", "pagina", "chrome", "abra", "abre", "abrir"))
+            tool = "google_search" if wants_browser and tool_available("google_search") else "web_search"
+            if not tool_available(tool):
                 return Plan(goal)
-            return Plan(goal, [PlanStep(
-                f"Pesquisar: {goal}", StepKind.TOOL, "web_search", {"query": goal},
-            )])
+            return Plan(goal, [PlanStep(f"Pesquisar: {query}", StepKind.TOOL, tool, {"query": query})])
 
         if intent == "file_operation":
             lowered = goal.casefold()
@@ -239,6 +241,16 @@ class Planner:
         return Plan(goal, [PlanStep("Responder à solicitação", StepKind.RESPOND)])
 
     @staticmethod
+    def search_query(goal: str) -> str:
+        """Tira o pedido em volta e deixa só o que pesquisar."""
+        text = goal.strip()
+        match = re.search(r"\b(?:pesquis[ae]r?|procur[ae]r?|busc[ae]r?)\b\s*(?:no google|na internet|na web|sobre|por)?\s*[:,]?\s*(.+)$", text, flags=re.IGNORECASE)
+        if match:
+            text = match.group(1)
+        text = re.sub(r"\s*(?:no google|na internet|na web|no navegador|por aqui mesmo)\s*", " ", text, flags=re.IGNORECASE)
+        return text.strip(" .,!?") or goal.strip()
+
+    @staticmethod
     def parse_duration(text: str) -> float | None:
         """Soma durações como "1 hora e 30 minutos" em segundos."""
         total = 0.0
@@ -310,6 +322,13 @@ class Planner:
     def _social_plan(goal: str, lowered: str, single) -> Plan | None:
         """WhatsApp, contatos, rotinas e resumo do dia."""
         text = goal.strip()
+        if "voz" in lowered or "vozes" in lowered:
+            from .voice_style import VOICES
+
+            chosen = next((name for name in VOICES if re.search(rf"\b{name}\b", lowered)), None)
+            if chosen and re.search(r"\b(?:mud|troc|us|coloqu?|alter|escolh)\w*", lowered):
+                return single("Trocar a voz", "set_voice", {"name": chosen})
+            return single("Listar vozes", "list_voices", {})
         if re.search(r"\b(?:mand[ae]|envi[ae]|escrev[ae])\b[^.?!]*\b(?:mensagem|msg|zap|whatsapp)\b", lowered):
             match = re.search(
                 r"\b(?:para|pro|pra|ao|à)\s+(?:o |a )?(.+?)(?:\s+(?:no|pelo) (?:whatsapp|zap))?(?:\s+(?:dizendo(?: que)?|falando(?: que)?|escrito|com o texto|que)\s+|\s*:\s*)(.+)$",

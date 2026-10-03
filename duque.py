@@ -20,7 +20,6 @@ hide_console_windows()
 
 os.environ.setdefault("DUQUE_WORKSPACE_ROOT", str(ROOT))
 os.environ.setdefault("DUQUE_AUTONOMOUS_AGENT", "1")
-os.environ.setdefault("DUQUE_VOICE", "cedar")
 os.environ.setdefault("DUQUE_PITCH", "-2.0")
 os.environ.setdefault("DUQUE_VOICE_SPEED", "0.96")
 os.environ.setdefault("DUQUE_VOICE_PROCESSING", "0")

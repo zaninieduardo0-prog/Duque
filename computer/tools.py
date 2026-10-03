@@ -59,20 +59,37 @@ class ComputerTools:
         self.controller = controller or ComputerController()
         self._last_search: dict[str, Any] | None = None
 
+    def google_search(self, query: str) -> dict[str, Any]:
+        """Abre a pesquisa do Google no navegador."""
+        query = query.strip()
+        if not query:
+            raise ValueError("query não pode ser vazio")
+        url = "https://www.google.com/search?q=" + quote_plus(query)
+        self.controller.open_url(url)
+        return {"query": query, "url": url, "opened": True, "message": f"Abri a pesquisa no Google: {query}."}
+
     def web_search(self, query: str) -> dict[str, Any]:
         query = query.strip()
         if not query:
             raise ValueError("query não pode ser vazio")
-        url = "https://html.duckduckgo.com/html/?q=" + quote_plus(query)
-        request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urlopen(request, timeout=15) as response:
-            html = response.read().decode("utf-8", errors="replace")
-        parser = _SearchParser()
-        parser.feed(html)
-        results = [
-            {"title": item["title"], "url": _normalize_search_url(item["url"])}
-            for item in parser.results[:8]
-        ]
+        results: list[dict[str, str]] = []
+        try:
+            url = "https://html.duckduckgo.com/html/?q=" + quote_plus(query)
+            request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urlopen(request, timeout=15) as response:
+                html = response.read().decode("utf-8", errors="replace")
+            parser = _SearchParser()
+            parser.feed(html)
+            results = [
+                {"title": item["title"], "url": _normalize_search_url(item["url"])}
+                for item in parser.results[:8]
+            ]
+        except Exception:
+            results = []
+        if not results:
+            # A busca sem navegador falha com frequência (bloqueio/captcha):
+            # em vez de dizer "nenhum resultado", abre o Google para o Du.
+            return self.google_search(query)
         payload = {"query": query, "results": results, "count": len(results)}
         self._last_search = payload
         return payload
@@ -194,6 +211,7 @@ class ComputerTools:
 
     def register(self, executor: Any) -> None:
         executor.register("web_search", self.web_search)
+        executor.register("google_search", self.google_search)
         executor.register("open_search_result", self.open_search_result)
         executor.register("open_app", self.open_app)
         executor.register("close_app", self.close_app)

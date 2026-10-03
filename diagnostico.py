@@ -47,7 +47,8 @@ def check_python() -> Check:
     if version < (3, 11):
         return Check(FAIL, "Python", f"{version.major}.{version.minor} — precisa 3.11 ou mais novo")
     in_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
-    return Check(OK if in_venv else WARN, "Python", f"{version.major}.{version.minor}" + ("" if in_venv else " — fora da .venv"))
+    detail = f"{version.major}.{version.minor} ({sys.executable})"
+    return Check(OK if in_venv else WARN, "Python", detail + ("" if in_venv else " — fora da .venv: rode pelo preparar_duque.bat"))
 
 
 def check_packages() -> list[Check]:

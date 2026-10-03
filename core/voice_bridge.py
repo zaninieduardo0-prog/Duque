@@ -24,6 +24,7 @@ class VoiceBridge:
         self._recorder: Callable[[str, str, str], Any] | None = None
         self._context: Callable[[], str] | None = None
         self._memories: Callable[[], str] | None = None
+        self._voice: Callable[[], str] | None = None
 
     # lado da voz ------------------------------------------------------------
     def attach_session(self, send_text: Callable[[str], bool], stop_speech: Callable[[], None] | None = None) -> None:
@@ -60,12 +61,14 @@ class VoiceBridge:
         recorder: Callable[[str, str, str], Any],
         context: Callable[[], str],
         memories: Callable[[], str] | None = None,
+        voice: Callable[[], str] | None = None,
     ) -> None:
         with self._lock:
             self._executor = executor
             self._recorder = recorder
             self._context = context
             self._memories = memories
+            self._voice = voice
 
     def execute(self, request: str) -> str:
         """Executa um pedido pelo cérebro do Duque (usado pelas ferramentas da voz)."""
@@ -99,6 +102,19 @@ class VoiceBridge:
         except Exception:
             return ""
 
+
+    def voice(self, default: str = "") -> str:
+        """Voz escolhida pelo Du (a mesma do TTS do HUD)."""
+        with self._lock:
+            provider = self._voice
+        try:
+            if provider is not None:
+                return provider() or default
+            request = urllib.request.Request(f"{SERVER}/api/voz")
+            with urllib.request.urlopen(request, timeout=2) as response:
+                return json.loads(response.read().decode("utf-8")).get("atual") or default
+        except Exception:
+            return default
 
     def memories(self) -> str:
         with self._lock:

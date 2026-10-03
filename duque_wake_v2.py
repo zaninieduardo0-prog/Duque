@@ -22,7 +22,7 @@ from core.voice_bridge import bridge
 from voice.session import PlaybackFence
 
 MODEL = os.getenv("DUQUE_REALTIME_MODEL", "gpt-realtime-2.1")
-VOICE = os.getenv("DUQUE_VOICE", "cedar")
+VOICE = os.getenv("DUQUE_VOICE", "ballad")
 MICROFONE = int(os.getenv("DUQUE_MIC", "1"))
 WAKE_MICROFONE = int(os.getenv("DUQUE_WAKE_MIC", os.getenv("DUQUE_MIC", "1")))
 SAMPLE_RATE = 24000
@@ -58,29 +58,40 @@ model = OpenAIRealtimeWebSocketModel(transport_config={
     "ping_interval": 20.0, "ping_timeout": 60.0,
     "handshake_timeout": 30.0, "max_size": 8 * 1024 * 1024,
 })
-runner = RealtimeRunner(
-    starting_agent=duque_realtime,
-    model=model,
-    config={
-        "model_settings": {
-            "model_name": MODEL,
-            "audio": {
-                "input": {
-                    "format": "pcm16",
-                    "noise_reduction": {"type": "far_field"},
-                    "transcription": {"model": "gpt-4o-mini-transcribe", "language": "pt"},
-                    "turn_detection": {
-                        "type": "server_vad", "threshold": 0.3,
-                        "prefix_padding_ms": 300, "silence_duration_ms": 250,
-                        "interrupt_response": True, "create_response": True,
+def build_runner(voice: str) -> RealtimeRunner:
+    """Monta a sessão com a voz escolhida pelo Du (muda sem reiniciar o Duque)."""
+    return RealtimeRunner(
+        starting_agent=duque_realtime,
+        model=model,
+        config={
+            "model_settings": {
+                "model_name": MODEL,
+                "audio": {
+                    "input": {
+                        "format": "pcm16",
+                        "noise_reduction": {"type": "far_field"},
+                        "transcription": {"model": "gpt-4o-mini-transcribe", "language": "pt"},
+                        "turn_detection": {
+                            # 500 ms de silêncio antes de responder: com 250 ms ele
+                            # cortava o Du no meio da frase.
+                            "type": "server_vad", "threshold": 0.4,
+                            "prefix_padding_ms": 300, "silence_duration_ms": 500,
+                            "interrupt_response": True, "create_response": True,
+                        },
                     },
+                    "output": {"format": "pcm16", "voice": voice},
                 },
-                "output": {"format": "pcm16", "voice": VOICE},
             },
+            "tracing_disabled": True,
         },
-        "tracing_disabled": True,
-    },
-)
+    )
+
+
+def current_voice() -> str:
+    return bridge.voice(VOICE) or VOICE
+
+
+runner = build_runner(VOICE)
 
 state_lock = threading.Lock()
 REALTIME = False
@@ -444,7 +455,9 @@ async def realtime_session() -> None:
             await asyncio.to_thread(refresh_instructions)
         except Exception as exc:
             log(f"[REALTIME] contexto da conversa indisponível: {exc}")
-        session = await runner.run(model_config={"playback_tracker": TRACKER})
+        voice = await asyncio.to_thread(current_voice)
+        log(f"[REALTIME] sessão com a voz {voice}")
+        session = await build_runner(voice).run(model_config={"playback_tracker": TRACKER})
         async with session:
             SESSION = session
             bridge.attach_session(send_text_to_session, stop_speech_from_core)
@@ -519,7 +532,17 @@ def wake_loop() -> None:
         / "hey_jarvis_v0.1.onnx"
     )
     if not wake_model_path.exists():
+        # Instalações em que o modelo não veio junto: baixa na hora (uma vez só).
+        log(f"[WAKE] modelo ausente em {wake_model_path.parent}; baixando agora...")
+        try:
+            import openwakeword.utils as oww_utils
+
+            oww_utils.download_models(model_names=["hey_jarvis"])
+        except Exception as exc:
+            log(f"[WAKE] download do modelo falhou: {type(exc).__name__}: {exc}")
+    if not wake_model_path.exists():
         raise RuntimeError(f"Modelo wake word não encontrado: {wake_model_path}")
+    log("[WAKE] modelo pronto.")
 
     log(
         f"[WAKE] inicializando | modelo={wake_model_path.name} | "

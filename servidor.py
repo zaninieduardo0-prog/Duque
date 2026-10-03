@@ -9,6 +9,8 @@ from openai import OpenAI
 
 from brain.agent_loop import AgentLoop
 from core.events import Event, EventType
+from brain.voice_style import SAMPLE as VOICE_SAMPLE
+from brain.voice_style import TTS_INSTRUCTIONS, TTS_SPEED, VOICES, current_voice, set_voice
 from core.voice_bridge import bridge
 from core.state import DuqueState
 
@@ -156,6 +158,7 @@ bridge.attach_core(
     recorder=lambda role, text, channel: agent.conversation.add(role, text, channel),
     context=lambda: agent.conversation.transcript(12),
     memories=agent.memory_digest,
+    voice=lambda: current_voice(agent.memory),
 )
 
 
@@ -210,24 +213,31 @@ def gerar_fala():
     if openai_client is None:
         return jsonify({"erro": "OPENAI_API_KEY não configurada."}), 503
 
+    voz = dados.get("voz") if dados.get("voz") in VOICES else current_voice(agent.memory)
     try:
         audio = openai_client.audio.speech.create(
             model="gpt-4o-mini-tts",
-            voice="cedar",
+            voice=voz,
             input=texto.strip(),
-            instructions=(
-                "Fale em português do Brasil. "
-                "Voz masculina, grave e encorpada, com timbre mais baixo, natural, calma e confiante, "
-                "como um assistente pessoal futurista. Fale em ritmo controlado, com presença e autoridade, "
-                "sem soar robótico ou exagerado. "
-                "Não leia símbolos de formatação nem descreva a instrução."
-            ),
+            instructions=TTS_INSTRUCTIONS,
             response_format="mp3",
-            speed=0.96,
+            speed=TTS_SPEED,
         )
         return Response(audio.content, mimetype="audio/mpeg")
     except Exception as exc:
         return jsonify({"erro": f"{type(exc).__name__}: {exc}"}), 500
+
+
+@app.route("/api/voz", methods=["GET"])
+def voz_status():
+    return jsonify({"atual": current_voice(agent.memory), "vozes": VOICES, "amostra": VOICE_SAMPLE})
+
+
+@app.route("/api/voz", methods=["POST"])
+def voz_escolher():
+    dados = request.get_json(silent=True) or {}
+    resultado = set_voice(agent.memory, str(dados.get("voz", "")))
+    return jsonify(resultado), (400 if resultado.get("success") is False else 200)
 
 
 @app.route("/api/estado", methods=["GET"])
