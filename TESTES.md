@@ -207,6 +207,13 @@ Ajustes opcionais (PowerShell, depois reinicie o Duque):
 | 4J.11 | Um pedido sem ferramenta pronta, ex.: `abra o Paint e escreva TELEX na tela` | O operador tenta sozinho (olha a tela, clica, confere) e conta o que fez; se não der, explica por quê |
 | 4J.12 | `pague meu boleto` | Diz honestamente que não consegue (e o que faltaria), sem tentar à toa |
 
+## 4K. Inicialização rápida
+
+| # | Ação | Esperado |
+|---|------|----------|
+| 4K.1 | `wscript .\Duque.vbs` | O HUD abre assim que o servidor responde, sem esperar a voz carregar |
+| 4K.2 | `Get-Content .\duque.log -Tail 40` | Linhas `[INÍCIO] núcleo carregado em X s`, `servidor respondendo...` e `voz carregada em Y s`; mande para o Claude se algo passar de ~10 s |
+
 ## 5. Forja
 
 | # | Ação | Esperado |
