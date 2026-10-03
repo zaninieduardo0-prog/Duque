@@ -1,10 +1,12 @@
-"""Portão de audição: o Duque só responde quando é chamado.
+"""Portão de audição: o TELEX só responde quando é chamado.
 
 Regras (pedido do Du):
-- Depois de "Hey Jarvis" a primeira frase vale sem dizer o nome.
+- Depois de acordar ("Bom dia, TELEX" ou "Hey Jarvis") a primeira frase vale
+  sem dizer o nome.
 - Depois de cada pedido a audição "trava": falas de fundo são ignoradas até
-  ele dizer "Duque" de novo.
-- "Duque, stop" (ou só "Duque" enquanto ele fala) interrompe na hora.
+  ele dizer "Telex" de novo.
+- "Telex, stop" (ou só "Telex" enquanto ele fala) interrompe na hora.
+- "Repousar, Telex" volta ao standby na hora.
 - Se o Duque terminar com uma pergunta, a próxima frase vale por alguns
   segundos sem precisar do nome.
 """
@@ -19,8 +21,11 @@ from dataclasses import dataclass
 from threading import Lock
 from typing import Callable, Literal
 
-# A transcrição às vezes escreve "Duke" ou "Duck"; "Jarvis" também chama.
-WAKE_NAMES = frozenset({"duque", "duke", "duck", "duk", "jarvis", "javis"})
+# Nome atual: TELEX (a transcrição às vezes escreve "Teles" ou "Tele X").
+# "Duque" e "Jarvis" continuam chamando, para não quebrar o costume.
+TELEX_NAMES = frozenset({"telex", "teles", "telecs", "teleks", "telexi", "talex", "telax"})
+WAKE_NAMES = TELEX_NAMES | frozenset({"duque", "duke", "duck", "duk", "jarvis", "javis"})
+SLEEP_WORDS = frozenset({"repousar", "repousa", "repouse", "repouso", "repousando"})
 STOP_WORDS = frozenset({
     "stop", "stopa", "para", "pare", "parar", "chega", "silencio", "cala", "calaboca", "quieto",
     "cancela", "cancelar", "esquece", "espera", "pausa", "basta", "shh", "psiu",
@@ -32,12 +37,13 @@ FILLER = frozenset({"ei", "hey", "hei", "oi", "ok", "okay", "o", "a", "por", "fa
 OPEN_SECONDS = float(os.getenv("DUQUE_OPEN_SECONDS", "12"))
 FOLLOW_UP_SECONDS = float(os.getenv("DUQUE_FOLLOW_UP_SECONDS", "8"))
 
-Action = Literal["ignore", "stop", "respond"]
+Action = Literal["ignore", "stop", "respond", "sleep"]
 
 
 def words(text: str) -> list[str]:
     normalized = unicodedata.normalize("NFKD", (text or "").casefold())
     plain = "".join(char for char in normalized if not unicodedata.combining(char))
+    plain = re.sub(r"\btele[\s-]*(x|xis|ex|cs|ks)\b", "telex", plain)
     return re.findall(r"[a-z0-9]+", plain)
 
 
@@ -52,6 +58,12 @@ def is_stop(text: str) -> bool:
         any(word in STOP_WORDS for word in rest)
         and all(word in STOP_WORDS or word in STOP_EXTRA for word in rest)
     )
+
+
+def is_sleep(text: str) -> bool:
+    """ "Repousar, Telex" (só isso, com ou sem "agora")."""
+    rest = [word for word in words(text) if word not in WAKE_NAMES and word not in FILLER]
+    return bool(rest) and all(word in SLEEP_WORDS for word in rest)
 
 
 def only_name(text: str) -> bool:
@@ -89,6 +101,9 @@ class ListenGate:
         if not words(transcript):
             return Decision("ignore", "vazio")
         called = addressed(transcript)
+        if (called or self.is_open) and is_sleep(transcript):
+            self.close()
+            return Decision("sleep", "pediu para repousar")
         if (called or self.is_open) and is_stop(transcript):
             self.close()
             return Decision("stop", "pediu para parar")

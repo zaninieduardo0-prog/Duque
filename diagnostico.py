@@ -170,8 +170,25 @@ def run_tests() -> Check:
     return Check(OK if completed.returncode == 0 else FAIL, "testes automáticos", tail[0])
 
 
+def check_local_wake() -> Check:
+    """Ativação "Bom dia, TELEX" (Vosk, local). Sem ela o TELEX acorda com "Hey Jarvis"."""
+    from voice import local_wake
+
+    model_dir = local_wake.find_model()
+    if model_dir is None:
+        return Check(WARN, "ativação Bom dia, TELEX", "modelo não baixado: rode  python -m voice.local_wake --baixar  (por ora só \"Hey Jarvis\")")
+    try:
+        import vosk  # type: ignore[import-not-found]
+
+        vosk.SetLogLevel(-1)
+        listener = local_wake.LocalWake(vosk.Model(str(model_dir)), vosk.KaldiRecognizer)
+    except Exception as exc:
+        return Check(WARN, "ativação Bom dia, TELEX", f"{type(exc).__name__}: {exc} (por ora só \"Hey Jarvis\")")
+    return Check(OK, "ativação Bom dia, TELEX", f"{model_dir.name}; nome como {', '.join(listener.names)}")
+
+
 def collect(with_tests: bool = False) -> list[Check]:
-    checks = [check_python(), *check_packages(), *check_keys(), check_wakeword(), *check_microphones(), check_chrome(), *check_git(), check_port()]
+    checks = [check_python(), *check_packages(), *check_keys(), check_wakeword(), check_local_wake(), *check_microphones(), check_chrome(), *check_git(), check_port()]
     if with_tests:
         checks.append(run_tests())
     return checks

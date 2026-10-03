@@ -4,7 +4,8 @@ import asyncio
 
 import duque_wake_v2 as runtime
 from core.voice_bridge import bridge
-from voice.gate import FOLLOW_UP_SECONDS, ends_with_question
+from core.emergency import is_pause_command
+from voice.gate import FOLLOW_UP_SECONDS, OPEN_SECONDS, addressed, ends_with_question
 from voice.transcripts import speech_from_event
 
 log = runtime.log
@@ -147,7 +148,12 @@ async def finish_turn(turn: int, spoken: str) -> None:
     runtime.DUQUE_SPEAKING = False
     runtime.SPEECH_STARTED_AT = None
     runtime.touch()
-    if ends_with_question(spoken):
+    if runtime.GREETING_TURN:
+        # Respondeu ao "Bom dia, TELEX": o primeiro pedido vale sem o nome.
+        runtime.GREETING_TURN = False
+        runtime.GATE.open(OPEN_SECONDS)
+        runtime.hud("ouvindo", "Pode falar...")
+    elif ends_with_question(spoken):
         # Ele perguntou algo: a resposta vale sem dizer "Duque".
         runtime.GATE.open(FOLLOW_UP_SECONDS)
         runtime.hud("ouvindo", "Pode responder...")
@@ -156,15 +162,28 @@ async def finish_turn(turn: int, spoken: str) -> None:
 
 
 async def handle_user_speech(session, item_id: str, text: str) -> None:
-    """Aplica o portão: só responde quando chamado; "Duque, stop" interrompe."""
+    """Aplica o portão: só responde quando chamado; "Telex, stop" interrompe."""
     speaking = busy()
-    decision = runtime.GATE.decide(text, speaking=speaking)
     short = text if len(text) <= 70 else text[:67] + "..."
+    if (addressed(text) or runtime.GATE.is_open) and is_pause_command(text):
+        # "Telex, pausa tudo": para tudo e guarda onde parou (core/emergency.py).
+        runtime.log(f"[GATE] pausa de emergência: {short!r}")
+        await runtime.drop_item(session, item_id)
+        await runtime.asyncio.to_thread(
+            runtime.post_server, "/api/emergencia", {"acao": "pausar", "origem": "voz"}
+        )
+        return
+    decision = runtime.GATE.decide(text, speaking=speaking)
     runtime.log(f"[GATE] {decision.action} ({decision.reason}): {short!r}")
     if decision.action == "ignore":
         await runtime.drop_item(session, item_id)
         return
     runtime.touch()
+    if decision.action == "sleep":
+        # "Repousar, Telex": standby na hora, sem despedida.
+        await runtime.drop_item(session, item_id)
+        runtime.end_session_now("repousar")
+        return
     if decision.action == "stop":
         if speaking:
             await runtime.interrupt_session()
@@ -243,7 +262,7 @@ async def receive_events(session) -> None:
             if not runtime.DUQUE_SPEAKING:
                 runtime.DUQUE_SPEAKING = True
                 runtime.SPEECH_STARTED_AT = runtime.time.perf_counter()
-                runtime.hud("falando", "Duque falando...")
+                runtime.hud("falando", "TELEX falando...")
             runtime.enqueue_audio(
                 event.audio.data,
                 item_id,
@@ -307,7 +326,7 @@ runtime.microphone_callback = safe_microphone_callback
 
 if __name__ == "__main__":
     runtime.log(
-        f"Duque Realtime v3 | modelo={runtime.MODEL} | voz={runtime.VOICE} | "
+        f"TELEX Realtime v3 | modelo={runtime.MODEL} | voz={runtime.VOICE} | "
         f"processamento={'on' if runtime.VOICE_PROCESSING else 'off'}"
     )
     runtime.wake_loop()

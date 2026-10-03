@@ -40,7 +40,7 @@ DUQUE_REALTIME_INSTRUCTIONS = voice_instructions()
 def _build_agent() -> RealtimeAgent:
     """Cria o agente de voz sem depender de estado global do servidor."""
     return RealtimeAgent(
-        name="Duque",
+        name="TELEX",
         instructions=DUQUE_REALTIME_INSTRUCTIONS,
         tools=[executar_no_duque],
     )

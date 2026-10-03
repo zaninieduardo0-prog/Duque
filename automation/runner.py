@@ -28,6 +28,8 @@ class ScheduledTaskRunner:
         self.tasks = tasks or task_engine.tasks
         self.event_sink = event_sink
         self.reminder_handler = reminder_handler
+        # Pausa de emergência: lembretes e tarefas agendadas esperam a retomada.
+        self.pause: Any | None = None
         self.scheduler.executor = self.run
 
     def _emit(self, event: EventType, **data: Any) -> None:
@@ -35,6 +37,8 @@ class ScheduledTaskRunner:
             self.event_sink(event, **data)
 
     def run(self, job: ScheduledJob) -> ScheduledExecution:
+        if self.pause is not None:
+            self.pause.checkpoint(f"agenda:{job.id}", {"trabalho": f"Agenda: {job.description}"[:90], "etapa": "aguardando a hora"})
         kind = str(job.metadata.get("kind", "reminder"))
         if kind == "reminder":
             return self._run_reminder(job)

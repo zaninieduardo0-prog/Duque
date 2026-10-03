@@ -12,8 +12,12 @@ from brain.agent_loop import AgentLoop
 from core.events import Event, EventType
 from brain.voice_style import SAMPLE as VOICE_SAMPLE
 from brain.voice_style import TTS_INSTRUCTIONS, TTS_SPEED, VOICES, current_voice, set_voice
+from core.emergency import describe as describe_pause
+from core.emergency import is_pause_command, is_resume_command
 from core.voice_bridge import bridge
 from core.state import DuqueState
+from core.tasks import TaskStatus
+from voice.gate import addressed, is_sleep
 
 app = Flask(__name__)
 
@@ -284,6 +288,12 @@ def executar_comando():
     if not isinstance(texto, str) or not texto.strip():
         return jsonify({"erro": "O comando não pode ser vazio."}), 400
 
+    # Pausa de emergência, retomada e "Repousar, Telex" valem sempre e não
+    # passam pelo cérebro (que pode estar parado esperando a retomada).
+    controle = _comando_de_controle(texto.strip(), canal, registrar)
+    if controle is not None:
+        return jsonify(controle)
+
     # Conversa por voz em andamento: o texto digitado entra na mesma sessão e a
     # resposta sai falada por ela, mantendo um único fluxo de conversa.
     if canal == "texto" and registrar and bridge.voice_active:
@@ -479,6 +489,96 @@ def registrar_conversa():
     if turno is None:
         return jsonify({"erro": "Turno inválido."}), 400
     return jsonify({"ok": True, "id": turno.id})
+
+
+def _avisar(texto: str) -> None:
+    """Fala do TELEX que entra na conversa (o HUD lê em voz alta)."""
+    agent.conversation.add("assistant", texto, "aviso")
+
+
+def _pausar(origem: str = "hud") -> dict[str, Any]:
+    status = agent.pause.pause(f"pedido por {origem}")
+    bridge.end_voice("pausa de emergência")
+    _set_state(DuqueState.STANDBY, tarefa="Pausa de emergência", atividade="Tudo parado onde estava")
+    _avisar("Pausa de emergência. Tudo parado onde estava; diga ou clique em retomar quando quiser.")
+    return status
+
+
+def _retomar(origem: str = "hud") -> dict[str, Any]:
+    if not agent.pause.paused:
+        return {"pausado": False, "texto": "Não estou em pausa."}
+    status = agent.pause.resume()
+    texto = "Retomando. " + describe_pause(status)
+    _set_state(DuqueState.STANDBY, tarefa="", atividade="Sistema online")
+    _avisar(texto)
+    return {**status, "pausado": False, "texto": texto, "origem": origem}
+
+
+def _comando_de_controle(texto: str, canal: str, registrar: bool) -> dict[str, Any] | None:
+    if is_pause_command(texto):
+        if registrar:
+            agent.conversation.add("user", texto, canal)
+        _pausar(canal)
+        return {"ok": True, "via": "emergencia", "text": "", "resposta": "", "pausado": True}
+    if agent.pause.paused:
+        if registrar:
+            agent.conversation.add("user", texto, canal)
+        if is_resume_command(texto):
+            _retomar(canal)
+            return {"ok": True, "via": "emergencia", "text": "", "resposta": "", "pausado": False}
+        aviso = 'Estou em pausa de emergência. Diga "retomar" (ou clique em Retomar) para eu continuar de onde parei.'
+        _avisar(aviso)
+        return {"ok": True, "via": "emergencia", "text": aviso, "resposta": aviso, "pausado": True}
+    if is_sleep(texto) and addressed(texto):
+        if registrar:
+            agent.conversation.add("user", texto, canal)
+        encerrou = bridge.end_voice("repousar")
+        _set_state(DuqueState.STANDBY, tarefa="", atividade="Em repouso")
+        _avisar("Em repouso." if encerrou else "Em repouso. Me chame quando precisar.")
+        return {"ok": True, "via": "repouso", "text": "", "resposta": ""}
+    return None
+
+
+@app.route("/api/emergencia", methods=["GET"])
+def emergencia_status():
+    return jsonify(agent.pause.status())
+
+
+@app.route("/api/emergencia", methods=["POST"])
+def emergencia():
+    dados = request.get_json(silent=True) or {}
+    acao = str(dados.get("acao", "")).casefold()
+    origem = str(dados.get("origem", "hud"))[:20]
+    if acao == "pausar":
+        return jsonify({"ok": True, **_pausar(origem)})
+    if acao == "retomar":
+        return jsonify({"ok": True, **_retomar(origem)})
+    if acao == "alternar":
+        return jsonify({"ok": True, **(_retomar(origem) if agent.pause.paused else _pausar(origem))})
+    return jsonify({"erro": "Ação inválida: use pausar, retomar ou alternar."}), 400
+
+
+@app.route("/api/tarefas", methods=["GET"])
+def tarefas():
+    """Painel de trabalhos longos do HUD: Forja, tarefas rodando e a pausa."""
+    import time
+
+    agora = time.time()
+    rodando = []
+    for tarefa in agent.tasks.list(TaskStatus.RUNNING)[-5:]:
+        inicio = tarefa.started_at or tarefa.created_at
+        rodando.append({
+            "id": tarefa.id[:8],
+            "descricao": tarefa.description[:90],
+            "segundos": int(max(0.0, agora - inicio)),
+        })
+    forja: dict[str, Any] = {"ativa": agent.forge_service is not None}
+    if agent.forge_service is not None:
+        forja.update(agent.forge_service.status())
+        atual = forja.get("current")
+        if atual and atual.get("started_at"):
+            atual["segundos"] = int(max(0.0, agora - float(atual["started_at"])))
+    return jsonify({"pausa": agent.pause.status(), "forja": forja, "tarefas": rodando})
 
 
 @app.route("/api/forja", methods=["GET"])

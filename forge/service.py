@@ -41,6 +41,8 @@ class ForgeService:
         self._current: dict[str, Any] | None = None
         self._history: list[dict[str, Any]] = []
         self._thread: threading.Thread | None = None
+        # Pausa de emergência: a Forja para entre as etapas e continua de onde parou.
+        self.pause: Any | None = None
         forge.progress = self._on_progress
 
     def submit(self, goal: str) -> dict[str, Any]:
@@ -61,7 +63,7 @@ class ForgeService:
 
     def run_job(self, job: dict[str, Any]) -> ForgeReport:
         with self._lock:
-            self._current = dict(job, state="running", step="iniciando")
+            self._current = dict(job, state="running", step="iniciando", started_at=time.time(), steps=0)
         self._emit("forja_iniciada", {"goal": job["goal"]})
         report = self.forge.run(job["goal"])
         entry = {"id": job["id"], "goal": job["goal"], "status": report.status.value, "summary": report.summary(), "pr_url": report.pr_url}
@@ -103,7 +105,12 @@ class ForgeService:
         with self._lock:
             if self._current is not None:
                 self._current["step"] = text
+                self._current.setdefault("steps", 0)
+                self._current["steps"] += 1
+            goal = self._current.get("goal", "") if self._current else ""
         self._emit("forja_progresso", {"step": text})
+        if self.pause is not None:
+            self.pause.checkpoint("forja", {"trabalho": f"Forja: {goal}"[:90], "etapa": text})
 
     def _emit(self, kind: str, data: dict[str, Any]) -> None:
         if self.notify:

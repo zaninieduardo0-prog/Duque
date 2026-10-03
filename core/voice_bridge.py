@@ -20,6 +20,7 @@ class VoiceBridge:
         self._lock = RLock()
         self._send_text: Callable[[str], bool] | None = None
         self._stop_speech: Callable[[], None] | None = None
+        self._end_session: Callable[[str], None] | None = None
         self._executor: Callable[[str], str] | None = None
         self._recorder: Callable[[str, str, str], Any] | None = None
         self._context: Callable[[], str] | None = None
@@ -27,15 +28,34 @@ class VoiceBridge:
         self._voice: Callable[[], str] | None = None
 
     # lado da voz ------------------------------------------------------------
-    def attach_session(self, send_text: Callable[[str], bool], stop_speech: Callable[[], None] | None = None) -> None:
+    def attach_session(
+        self,
+        send_text: Callable[[str], bool],
+        stop_speech: Callable[[], None] | None = None,
+        end_session: Callable[[str], None] | None = None,
+    ) -> None:
         with self._lock:
             self._send_text = send_text
             self._stop_speech = stop_speech
+            self._end_session = end_session
 
     def detach_session(self) -> None:
         with self._lock:
             self._send_text = None
             self._stop_speech = None
+            self._end_session = None
+
+    def end_voice(self, reason: str = "standby") -> bool:
+        """Fecha a conversa de voz na hora ("Repousar, Telex" digitado, pausa de emergência)."""
+        with self._lock:
+            ender = self._end_session
+        if ender is None:
+            return False
+        try:
+            ender(reason)
+            return True
+        except Exception:
+            return False
 
     @property
     def voice_active(self) -> bool:

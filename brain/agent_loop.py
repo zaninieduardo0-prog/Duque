@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from automation.runner import ScheduledTaskRunner
 from automation.scheduler import Scheduler
+from core.emergency import EmergencyPause, emergency
 from core.engine import DuqueEngine
 from core.events import EventType
 from core.executor import ExecutionResult, Executor
@@ -65,13 +66,16 @@ class PendingConfirmation:
 class AgentLoop:
     """Orquestra entendimento, planejamento, execução, verificação, correção, memória e agenda."""
 
-    def __init__(self, engine: DuqueEngine | None = None, tasks: TaskManager | None = None, executor: Executor | None = None, workspace: Workspace | None = None, ui_tools: UITools | None = None, model: ModelAdapter | None = None, model_planner: ModelPlanner | None = None, memory: Memory | None = None, forge_service: Any | None = None) -> None:
+    def __init__(self, engine: DuqueEngine | None = None, tasks: TaskManager | None = None, executor: Executor | None = None, workspace: Workspace | None = None, ui_tools: UITools | None = None, model: ModelAdapter | None = None, model_planner: ModelPlanner | None = None, memory: Memory | None = None, forge_service: Any | None = None, pause: EmergencyPause | None = None) -> None:
         self.engine = engine or DuqueEngine()
+        # Pausa de emergência única do TELEX (botão do HUD, "pausa tudo", F9).
+        self.pause = pause if pause is not None else emergency
         self.router = IntentRouter()
         self.planner = Planner()
         self.tasks = tasks or TaskManager()
         self.verification = create_verification()
         self.executor = executor or Executor(self.tasks, verification=self.verification, event_sink=self.engine.emit)
+        self.executor.pause = self.pause
         self.workspace = workspace or Workspace(os.getenv("DUQUE_WORKSPACE_ROOT", "."))
         ComputerTools().register(self.executor)
         CodeTools(self.workspace).register(self.executor)
@@ -118,6 +122,9 @@ class AgentLoop:
 
         self.scheduler = Scheduler(database=self.tasks.database)
         self.scheduled_runner = ScheduledTaskRunner(self.scheduler, self.task_engine, self.tasks, event_sink=self.engine.emit, reminder_handler=self._on_reminder)
+        self.scheduled_runner.pause = self.pause
+        if self.forge_service is not None and hasattr(self.forge_service, "pause"):
+            self.forge_service.pause = self.pause
         self.now_playing = NowPlaying()
         self.screen_vision = ScreenVision()
         self._focus_until: float | None = None

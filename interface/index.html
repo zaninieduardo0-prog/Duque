@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>DUQUE — NEURAL CORE</title>
+<title>TELEX — NEURAL CORE</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Saira:wght@200;300;400&family=Saira+Condensed:wght@200;300&display=swap" rel="stylesheet">
@@ -95,9 +95,9 @@ body{
 @keyframes telOut{to{opacity:0;transform:translateX(10px);filter:blur(3px)}}
 
 /* ---------- comando / rodapé ---------- */
-#voice{position:absolute;left:50%;transform:translateX(-50%);bottom:38px;text-align:center;opacity:0;animation:boot 1.4s ease 1.2s forwards}
+#voice{position:absolute;left:50%;translate:-50% 0;bottom:38px;text-align:center;opacity:0;animation:boot 1.4s ease 1.2s forwards}
 #voiceLine{display:flex;align-items:center;gap:10px;justify-content:center;cursor:pointer}
-#cmdWrap{position:relative;margin-top:14px;width:min(430px,70vw)}
+#cmdWrap{position:relative;margin:14px auto 0;width:min(430px,70vw)}
 #cmd{
   width:100%;background:none;border:0;border-bottom:1px solid rgba(var(--acc),.22);
   color:var(--white);font-family:inherit;font-size:12.5px;letter-spacing:.2em;padding:7px 2px;text-align:center;transition:border-color .3s ease;
@@ -117,6 +117,30 @@ body{
   letter-spacing:.24em;text-transform:uppercase;transition:color .25s ease,text-shadow .25s ease}
 .ghost:hover,.ghost:focus-visible{color:var(--ice);text-shadow:0 0 14px rgba(var(--acc),.6);outline:none}
 #memBtn{margin-top:14px;display:block;text-align:left}
+/* logo TELEX: meio apagado em standby, brilhando quando ativo */
+#logo{line-height:0;opacity:.4;filter:drop-shadow(0 0 0 rgba(var(--acc),0));transition:opacity .8s ease,filter .8s ease}
+#logo svg{display:block;width:236px;height:auto;overflow:visible}
+#logo .lgCore{opacity:.5;transition:opacity .8s ease}
+body:not([data-state=standby]) #logo{opacity:1;filter:drop-shadow(0 0 10px rgba(var(--acc),.75)) drop-shadow(0 0 26px rgba(var(--acc),.35))}
+body:not([data-state=standby]) #logo .lgCore{opacity:1;animation:lgPulse 1.6s ease-in-out infinite}
+body[data-state=speaking] #logo .lgCore{animation-duration:.7s}
+@keyframes lgPulse{50%{opacity:.45}}
+body.paused #logo{opacity:.55;filter:drop-shadow(0 0 8px rgba(255,120,130,.55))}
+#panicBtn{margin-top:10px;display:block;text-align:left;color:rgba(255,150,160,.55)}
+#panicBtn:hover,#panicBtn:focus-visible{color:#ffb4bc;text-shadow:0 0 14px rgba(255,90,110,.6)}
+body.paused #panicBtn{color:#ffb4bc}
+/* pausa de emergência */
+#pauseBox{position:absolute;left:0;right:0;margin:0 auto;top:15%;width:min(440px,84vw);text-align:center;
+  padding:20px 24px 18px;border:1px solid rgba(255,110,125,.45);background:rgba(24,4,10,.78);backdrop-filter:blur(6px);
+  display:none;animation:telIn .4s ease both}
+body.paused #pauseBox{display:block}
+#pauseBox .pTitle{font-size:14px;font-weight:200;letter-spacing:.5em;text-indent:.5em;text-transform:uppercase;color:#ffc2c8;text-shadow:0 0 18px rgba(255,90,110,.6)}
+#pauseBox .pSub{margin-top:6px;font-size:9.5px;letter-spacing:.3em;text-transform:uppercase;color:rgba(255,200,205,.5)}
+#pList{list-style:none;margin:14px 0 4px;display:flex;flex-direction:column;gap:6px;font-size:11.5px;letter-spacing:.06em;color:rgba(255,230,232,.82)}
+#pList em{font-style:normal;color:rgba(255,200,205,.55)}
+#resumeBtn{margin-top:12px;font-size:12px;letter-spacing:.4em;color:#ffe3e6;border:1px solid rgba(255,140,150,.5);padding:8px 22px}
+#resumeBtn:hover,#resumeBtn:focus-visible{border-color:#ffc2c8;color:#fff}
+#pauseBox .pHint{margin-top:10px;font-size:8.5px;letter-spacing:.26em;text-transform:uppercase;color:rgba(255,200,205,.35)}
 
 /* ---------- spotify (esquerda baixa) ---------- */
 #spotify{position:absolute;left:44px;bottom:38px;width:250px;opacity:0;animation:boot 1.4s ease .95s forwards}
@@ -150,6 +174,14 @@ body{
 #fGoal{margin-top:9px;font-size:12.5px;font-weight:200;letter-spacing:.08em;color:var(--white);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 #fStep{margin-top:5px;font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--txt-dim)}
 #fStep.ok{color:var(--ice)}
+#fStep.bad{color:rgba(255,170,180,.75)}
+#fTrack{margin:9px 0 0 auto;display:flex;gap:4px;justify-content:flex-end}
+#fTrack i{width:16px;height:2px;background:rgba(var(--acc),.18)}
+#fTrack i.done{background:rgba(var(--acc),.6)}
+#fTrack i.now{background:var(--ice);box-shadow:0 0 8px rgba(var(--acc),.8);animation:lgPulse 1.2s ease-in-out infinite}
+#fList{list-style:none;margin-top:10px;display:flex;flex-direction:column;gap:4px}
+#fList li{font-size:10.5px;letter-spacing:.08em;color:rgba(214,230,255,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#fList li em{font-style:normal;color:var(--txt-dim);margin-left:6px}
 
 /* ---------- memória ---------- */
 #memPanel{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,3,12,.72);backdrop-filter:blur(3px);z-index:20}
@@ -194,9 +226,27 @@ body{
 <div id="hud">
   <!-- topo esquerda -->
   <div class="corner tl z">
-    <div class="brand">DUQUE</div>
-    <div class="label" id="sysState" style="margin-top:6px">Online</div>
+    <div id="logo" aria-label="TELEX — Tecnologia, Liberdade, Execução" role="img">
+      <svg viewBox="0 0 236 58" width="236" height="58" aria-hidden="true">
+        <defs>
+          <linearGradient id="lgT" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#eaf3ff"/><stop offset=".55" stop-color="#a9d6ff"/><stop offset="1" stop-color="#3d86ff"/>
+          </linearGradient>
+        </defs>
+        <!-- emblema: hexágono com núcleo -->
+        <g fill="none" stroke="url(#lgT)" stroke-width="1.2">
+          <path d="M22 4 37 12.5v17L22 38 7 29.5v-17Z"/>
+          <path d="M22 11 31 16v10l-9 5-9-5V16Z" opacity=".55"/>
+        </g>
+        <circle class="lgCore" cx="22" cy="21" r="3.2" fill="#eaf3ff"/>
+        <!-- palavra -->
+        <text x="50" y="30" fill="url(#lgT)" font-family="Saira, system-ui, sans-serif" font-weight="300" font-size="27" letter-spacing="9">TELEX</text>
+        <text x="51" y="48" fill="#a9d6ff" opacity=".62" font-family="Saira, system-ui, sans-serif" font-weight="300" font-size="7.4" letter-spacing="2.6">TECNOLOGIA · LIBERDADE · EXECUÇÃO</text>
+      </svg>
+    </div>
+    <div class="label" id="sysState" style="margin-top:8px">Online</div>
     <button id="memBtn" class="ghost" title="Memória (tecla N)">Memória</button>
+    <button id="panicBtn" class="ghost" title="Pausa de emergência (F9): para tudo e guarda onde parou">Pausa de emergência</button>
   </div>
 
   <!-- topo direita -->
@@ -253,23 +303,34 @@ body{
     </div>
   </div>
 
-  <!-- forja -->
+  <!-- tarefas longas (Forja e o que estiver rodando) -->
   <div id="forge" class="z" aria-live="polite">
-    <div class="label" style="letter-spacing:.42em">Forja</div>
+    <div class="label" style="letter-spacing:.42em">Tarefas</div>
     <div id="fGoal"></div>
     <div id="fStep"></div>
+    <div id="fTrack" aria-hidden="true"></div>
+    <ul id="fList"></ul>
+  </div>
+
+  <!-- pausa de emergência -->
+  <div id="pauseBox" class="z" role="alertdialog" aria-live="assertive" aria-label="Pausa de emergência">
+    <div class="pTitle">Pausa de emergência</div>
+    <div class="pSub">Tudo parado onde estava</div>
+    <ul id="pList"></ul>
+    <button id="resumeBtn" class="ghost">Retomar</button>
+    <div class="pHint">F9 · "Retomar, TELEX" · digite "retomar"</div>
   </div>
 
   <!-- conversa -->
   <div id="chat" aria-live="polite"></div>
 
   <!-- memória -->
-  <div id="memPanel" class="z" role="dialog" aria-modal="true" aria-label="Memória do Duque">
+  <div id="memPanel" class="z" role="dialog" aria-modal="true" aria-label="Memória do TELEX">
     <div id="memCard">
       <button id="memClose" class="ghost">Fechar</button>
       <h3>Memória</h3>
-      <div class="sub">O que o Duque sabe e está acompanhando</div>
-      <section><div class="label">Voz do Duque</div><ul id="memVoices"></ul></section>
+      <div class="sub">O que o TELEX sabe e está acompanhando</div>
+      <section><div class="label">Voz do TELEX</div><ul id="memVoices"></ul></section>
       <section>
         <div class="label">Anotações</div>
         <ul id="memNotes"></ul>
@@ -289,9 +350,9 @@ body{
       <span class="label" style="letter-spacing:.42em">Canal de voz</span>
       <span class="value sm" id="micState" style="font-size:12px">Em espera</span>
     </div>
-    <div id="cmdWrap"><input id="cmd" autocomplete="off" spellcheck="false" placeholder="Digite ou diga Hey Jarvis"></div>
+    <div id="cmdWrap"><input id="cmd" autocomplete="off" spellcheck="false" placeholder="Digite ou diga Bom dia, TELEX"></div>
     <div id="response" aria-live="polite"></div>
-    <div id="keys">Enter envia · a resposta é falada · "Duque, stop" interrompe · N memória</div>
+    <div id="keys">Enter envia · "Telex, stop" interrompe · "Repousar, Telex" · N memória · F9 emergência</div>
   </div>
 </div>
 
@@ -1009,13 +1070,13 @@ function skyText(c){ if(c===0) return 'Céu limpo'; if(c<=3) return 'Nuvens'; if
 weather(); setInterval(weather,15*60*1000);
 
 /* ---------------- canal de voz ----------------
-   Quem ouve é o Duque (Python): "Hey Jarvis" abre a conversa, "Duque, ..." chama,
-   "Duque, stop" interrompe. Aqui só mostramos o estado. */
+   Quem ouve é o TELEX (Python): "Bom dia, TELEX" (ou "Hey Jarvis") abre a conversa,
+   "Telex, ..." chama, "Telex, stop" interrompe, "Repousar, Telex" volta ao standby. */
 const micOn=false;
 window.__ext=v=>{ extAudio=(v===null?null:clamp(v,0,1)); extT=performance.now(); };
 function renderVoiceLine(active){
   $('micState').textContent = active ? 'Conversa aberta' : 'Em espera';
-  $('micState').title = active ? 'Diga "Duque, ..." para pedir; "Duque, stop" para interromper' : 'Diga "Hey Jarvis" para abrir a conversa';
+  $('micState').title = active ? 'Diga "Telex, ..." para pedir; "Telex, stop" para interromper; "Repousar, Telex" para encerrar' : 'Diga "Bom dia, TELEX" (ou "Boa tarde"/"Boa noite") para abrir a conversa';
   $('micDot').className = active ? 'dot' : 'dot idle';
 }
 /* nível de áudio simulado quando o Duque "fala" */
@@ -1124,7 +1185,7 @@ async function speakResponse(text, voz){
 }
 
 /* ---------------- envio de comando: campo → núcleo → servidor ---------------- */
-const STOP_RE=/^\s*(duque[\s,!.]*)?(stop|para|pare|chega|silêncio|silencio|cala a boca)[\s!.]*$/i;
+const STOP_RE=/^\s*((duque|telex|teles)[\s,!.]*)?(stop|para|pare|chega|silêncio|silencio|cala a boca)[\s!.]*$/i;
 async function runCommand(text){
   const q=(text||'').trim(); if(!q) return;
   // "stop" digitado: cala a fala na hora (HUD e conversa de voz) e não vira pedido.
@@ -1146,7 +1207,7 @@ async function runCommand(text){
     else DUQUE.telemetry([{k:'Resposta',v:'<em>Pronta</em>'}],2600);
     pollConversation();
   }catch(error){
-    showResponse(error instanceof Error ? error.message : 'Não foi possível falar com o Duque.');
+    showResponse(error instanceof Error ? error.message : 'Não foi possível falar com o TELEX.');
     DUQUE.setState({state:'error',currentTask:'Falha de comunicação'});
     setTimeout(syncServerState,900);
   }finally{
@@ -1174,7 +1235,7 @@ function renderChat(){
   const box=$('chat'); box.innerHTML='';
   chatTurns.slice(-4).forEach(turn=>{
     const el=document.createElement('div');
-    const who=turn.role==='user'?'Du':'Duque';
+    const who=turn.role==='user'?'Du':'TELEX';
     const via=turn.channel==='voz'?' · voz':(turn.channel==='aviso'?' · aviso':(turn.channel==='silencioso'?' · foco':''));
     el.className='t'+(turn.role==='assistant'?' duque':'')+(turn.channel==='aviso'?' aviso':'');
     const tag=document.createElement('b'); tag.textContent=who+via;
@@ -1223,7 +1284,7 @@ async function pollMedia(){
     const m=await r.json();
     media={playing:Boolean(m.playing), running:Boolean(m.running)};
     $('sTrack').textContent = m.playing ? (m.track||'—') : (m.running?'Pausado':'Spotify fechado');
-    $('sArtist').textContent = m.playing ? (m.artist||'—') : (m.running?'Toque para continuar':'Diga "Duque, abre o Spotify"');
+    $('sArtist').textContent = m.playing ? (m.artist||'—') : (m.running?'Toque para continuar':'Diga "Telex, abre o Spotify"');
     $('sStatus').textContent = m.playing?'Tocando':(m.running?'Pausado':'Fechado');
     $('sBar').style.width = m.playing?'100%':'0%';
     $('sIcon').innerHTML = m.playing
@@ -1245,28 +1306,80 @@ $('sPrev').onclick=()=>mediaAction('previous');
 pollMedia();
 setInterval(pollMedia,5000);
 
-/* ---------------- forja ---------------- */
-async function pollForge(){
+/* ---------------- tarefas longas (Forja + o que estiver rodando) ----------------
+   GET /api/tarefas → { pausa, forja:{ativa,current,history,queued}, tarefas:[{descricao,segundos}] }
+   Tudo roda em segundo plano, sem janela de CMD; o andamento aparece aqui. */
+const FORGE_STAGES=[/cópia isolada/i,/agente|rodada/i,/verifica/i,/enviando/i,/aguardando ci/i,/merge/i];
+function fmtElapsed(sec){ sec=Math.max(0,sec|0); const h=Math.floor(sec/3600), m=Math.floor(sec%3600/60), ss=String(sec%60).padStart(2,'0'); return h?`${h}h${String(m).padStart(2,'0')}`:`${m}:${ss}`; }
+function forgeStage(step){ let found=0; FORGE_STAGES.forEach((re,i)=>{ if(re.test(step||'')) found=i; }); return found; }
+function renderTrack(current){
+  const track=$('fTrack'); track.innerHTML='';
+  if(!current) return;
+  const now=forgeStage(current.step);
+  FORGE_STAGES.forEach((_,i)=>{ const b=document.createElement('i'); if(i<now) b.className='done'; else if(i===now) b.className='now'; track.appendChild(b); });
+}
+async function pollTasks(){
   try{
-    const r=await fetch('/api/forja',{cache:'no-store'});
+    const r=await fetch('/api/tarefas',{cache:'no-store'});
     if(!r.ok) return;
     const d=await r.json();
-    const box=$('forge');
-    if(!d.ativa){ box.classList.remove('on'); return; }
-    const current=d.current, last=(d.history||[]).slice(-1)[0];
+    renderPause(d.pausa||{});
+    const box=$('forge'), f=d.forja||{}, current=f.current, last=(f.history||[]).slice(-1)[0];
+    const list=$('fList'); list.innerHTML='';
+    (d.tarefas||[]).slice(0,3).forEach(t=>{
+      const li=document.createElement('li'); li.textContent=t.descricao;
+      const em=document.createElement('em'); em.textContent=fmtElapsed(t.segundos); li.appendChild(em); list.appendChild(li);
+    });
+    let show=Boolean((d.tarefas||[]).length);
     if(current){
-      $('fGoal').textContent=current.goal; $('fStep').textContent=current.step||'iniciando'; $('fStep').className=''; box.classList.add('on');
+      $('fGoal').textContent='Forja · '+current.goal;
+      $('fStep').textContent=(current.step||'iniciando')+(current.segundos!=null?` · ${fmtElapsed(current.segundos)}`:'')+(f.queued?` · ${f.queued} na fila`:'');
+      $('fStep').className=''; show=true;
     }else if(last){
       const labels={merged:'Aplicado',awaiting_approval:'Aguardando aprovação',no_changes:'Sem alterações',failed:'Falhou'};
-      $('fGoal').textContent=last.goal;
-      $('fStep').textContent=(labels[last.status]||last.status)+(d.queued?` · ${d.queued} na fila`:'');
-      $('fStep').className=last.status==='merged'?'ok':'';
-      box.classList.add('on');
-    }else box.classList.remove('on');
+      $('fGoal').textContent='Forja · '+last.goal;
+      $('fStep').textContent=(labels[last.status]||last.status)+(f.queued?` · ${f.queued} na fila`:'');
+      $('fStep').className=last.status==='merged'?'ok':(last.status==='failed'?'bad':''); show=true;
+    }else{ $('fGoal').textContent=''; $('fStep').textContent=''; }
+    renderTrack(current);
+    box.classList.toggle('on', show);
   }catch(e){}
 }
-pollForge();
-setInterval(pollForge,3000);
+pollTasks();
+setInterval(pollTasks,1500);
+
+/* ---------------- pausa de emergência ----------------
+   Botão, F9, "Telex, pausa tudo" ou "pausa de emergência" digitado: congela tudo e
+   guarda onde parou. "Retomar" continua do mesmo ponto. */
+let pausedNow=false;
+function renderPause(p){
+  const paused=Boolean(p.pausado);
+  if(paused && !pausedNow){ stopLocalSpeech(); }
+  pausedNow=paused;
+  document.body.classList.toggle('paused', paused);
+  $('panicBtn').textContent = paused ? 'Em pausa · retomar' : 'Pausa de emergência';
+  if(!paused) return;
+  const items=[...(p.parado_em||[]),...(p.interrompido||[])];
+  const list=$('pList'); list.innerHTML='';
+  if(!items.length){ list.innerHTML='<li><em>Nada estava em andamento</em></li>'; return; }
+  items.slice(0,5).forEach(it=>{
+    const li=document.createElement('li'); li.textContent=it.trabalho||it.chave||'trabalho';
+    if(it.etapa){ const em=document.createElement('em'); em.textContent=' — '+it.etapa+(it.reiniciado?' (reiniciado)':''); li.appendChild(em); }
+    list.appendChild(li);
+  });
+}
+async function emergency(acao){
+  if(acao!=='retomar'){ stopLocalSpeech(); pausedNow=true; }
+  try{
+    await fetch('/api/emergencia',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({acao,origem:'hud'})});
+  }catch(e){}
+  pollTasks(); pollConversation(); syncServerState();
+}
+$('panicBtn').onclick=()=>emergency(pausedNow?'retomar':'pausar');
+$('resumeBtn').onclick=()=>emergency('retomar');
+document.addEventListener('keydown',e=>{
+  if(e.key==='F9' || e.key==='Pause'){ e.preventDefault(); emergency(pausedNow?'retomar':'pausar'); }
+});
 
 /* ---------------- memória ---------------- */
 function fmtRemaining(sec){

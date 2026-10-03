@@ -131,6 +131,29 @@ marque ✅ ou ❌. Se der ❌, anote o que aconteceu (e, se houver, o trecho de
 Ajustes opcionais (PowerShell, depois reinicie o Duque):
 `setx DUQUE_CHROME_PROFILE "Profile 1"` (outro perfil) · `setx DUQUE_VOICE_IDLE 120` (tempo até voltar ao standby, em segundos) · `setx DUQUE_VAD_INTERRUPT 1` (qualquer som volta a interromper).
 
+## 4F. TELEX: ativação "Bom dia, TELEX", repouso e pausa de emergência
+
+> Antes: rode o `preparar_duque.bat` uma vez (instala o reconhecedor local e baixa o
+> modelo de português, ~50 MB). O diagnóstico deve mostrar
+> `[OK] ativação Bom dia, TELEX: ...; nome como telex`.
+
+| # | Ação | Esperado |
+|---|------|----------|
+| 4F.1 | Abrir o TELEX | Logo **TELEX** no canto superior esquerdo, meio apagado; nas respostas, o nome é TELEX |
+| 4F.2 | Diga `Bom dia, TELEX` (ou `Boa tarde`/`Boa noite`) | Logo acende; ele responde com uma saudação curta; no log: `[WAKE] ouvi "bom dia telex" -> wake` |
+| 4F.3 | Logo depois, sem dizer o nome: `abre o bloco de notas` | Abre (o primeiro pedido vale sem o nome) |
+| 4F.4 | `Telex, que horas são?` / `Telex, stop` no meio de uma fala | Responde / para na hora |
+| 4F.5 | Diga `Repousar, Telex` | Volta ao standby **na hora**, sem despedida; logo apaga |
+| 4F.6 | Diga `Hey Jarvis` | Também acorda (desligue com `setx DUQUE_HEY_JARVIS "0"`) |
+| 4F.7 | Fale "bom dia" para alguém, sem "Telex" | **Não** acorda |
+| 4F.8 | Mande algo demorado (ex.: um pedido à Forja) e olhe o painel **Tarefas** (canto inferior direito) | Mostra o objetivo, a etapa atual, o tempo correndo e a barrinha de etapas, sem abrir janela de CMD |
+| 4F.9 | Com a Forja trabalhando, clique **Pausa de emergência** (ou F9) | Tudo para; aparece o quadro vermelho com o que estava rodando e a etapa onde parou; a voz fecha |
+| 4F.10 | Em pausa, digite `que horas são?` | Ele avisa que está em pausa e não executa nada |
+| 4F.11 | Em pausa, diga `Bom dia, TELEX` | Não acorda; só `Retomar, TELEX` funciona |
+| 4F.12 | Clique **Retomar** (ou diga `Retomar, TELEX`, ou digite `retomar`) | Fala "Retomando. Estava parado: ..." e a Forja continua **da mesma etapa** |
+| 4F.13 | Pause, feche o TELEX e abra de novo | Volta em pausa e conta o que foi interrompido pelo reinício |
+| 4F.14 | Digite `Telex, pausa tudo` | Mesmo efeito do botão |
+
 ## 5. Forja
 
 | # | Ação | Esperado |

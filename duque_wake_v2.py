@@ -19,7 +19,9 @@ from pedalboard import Compressor, Gain, HighpassFilter, LowShelfFilter, Pedalbo
 from agents.realtime import OpenAIRealtimeWebSocketModel, RealtimeRunner, RealtimePlaybackTracker
 from agents.realtime.model_inputs import RealtimeModelSendRawMessage
 from agent.duque_realtime import duque_realtime, refresh_instructions
+from core.emergency import emergency
 from core.voice_bridge import bridge
+from voice import local_wake
 from voice.devices import match_input_device, pick_wake_device
 from voice.gate import ListenGate
 from voice.session import PlaybackFence
@@ -66,7 +68,11 @@ VOICE_PROCESSING = os.getenv("DUQUE_VOICE_PROCESSING", "0").casefold() in {"1", 
 FAREWELLS = (
     "até mais duque", "até logo duque", "tchau duque", "pode dormir duque",
     "até mais, duque", "até logo, duque", "tchau, duque", "pode dormir, duque",
+    "até mais telex", "até logo telex", "tchau telex", "pode dormir telex",
+    "até mais, telex", "até logo, telex", "tchau, telex", "pode dormir, telex",
 )
+# "Hey Jarvis" continua acordando junto com "Bom dia, TELEX" (DUQUE_HEY_JARVIS=0 desliga).
+HEY_JARVIS = os.getenv("DUQUE_HEY_JARVIS", "1").casefold() not in {"0", "false", "off", "no", "nao", "não"}
 
 voice_board = Pedalboard([
     HighpassFilter(cutoff_frequency_hz=60.0),
@@ -146,6 +152,8 @@ SPEECH_STARTED_AT: float | None = None
 GATE = ListenGate()
 LAST_ACTIVITY = time.monotonic()
 LAST_ASSISTANT_TEXT = ""
+# A resposta ao "Bom dia, TELEX" deixa a audição aberta para o primeiro pedido.
+GREETING_TURN = False
 
 
 def touch() -> None:
@@ -161,7 +169,7 @@ def idle_expired(now: float | None = None) -> bool:
 
 
 def hud_waiting() -> None:
-    hud("standby", 'Em espera — diga "Duque"')
+    hud("standby", 'Em espera — diga "Telex"')
 
 
 def hud(state: str, task: str = "") -> None:
@@ -175,6 +183,18 @@ def hud(state: str, task: str = "") -> None:
             pass
     except Exception:
         pass
+
+
+def post_server(path: str, body: dict) -> None:
+    try:
+        request = urllib.request.Request(
+            f"{SERVIDOR}{path}", data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=3):
+            pass
+    except Exception as exc:
+        log(f"[WAKE] servidor não respondeu a {path}: {exc}")
 
 
 def log(message: str) -> None:
@@ -380,7 +400,7 @@ async def idle_watch() -> None:
     while REALTIME and not SHUTTING_DOWN:
         await asyncio.sleep(1.0)
         if idle_expired():
-            log(f"[GATE] {IDLE_SECONDS:.0f}s sem ser chamado; voltando a esperar \"Hey Jarvis\".")
+            log(f"[GATE] {IDLE_SECONDS:.0f}s sem ser chamado; voltando ao standby.")
             return
 
 
@@ -408,6 +428,40 @@ def stop_speech_from_core() -> None:
     loop = LOOP
     if loop is not None:
         loop.call_soon_threadsafe(lambda: asyncio.create_task(interrupt_session()))
+
+
+def end_session_now(reason: str = "standby") -> None:
+    """Fecha a conversa de voz na hora, sem despedida ("Repousar, Telex", pausa)."""
+    global MIC_ACTIVE
+    loop, done = LOOP, SHUTDOWN_EVENT
+    if loop is None or done is None:
+        return
+    log(f"[VOZ] conversa encerrada na hora: {reason}")
+    MIC_ACTIVE = False
+
+    async def close() -> None:
+        await interrupt_session()
+        done.set()
+
+    loop.call_soon_threadsafe(lambda: asyncio.create_task(close()))
+
+
+def send_greeting(greeting: str) -> None:
+    """Entrega o "Bom dia, TELEX" à conversa: ele responde e já fica ouvindo."""
+    global GREETING_TURN
+    loop, session = LOOP, SESSION
+    if loop is None or session is None:
+        return
+    GREETING_TURN = True
+    bridge.record("user", greeting, "voz")
+
+    async def deliver() -> None:
+        try:
+            await session.send_message(greeting)
+        except Exception as exc:
+            log(f"[REALTIME] saudação não enviada: {exc}")
+
+    loop.call_soon_threadsafe(lambda: asyncio.create_task(deliver()))
 
 
 async def wait_playback() -> None:
@@ -506,9 +560,9 @@ async def receive_events(session) -> None:
             return
 
 
-async def realtime_session() -> None:
+async def realtime_session(greeting: str | None = None) -> None:
     global LOOP, MIC_QUEUE, SHUTDOWN_EVENT, REALTIME, MIC_ACTIVE, SESSION, TRACKER
-    global DUQUE_SPEAKING, SHUTTING_DOWN, SPEECH_STARTED_AT, CURRENT_ITEM
+    global DUQUE_SPEAKING, SHUTTING_DOWN, SPEECH_STARTED_AT, CURRENT_ITEM, GREETING_TURN
     LOOP = asyncio.get_running_loop()
     MIC_QUEUE = asyncio.Queue(maxsize=100)
     SHUTDOWN_EVENT = asyncio.Event()
@@ -518,6 +572,7 @@ async def realtime_session() -> None:
     SHUTTING_DOWN = False
     DUQUE_SPEAKING = False
     CURRENT_ITEM = None
+    GREETING_TURN = False
     with CANCELLED_LOCK:
         CANCELLED.clear()
     clear_audio()
@@ -546,7 +601,7 @@ async def realtime_session() -> None:
         session = await build_runner(voice).run(model_config={"playback_tracker": TRACKER})
         async with session:
             SESSION = session
-            bridge.attach_session(send_text_to_session, stop_speech_from_core)
+            bridge.attach_session(send_text_to_session, stop_speech_from_core, end_session_now)
             mark("conectado ao modelo de voz")
             input_device = pick_input_device(WAKE_DEVICE_NAME)
             input_stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=CANAIS, dtype=np.int16, device=input_device, blocksize=BLOCKSIZE, callback=microphone_callback)
@@ -556,6 +611,8 @@ async def realtime_session() -> None:
             event_task = asyncio.create_task(receive_events(session))
             shutdown_task = asyncio.create_task(SHUTDOWN_EVENT.wait())
             idle_task = asyncio.create_task(idle_watch())
+            if greeting:
+                send_greeting(greeting)
             done, pending = await asyncio.wait((mic_task, event_task, shutdown_task, idle_task), return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
                 task.cancel()
@@ -602,8 +659,12 @@ async def realtime_session() -> None:
         DUQUE_SPEAKING = False
         SPEECH_STARTED_AT = None
         CURRENT_ITEM = None
+        GREETING_TURN = False
         GATE.close()
-        hud("standby", "Sistema online")
+        if emergency.paused:
+            hud("standby", "Pausa de emergência")
+        else:
+            hud("standby", "Sistema online")
 
 
 def wake_loop() -> None:
@@ -663,7 +724,12 @@ def wake_loop() -> None:
         inference_framework="onnx",
     )
     log("[WAKE] modelo carregado com sucesso.")
-    hud("standby", "Sistema online")
+    # "Bom dia / Boa tarde / Boa noite, TELEX" (local, sem internet).
+    local = local_wake.load(log)
+    if local is None and not HEY_JARVIS:
+        log('[WAKE] sem ativação local; religando "Hey Jarvis" para o TELEX não ficar surdo.')
+    jarvis_on = HEY_JARVIS or local is None
+    hud("standby", "Pausa de emergência" if emergency.paused else "Sistema online")
 
     last_wake = 0.0
     while True:
@@ -674,29 +740,58 @@ def wake_loop() -> None:
                 device_index=WAKE_MICROFONE,
             )
             recorder.start()
+            phrases = '"Bom dia, TELEX"' if local else ""
+            if jarvis_on:
+                phrases = (phrases + ' e ' if phrases else "") + '"Hey Jarvis"'
             log(
-                f'[WAKE] ativo: "Hey Jarvis" | modelo={WAKEWORD_MODEL_NAME} | '
+                f"[WAKE] ativo: {phrases} | modelo={WAKEWORD_MODEL_NAME} | "
                 f"threshold={WAKE_THRESHOLD} | mic={WAKE_MICROFONE} | "
                 f"dispositivo={recorder.selected_device!r}"
             )
+            if local:
+                local.reset()
 
             while True:
                 frame = np.asarray(recorder.read(), dtype=np.int16)
-                predictions = cast(dict[str, float], wake_model.predict(frame))
-                confidence = predictions.get(
-                    WAKEWORD,
-                    predictions.get(WAKEWORD_MODEL_NAME, 0.0),
-                )
+                heard = None
+                if local is not None:
+                    try:
+                        heard = local.feed(frame.tobytes())
+                    except Exception as exc:
+                        log(f"[WAKE] ativação local falhou e foi desligada: {exc}")
+                        local, jarvis_on = None, True
+                confidence = 0.0
+                if jarvis_on:
+                    predictions = cast(dict[str, float], wake_model.predict(frame))
+                    confidence = predictions.get(
+                        WAKEWORD,
+                        predictions.get(WAKEWORD_MODEL_NAME, 0.0),
+                    )
                 now = time.perf_counter()
-
-                if confidence >= WAKE_THRESHOLD and now - last_wake >= WAKE_COOLDOWN:
+                jarvis = confidence >= WAKE_THRESHOLD
+                if heard is None and not jarvis:
+                    continue
+                if now - last_wake < WAKE_COOLDOWN:
+                    continue
+                action, greeting = local_wake.decide(heard, jarvis, emergency.paused)
+                if heard is not None:
+                    log(f'[WAKE] ouvi "{heard.phrase}" -> {action}')
+                elif jarvis:
+                    log(f"[WAKE] Hey Jarvis (confiança={confidence:.2f}) -> {action}")
+                if action == "resume":
                     last_wake = now
-                    log(f"[WAKE] detectado (confiança={confidence:.2f})")
-                    recorder.stop()
-                    recorder.delete()
-                    recorder = None
-                    asyncio.run(realtime_session())
-                    break
+                    post_server("/api/emergencia", {"acao": "retomar", "origem": "voz"})
+                    continue
+                if action != "wake":
+                    if emergency.paused:
+                        hud("standby", 'Pausa de emergência — diga "Retomar, TELEX"')
+                    continue
+                last_wake = now
+                recorder.stop()
+                recorder.delete()
+                recorder = None
+                asyncio.run(realtime_session(greeting))
+                break
 
         except KeyboardInterrupt:
             return

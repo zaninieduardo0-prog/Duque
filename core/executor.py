@@ -52,6 +52,7 @@ class Executor:
         verification: Any | None = None,
         verified_tools: set[str] | frozenset[str] | None = None,
         event_sink: Callable[..., Any] | None = None,
+        pause: Any | None = None,
     ) -> None:
         self.tasks = tasks or TaskManager()
         self.security = security or SecurityPolicy()
@@ -59,6 +60,9 @@ class Executor:
         self.verification = verification
         self.verified_tools = frozenset(verified_tools or self.DEFAULT_VERIFIED_TOOLS)
         self.event_sink = event_sink
+        # Pausa de emergência (core/emergency.py): cada etapa passa por um ponto
+        # seguro antes de rodar; em pausa ela espera ali e continua depois.
+        self.pause = pause
 
     def register(self, name: str, tool: Tool) -> None:
         self.tools.register(name, tool)
@@ -83,6 +87,12 @@ class Executor:
         tool = self.tools.get(tool_name)
         if tool is None:
             return ExecutionResult(False, error=f"Ferramenta não registrada: {tool_name}")
+
+        if self.pause is not None:
+            self.pause.checkpoint(
+                f"tarefa:{task.id}",
+                {"trabalho": task.description[:80], "etapa": tool_name},
+            )
 
         if manage_task:
             self.tasks.start(task.id)
