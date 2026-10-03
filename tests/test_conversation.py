@@ -223,6 +223,21 @@ class ServerConversationTests(unittest.TestCase):
         self.assertIn("playing", status)
         self.assertEqual(self.client.post("/api/midia", json={"acao": "dançar"}).status_code, 400)
 
+    def test_voice_tool_runs_while_listening(self) -> None:
+        """Regressão: ouvindo -> executando não existe e derrubava a ferramenta da voz."""
+        from core.state import DuqueState
+
+        self.servidor.agent.engine.transition(DuqueState.LISTENING, force=True)
+        self.assertEqual(self.servidor._execute_for_voice("quanto é 2+3?"), "2+3 = 5")
+
+    def test_command_from_sleeping_state(self) -> None:
+        from core.state import DuqueState
+
+        self.servidor.agent.engine.transition(DuqueState.SLEEPING, force=True)
+        response = self.client.post("/api/comando", json={"text": "quanto é 1+1?"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["text"], "1+1 = 2")
+
     def test_typed_text_without_voice_is_answered(self) -> None:
         data = self.client.post("/api/comando", json={"text": "quanto é 2+3?"}).get_json()
         self.assertEqual(data["text"], "2+3 = 5")
