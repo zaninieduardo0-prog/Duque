@@ -73,7 +73,10 @@ class Planner:
             return available_tools is None or name in available_tools
 
         if intent == "open_app":
-            app_name = self._app_name(goal)
+            app_name = find_app_in_text(goal) or ""
+            if not app_name and context_app and re.search(r"\b(?:novamente|de novo|outra vez|ele|ela|isso)\b", goal.casefold()):
+                app_name = context_app
+            app_name = app_name or self._app_name(goal)
             if not tool_available("open_app"):
                 return Plan(goal)
             return Plan(goal, [PlanStep(

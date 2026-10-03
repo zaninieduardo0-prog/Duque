@@ -61,9 +61,9 @@ KNOWN_APPS.update({
 PROCESS_NAMES: dict[str, list[str]] = {
     "notepad": ["notepad.exe"],
     "bloco de notas": ["notepad.exe"],
-    "calculadora": ["calculatorapp.exe", "calc.exe"],
-    "calculadora do windows": ["calculatorapp.exe", "calc.exe"],
-    "calc": ["calculatorapp.exe", "calc.exe"],
+    "calculadora": ["calculatorapp.exe", "calculator.exe", "calc.exe"],
+    "calculadora do windows": ["calculatorapp.exe", "calculator.exe", "calc.exe"],
+    "calc": ["calculatorapp.exe", "calculator.exe", "calc.exe"],
     "explorador": ["explorer.exe"],
     "explorer": ["explorer.exe"],
     "navegador": ["chrome.exe"],

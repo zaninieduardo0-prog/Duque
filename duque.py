@@ -54,9 +54,11 @@ def start_voice(voice_runtime) -> None:
     try:
         voice_runtime.log("Duque integrado: iniciando wake word + conversa de voz.")
         voice_runtime.wake_loop()
-    except Exception as exc:
+    except BaseException as exc:  # SystemExit também: antes a voz morria sem deixar rastro
+        import traceback
+
         voice_runtime.log(
-            f"Falha fatal no runtime de voz: {type(exc).__name__}: {exc!r}"
+            f"Falha fatal no runtime de voz: {type(exc).__name__}: {exc!r}\n{traceback.format_exc()}"
         )
 
 

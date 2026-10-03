@@ -25,10 +25,13 @@ class ModelPlanner:
         self.model = model
         self.schemas = schemas
 
-    def build(self, goal: str, available_tools: list[str] | None = None) -> Plan:
+    def build(self, goal: str, available_tools: list[str] | None = None, context: str = "") -> Plan:
         allowed = set(available_tools) if available_tools is not None else set(self.schemas.names())
         tool_specs = [spec for spec in self.schemas.describe() if spec["name"] in allowed]
         prompt = f"Objetivo: {goal}\nFerramentas disponíveis e seus schemas: {json.dumps(tool_specs, ensure_ascii=False)}"
+        if context.strip():
+            # Sem isso, "abra novamente" virava open_app("aplicativo").
+            prompt = f"Conversa recente (use para entender referências como 'de novo', 'ele', 'isso'):\n{context.strip()}\n\n{prompt}"
         response = self.model.respond(
             [
                 {"role": "system", "content": self.SYSTEM},

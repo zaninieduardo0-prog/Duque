@@ -587,11 +587,11 @@ class AgentLoop:
             return self.planner.build(text, intent, set(self.schemas.names()), self._last_app)
         if intent in {"chat", "unknown"}:
             try:
-                return self.model_planner.build(text, self.executor.tools.names())
+                return self.model_planner.build(text, self.executor.tools.names(), context=self.conversation.transcript(6))
             except Exception:
                 return self.planner.build(text, intent, context_app=self._last_app)
         try:
-            return self.model_planner.build(text, self.executor.tools.names())
+            return self.model_planner.build(text, self.executor.tools.names(), context=self.conversation.transcript(6))
         except Exception:
             return self.planner.build(text, intent, set(self.schemas.names()), self._last_app)
 

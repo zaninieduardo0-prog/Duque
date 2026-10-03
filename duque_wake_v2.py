@@ -504,12 +504,13 @@ async def realtime_session() -> None:
 
 
 def wake_loop() -> None:
+    log("[WAKE] verificando chave, modelo e microfone...")
     if not os.getenv("OPENAI_API_KEY"):
-        raise SystemExit("OPENAI_API_KEY não encontrada")
+        raise RuntimeError("OPENAI_API_KEY não encontrada no ambiente do Duque")
 
     openwakeword_file = openwakeword.__file__
     if not openwakeword_file:
-        raise SystemExit("Arquivo do openwakeword não foi localizado")
+        raise RuntimeError("Arquivo do openwakeword não foi localizado")
 
     wake_model_path = (
         Path(openwakeword_file).resolve().parent
@@ -518,7 +519,7 @@ def wake_loop() -> None:
         / "hey_jarvis_v0.1.onnx"
     )
     if not wake_model_path.exists():
-        raise SystemExit(f"Modelo wake word não encontrado: {wake_model_path}")
+        raise RuntimeError(f"Modelo wake word não encontrado: {wake_model_path}")
 
     log(
         f"[WAKE] inicializando | modelo={wake_model_path.name} | "

@@ -55,6 +55,7 @@ class ComputerTools:
     """Ferramentas de computador expostas ao executor, sem shell arbitrário."""
 
     def __init__(self, controller: ComputerController | None = None) -> None:
+        self.verify_seconds = 8.0
         self.controller = controller or ComputerController()
         self._last_search: dict[str, Any] | None = None
 
@@ -95,11 +96,38 @@ class ComputerTools:
         return {"index": position, "title": str(result.get("title") or ""), "url": url, "opened": True}
 
     def open_app(self, name: str) -> dict[str, Any]:
+        """Abre um app e confere que ele realmente apareceu (executar ≠ concluir)."""
+        import platform
+        import time
+
+        from .apps import find_app_in_text
+
         command = resolve_app(name)
+        if not command:
+            known = find_app_in_text(name)  # "minha calculadora" -> "calculadora"
+            if known:
+                name, command = known, resolve_app(known)
         if not command:
             raise ValueError(f"Aplicativo não encontrado: {name}")
         self.controller.launch(command)
-        return {"app": name, "command": command, "opened": True}
+        result: dict[str, Any] = {"app": name, "command": command, "opened": True}
+        if platform.system() == "Windows" and PROCESS_NAMES.get(name.casefold().strip()):
+            deadline = time.monotonic() + self.verify_seconds
+            while time.monotonic() < deadline:
+                try:
+                    if self.is_app_running(name)["running"]:
+                        result["verified"] = True
+                        return result
+                except Exception:
+                    break
+                time.sleep(0.7)
+            return {
+                **result,
+                "opened": False,
+                "success": False,
+                "error": f"Mandei abrir {name}, mas não vi o processo dele em {self.verify_seconds:g} s. Ele pode não estar instalado.",
+            }
+        return result
 
     def open_url(self, url: str) -> dict[str, Any]:
         if not url.startswith(("http://", "https://")):

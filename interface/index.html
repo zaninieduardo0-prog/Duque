@@ -1072,6 +1072,12 @@ async function speakResponse(text){
 
     await audioEl.play();
   }catch(error){
+    // Navegador bloqueou o som (ainda sem clique na página): não enfileira a fala
+    // para depois — antes ela "explodia" no primeiro clique.
+    if(error && error.name==='NotAllowedError'){
+      speechBusy=false; currentSpeech=null; audioTarget=0; syncServerState();
+      return;
+    }
     // Server TTS failed: try browser TTS fallback
     console.warn('TTS server error:', error);
     const ok = browserSpeak(value);

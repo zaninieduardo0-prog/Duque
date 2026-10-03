@@ -80,6 +80,8 @@ class IntentRouter:
             return Route(Intent.OPEN_APP, 0.95, "pedido explícito para abrir aplicativo")
 
         mentions_file = any(word in value for word in ("arquivo", "pasta"))
+        if context_app and re.search(r"\b(?:abr[ae]|abrir|inici[ae])\b.*\b(?:novamente|de novo|outra vez)\b", value) and not mentions_file:
+            return Route(Intent.OPEN_APP, 0.9, "reabrir o último aplicativo citado")
         if OPEN_VERB.search(value) and not mentions_file and find_app_in_text(value):
             return Route(Intent.OPEN_APP, 0.93, "verbo de abrir + aplicativo conhecido")
         if CLOSE_VERB.search(value) and not mentions_file and find_app_in_text(value):
