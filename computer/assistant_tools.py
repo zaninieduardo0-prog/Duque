@@ -386,6 +386,14 @@ class AssistantTools:
             return {"message": "Alternei o mudo.", "direction": "mute"}
         return {"success": False, "error": "Direção inválida: use up, down ou mute."}
 
+    def volume_set(self, percent: int | float) -> dict[str, Any]:
+        """Volume do Windows numa porcentagem (cada tecla de volume vale 2%)."""
+        target = max(0, min(100, int(round(float(percent)))))
+        self.press_key(VK_VOLUME_DOWN, 50)  # zera
+        if target:
+            self.press_key(VK_VOLUME_UP, max(1, target // 2))
+        return {"message": f"Volume em {target}%.", "percent": target}
+
     # área de transferência --------------------------------------------------------
     def clipboard_read(self) -> dict[str, Any]:
         if not IS_WINDOWS:
@@ -481,7 +489,15 @@ class AssistantTools:
             self.open_target(url)
         if not self.wait_window("YouTube", 15.0):
             return {"message": f"Mandei tocar '{query}' no YouTube, mas não vi a página abrir. Confere o navegador?", "url": url, "playing": False}
-        return {"message": f"Tocando '{query}' no YouTube.", "url": url, "video_id": video, "playing": True}
+        # Prestativo: começa num volume médio/baixo e pergunta (DUQUE_MEDIA_VOLUME=0 desliga).
+        level = int(os.getenv("DUQUE_MEDIA_VOLUME", "30") or 0)
+        if level > 0:
+            try:
+                self.volume_set(level)
+            except Exception:
+                level = 0
+        tail = f" Coloquei o volume em {level}%. O volume está bom?" if level else ""
+        return {"message": f"Tocando '{query}' no YouTube.{tail}", "url": url, "video_id": video, "playing": True}
 
     def spotify(self, query: str) -> dict[str, Any]:
         uri = "spotify:search:" + urllib.parse.quote(query)
@@ -510,6 +526,7 @@ class AssistantTools:
         ("timer_cancel", "Cancela um timer pelo id (ou todos, sem id)", (), {"id": str}),
         ("media", "Controla a mídia do Windows (Spotify, YouTube...): play_pause, next, previous, stop, mute", ("action",), {"action": str}),
         ("volume", "Ajusta o volume do Windows: up, down ou mute", ("direction",), {"direction": str, "steps": int}),
+        ("volume_set", "Coloca o volume do Windows numa porcentagem (0 a 100)", ("percent",), {"percent": (int, float)}),
         ("clipboard_read", "Lê o texto da área de transferência", (), {}),
         ("clipboard_write", "Copia um texto para a área de transferência", ("text",), {"text": str}),
         ("lock_screen", "Bloqueia a tela do Windows", (), {}),

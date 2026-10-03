@@ -175,6 +175,17 @@ git pull origin main
 
 Andamento da Forja no navegador: <http://127.0.0.1:5000/api/forja>
 
+## Desligar o TELEX
+
+Pela voz: "Telex, desligar". Pelo HUD: botão **Desligar** (dois cliques).
+Pelo PowerShell (se a interface sumiu):
+
+```powershell
+Get-Process pythonw -ErrorAction SilentlyContinue | Stop-Process
+```
+
+Interface fechada mas TELEX ligado: abra `http://127.0.0.1:5000` no Chrome.
+
 ## Emergência — voltar para a versão anterior
 
 ```powershell
@@ -197,20 +208,20 @@ git reset --hard <código>
 > Sempre comece pelo `cd C:\Users\zanin\Duque`. Se aparecer
 > `fatal: not a git repository`, o PowerShell está fora da pasta do TELEX.
 
-Troque `N` pelo número que o Claude informar (a última foi **11**). Um bloco por vez:
+Troque `N` pelo número que o Claude informar (a última foi **12**). Um bloco por vez:
 
 ```powershell
 cd C:\Users\zanin\Duque
 Get-Process pythonw -ErrorAction SilentlyContinue | Stop-Process
 git fetch origin
-git merge origin/duque/ajustes-11 -m "Ajustes 11"
+git merge origin/duque/ajustes-12 -m "Ajustes 12"
 git push origin main
 .\preparar_duque.bat
 wscript .\Duque.vbs
 ```
 
 > O `preparar_duque.bat` só é obrigatório quando a atualização traz pacote novo
-> (a 11 inclui da 7 em diante; a 7 baixa de novo o modelo do "Bom dia, TELEX"). Ele termina com o
+> (a 12 inclui da 7 em diante; a 7 baixa de novo o modelo do "Bom dia, TELEX"). Ele termina com o
 > diagnóstico; aperte uma tecla para fechar.
 
 Opcionais do TELEX (depois feche e abra):
@@ -223,6 +234,8 @@ setx DUQUE_OPERATOR "1"
 ```
 
 `DUQUE_LISTEN_SECONDS`: quanto tempo ele fica ouvindo depois de "Telex".
+`DUQUE_AFTER_GREETING` (5): espera depois da saudação. `DUQUE_MEDIA_VOLUME` (30): volume ao tocar
+música/vídeo (`"0"` não mexe).
 `DUQUE_OPERATOR`: `"0"` desliga o operador autônomo (pedidos sem ferramenta pronta).
 
 `DUQUE_TTS_SPEED` é a velocidade da fala do HUD (1.0 normal, 1.2 mais rápida).

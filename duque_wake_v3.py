@@ -5,7 +5,7 @@ import asyncio
 import duque_wake_v2 as runtime
 from core.voice_bridge import bridge
 from core.emergency import is_pause_command
-from voice.gate import FOLLOW_UP_ENABLED, FOLLOW_UP_SECONDS, addressed, ends_with_question, is_echo
+from voice.gate import addressed, is_echo
 from voice.transcripts import speech_from_event
 
 log = runtime.log
@@ -145,7 +145,7 @@ ECHO_SECONDS = 6.0
 
 
 async def finish_turn(turn: int, spoken: str) -> None:
-    """Depois que a fala terminou de tocar: trava a audição (ou abre, se perguntou)."""
+    """Depois que a fala terminou de tocar: standby (ou escuta curta, conforme as regras)."""
     await runtime.wait_playback()
     if turn != TURN or RESPONDING or runtime.SHUTTING_DOWN or not runtime.REALTIME:
         return  # outra resposta já começou
@@ -154,25 +154,56 @@ async def finish_turn(turn: int, spoken: str) -> None:
     runtime.SPEECH_STARTED_AT = None
     runtime.touch()
     RECENT_SPOKEN_AT = runtime.time.monotonic()  # eco possível por mais alguns segundos
+    flow = runtime.FLOW
     if runtime.GREETING_TURN:
-        # Respondeu ao "Bom dia, TELEX": volta ao standby; só "Telex" reativa.
         runtime.GREETING_TURN = False
-        runtime.GATE.close()
-        runtime.log("[GATE] saudação respondida; em standby até ouvir \"Telex\"")
-        runtime.hud_waiting()
-    elif FOLLOW_UP_ENABLED and ends_with_question(spoken):
-        # Ele perguntou algo: a resposta vale sem dizer "Telex".
-        runtime.GATE.open(FOLLOW_UP_SECONDS)
+        context = await runtime.asyncio.to_thread(bridge.context)
+        has_previous = len([line for line in context.splitlines() if line.strip()]) > 2
+        flow.on_greeting_done(has_previous)
+        runtime.log("[VOZ] saudação feita; esperando o Du por 5 s")
+        runtime.hud("ouvindo", "Pode falar...")
+        return
+    action = flow.on_reply_done(spoken)
+    if flow.state in {"listening", "ask_resume"}:
         runtime.hud("ouvindo", "Pode responder...")
-    else:
+    elif action == "standby":
         runtime.hud_waiting()
+
+
+async def flow_ticker(session) -> None:
+    """Prazos da conversa: fim do pedido, escuta que acabou, pergunta de continuar."""
+    flow = runtime.FLOW
+    while runtime.REALTIME and not runtime.SHUTTING_DOWN:
+        await runtime.asyncio.sleep(0.2)
+        action = flow.tick()
+        if action == "respond":
+            text = flow.take_collected()
+            runtime.log(f"[VOZ] pedido completo: {text[:80]!r}")
+            if runtime.is_farewell(text):
+                request_shutdown()
+            runtime.hud("processando", "Processando comando...")
+            await runtime.respond_now(session)
+        elif action == "ask_resume":
+            runtime.log("[VOZ] silêncio após a saudação; perguntando se continua de onde parou")
+            try:
+                await session.send_message(
+                    "(O Du ficou em silêncio depois da saudação.) Pergunte só, sem mais nada: "
+                    "\"Quer que eu continue de onde parei?\""
+                )
+            except Exception as exc:
+                runtime.log(f"[VOZ] pergunta não enviada: {exc}")
+        elif action == "standby":
+            runtime.log("[VOZ] sem fala; standby")
+            runtime.hud_waiting()
 
 
 async def handle_user_speech(session, item_id: str, text: str) -> None:
-    """Aplica o portão: só responde quando chamado; "Telex, stop" interrompe."""
-    speaking = busy()
+    """Aplica as regras de voice/conversation_flow.py a uma fala transcrita."""
+    flow = runtime.FLOW
+    if busy() and flow.state != "speaking":
+        flow.on_speaking()
     short = text if len(text) <= 70 else text[:67] + "..."
-    if (addressed(text) or runtime.GATE.is_open) and is_pause_command(text):
+    if (addressed(text) or flow.state != "standby") and is_pause_command(text):
         # "Telex, pausa tudo": para tudo e guarda onde parou (core/emergency.py).
         runtime.log(f"[GATE] pausa de emergência: {short!r}")
         await runtime.drop_item(session, item_id)
@@ -185,41 +216,40 @@ async def handle_user_speech(session, item_id: str, text: str) -> None:
         runtime.log(f"[GATE] ignore (eco da própria voz): {short!r}")
         await runtime.drop_item(session, item_id)
         return
-    was_open = runtime.GATE.is_open
-    decision = runtime.GATE.decide(text, speaking=speaking)
-    runtime.log(f"[GATE] {decision.action} ({decision.reason}; ouvido {'aberto' if was_open else 'fechado'}): {short!r}")
-    if decision.action == "ignore":
+    state = flow.state
+    action = flow.on_transcript(text)
+    runtime.log(f"[GATE] {action} (estado {state}): {short!r}")
+    if action == "ignore":
         await runtime.drop_item(session, item_id)
         return
     runtime.touch()
-    if decision.action == "listen":
-        # Só "Telex": fica ouvindo o pedido, sem responder nada.
+    if action in {"interrupt_and_listen", "interrupt_and_collect"}:
+        await runtime.interrupt_session()
+        runtime.DUQUE_SPEAKING = False
+    if action in {"chime", "interrupt_and_listen"}:
         await runtime.drop_item(session, item_id)
+        runtime.play_chime()
         runtime.hud("ouvindo", "Pode falar...")
         return
-    if decision.action == "sleep":
-        # "Repousar, Telex": standby na hora, sem despedida.
+    if action == "sleep":
         await runtime.drop_item(session, item_id)
         runtime.end_session_now("repousar")
         return
-    if decision.action == "stop":
-        if speaking:
-            await runtime.interrupt_session()
-            runtime.DUQUE_SPEAKING = False
+    if action == "standby":
         await runtime.drop_item(session, item_id)
-        if runtime.GATE.is_open:
-            runtime.hud("ouvindo", "Pode falar...")
-        else:
-            runtime.hud_waiting()
+        runtime.hud_waiting()
         return
-    if speaking:
-        await runtime.interrupt_session()
-        runtime.DUQUE_SPEAKING = False
+    if action == "resume":
+        await runtime.drop_item(session, item_id)
+        await runtime.asyncio.to_thread(bridge.record, "user", text, "voz")
+        try:
+            await session.send_message("Sim, continue de onde paramos.")
+        except Exception as exc:
+            runtime.log(f"[VOZ] não consegui continuar: {exc}")
+        return
+    # collect / interrupt_and_collect: guarda e responde quando ele terminar de falar.
     await runtime.asyncio.to_thread(bridge.record, "user", text, "voz")
-    if runtime.is_farewell(text):
-        request_shutdown()
-    runtime.hud("processando", "Processando comando...")
-    await runtime.respond_now(session)
+    runtime.hud("ouvindo", "Escutando você...")
 
 
 async def receive_events(session) -> None:
@@ -256,13 +286,13 @@ async def receive_events(session) -> None:
             continue
 
         if kind == "raw_model_event":
-            if (
-                raw_server_type(event) == "input_audio_buffer.speech_started"
-                and runtime.GATE.is_open
-                and not runtime.SHUTTING_DOWN
-                and not busy()
-            ):
-                runtime.hud("ouvindo", "Escutando você...")
+            server_type = raw_server_type(event)
+            if server_type == "input_audio_buffer.speech_started" and not runtime.SHUTTING_DOWN:
+                runtime.FLOW.on_speech_started()
+                if runtime.FLOW.state in {"listening", "collecting", "ask_resume"}:
+                    runtime.hud("ouvindo", "Escutando você...")
+            elif server_type == "input_audio_buffer.speech_stopped":
+                runtime.FLOW.on_speech_stopped()
 
         elif kind == "audio":
             item_id = event.audio.item_id
@@ -279,6 +309,7 @@ async def receive_events(session) -> None:
             runtime.touch()
             if not runtime.DUQUE_SPEAKING:
                 runtime.DUQUE_SPEAKING = True
+                runtime.FLOW.on_speaking()
                 runtime.SPEECH_STARTED_AT = runtime.time.perf_counter()
                 runtime.hud("falando", "TELEX falando...")
             runtime.enqueue_audio(
@@ -289,6 +320,8 @@ async def receive_events(session) -> None:
             )
 
         elif kind == "audio_interrupted":
+            # Só vem daqui quando NÓS interrompemos (ouviu "Telex"): o modelo do
+            # TELEX não se interrompe mais sozinho com som de fundo.
             item_id = runtime.CURRENT_ITEM
             if item_id:
                 with runtime.CANCELLED_LOCK:
@@ -307,6 +340,7 @@ async def receive_events(session) -> None:
         elif kind == "agent_start":
             TURN += 1
             RESPONDING = True
+            runtime.FLOW.on_speaking()
             runtime.DUQUE_SPEAKING = False
             runtime.SPEECH_STARTED_AT = None
             runtime.touch()
@@ -339,6 +373,7 @@ async def receive_events(session) -> None:
 
 patch_identity()
 runtime.request_shutdown = request_shutdown
+runtime.flow_ticker = flow_ticker
 runtime.receive_events = receive_events
 runtime.microphone_callback = safe_microphone_callback
 

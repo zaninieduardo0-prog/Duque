@@ -86,8 +86,12 @@ def classify(text: str, *, loose: bool = False) -> Heard | None:
     No modo livre, a frase pode vir no fim de uma fala maior ("ok, bom dia telê").
     """
     words = [word for word in plain(text).split() if word != "unk"]
-    if words and _is_name(words[0], loose) and (len(words) == 1 or not COMMANDS.get(" ".join(words[:-1]))):
-        return Heard("call", "telex")
+    if words and _is_name(words[0], loose):
+        rest = " ".join(words[1:])
+        if COMMANDS.get(rest) == "wake":  # "Telex, boa tarde" (nome primeiro)
+            return Heard("wake", f"{rest} telex")
+        if len(words) == 1 or not COMMANDS.get(" ".join(words[:-1])):
+            return Heard("call", "telex")
     if len(words) < 2 or not _is_name(words[-1], loose):
         return None
     candidates = [" ".join(words[:-1])]
@@ -121,7 +125,8 @@ def decide(heard: Heard | None, jarvis: bool, paused: bool) -> tuple[str, str | 
 def grammar(known: Callable[[str], bool] | None = None) -> list[str]:
     """Frases aceitas pelo reconhecedor (+ "[unk]" para todo o resto)."""
     names = [name for name in NAME_SPELLINGS if known is None or known(name)]
-    phrases = [f"{command} {name}" for command in COMMANDS for name in names] + names
+    phrases = [f"{command} {name}" for command in COMMANDS for name in names]
+    phrases += [f"{name} {prefix}" for name in names for prefix in WAKE_PREFIXES] + names
     return phrases + ["[unk]"]
 
 
@@ -178,7 +183,8 @@ class LocalWake:
     def names(self) -> list[str]:
         if self.loose:
             return ["modo livre (nome aproximado)"]
-        return sorted({phrase.split()[-1] for phrase in self.phrases if phrase != "[unk]"})
+        spellings = {plain(name) for name in NAME_SPELLINGS}
+        return sorted({word for phrase in self.phrases for word in phrase.split() if plain(word) in spellings})
 
     def reset(self) -> None:
         try:

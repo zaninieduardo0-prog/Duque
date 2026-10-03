@@ -131,6 +131,8 @@ body[data-state=speaking] #logo{animation:lgGlow 1.1s ease-in-out infinite}
 body.offline #logo{opacity:.25;filter:grayscale(.6)}
 body.paused #logo{opacity:.55;filter:drop-shadow(0 0 8px rgba(255,120,130,.55))}
 #panicBtn{margin-top:8px;display:block;text-align:left;color:rgba(255,150,160,.55)}
+#offBtn{margin-top:8px;display:block;text-align:left;color:rgba(214,230,255,.38)}
+#offBtn.armed{color:#ffb4bc}
 #panicBtn:hover,#panicBtn:focus-visible{color:#ffb4bc;text-shadow:0 0 14px rgba(255,90,110,.6)}
 body.paused #panicBtn{color:#ffb4bc}
 /* pausa de emergência */
@@ -235,6 +237,7 @@ body.paused #pauseBox{display:block}
     <div class="label" id="sysState" style="margin-top:10px">Online</div>
     <button id="memBtn" class="ghost" title="Memória (tecla N)">Memória</button>
     <button id="panicBtn" class="ghost" title="Pausa de emergência (F9): para tudo e guarda onde parou">Pausa de emergência</button>
+    <button id="offBtn" class="ghost" title="Desliga o TELEX (voz e núcleo). Clique duas vezes para confirmar.">Desligar</button>
   </div>
 
   <!-- topo direita -->
@@ -1491,6 +1494,21 @@ async function checkVersion(){
 }
 checkVersion();
 setInterval(checkVersion,10000);
+
+/* ---------------- desligar (dois cliques) ---------------- */
+let offArmed=null;
+$('offBtn').onclick=async()=>{
+  const b=$('offBtn');
+  if(!offArmed){
+    b.textContent='Clique de novo para desligar'; b.classList.add('armed');
+    offArmed=setTimeout(()=>{ offArmed=null; b.textContent='Desligar'; b.classList.remove('armed'); },3500);
+    return;
+  }
+  clearTimeout(offArmed); offArmed=null;
+  b.textContent='Desligando…';
+  try{ await fetch('/api/desligar',{method:'POST'}); }catch(e){}
+  pollConversation();
+};
 
 /* ---------------- saudação de início ---------------- */
 async function greet(){

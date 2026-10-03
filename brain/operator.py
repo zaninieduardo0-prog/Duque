@@ -26,6 +26,8 @@ OPERATOR_SYSTEM = (
     "wait para esperar carregar.\n"
     "4) Depois de cada ação que muda a tela, confira com describe_screen antes de seguir. Nunca diga que fez sem evidência.\n"
     "5) Não faça compras nem pagamentos, não apague nada e não envie mensagens que ele não pediu.\n"
+    "6) Nunca feche o navegador inteiro, nunca encerre processos do Chrome (kill_process) e nunca feche a "
+    "aba/janela da interface do TELEX. Para fechar um site, feche só a aba dele (close_app com o nome do site).\n"
     "Uma ação por resposta. Responda SOMENTE JSON: "
     '{"action":"tool","tool":"nome","arguments":{},"reason":"por que esta ação"} | '
     '{"action":"finish","message":"o que foi feito e qual a evidência"} | '

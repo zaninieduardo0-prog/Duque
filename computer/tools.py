@@ -52,7 +52,10 @@ def _normalize_search_url(href: str) -> str:
 
 
 # Texto que aparece no título da janela do navegador quando o site abriu.
-SITE_TITLES = {"youtube": "YouTube", "gmail": "Gmail", "instagram": "Instagram", "chatgpt": "ChatGPT", "github": "GitHub"}
+SITE_TITLES = {
+    "youtube": "YouTube", "gmail": "Gmail", "instagram": "Instagram", "chatgpt": "ChatGPT", "github": "GitHub",
+    "whatsapp web": "WhatsApp", "netflix": "Netflix", "facebook": "Facebook",
+}
 
 
 class ComputerTools:
@@ -196,7 +199,24 @@ class ComputerTools:
         import platform
         import subprocess
 
+        from .apps import CHROME_NAMES, find_app_in_text
+
         normalized = name.casefold().strip()
+        site = SITE_TITLES.get(normalized) or SITE_TITLES.get(find_app_in_text(normalized) or "")
+        if site:
+            # Site (YouTube, Gmail...): fecha SÓ a aba dele, nunca o navegador inteiro.
+            from .windows_focus import close_tab
+
+            tabs = close_tab(site)
+            message = f"Fechei a aba do {site}." if tabs else f"Não encontrei aba do {site} aberta."
+            return {"app": name, "closed": bool(tabs), "tabs": tabs, "message": message}
+        if normalized in CHROME_NAMES and platform.system() == "Windows":
+            # Fecha as janelas do Chrome, menos a da interface do TELEX.
+            from .windows_focus import close_browser_windows
+
+            count = close_browser_windows()
+            return {"app": name, "closed": bool(count), "windows": count,
+                    "message": f"Fechei {count} janela(s) do Chrome (a interface do TELEX ficou aberta)."}
         processes = PROCESS_NAMES.get(normalized)
         if not processes:
             raise ValueError(f"Não sei qual processo corresponde ao aplicativo: {name}")

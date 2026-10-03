@@ -214,6 +214,21 @@ Ajustes opcionais (PowerShell, depois reinicie o Duque):
 | 4K.1 | `wscript .\Duque.vbs` | O HUD abre assim que o servidor responde, sem esperar a voz carregar |
 | 4K.2 | `Get-Content .\duque.log -Tail 40` | Linhas `[INÍCIO] núcleo carregado em X s`, `servidor respondendo...` e `voz carregada em Y s`; mande para o Claude se algo passar de ~10 s |
 
+## 4L. Voz do jeito do Du, desligar e fechar só a aba
+
+| # | Ação | Esperado |
+|---|------|----------|
+| 4L.1 | Diga `TELEX, boa tarde` | "Boa tarde, Du. À sua disposição." e fica 5 s esperando |
+| 4L.2 | Logo depois, faça uma pergunta longa, com pausas | Ele espera você terminar e responde tudo junto |
+| 4L.3 | Depois da saudação, fique em silêncio | "Quer que eu continue de onde parei?" (se havia conversa antes); "sim" continua, "não" ou silêncio → standby |
+| 4L.4 | Diga só `Telex` | Bipe curto (sem falar) e escuta por 8 s |
+| 4L.5 | `Telex, abra meu WhatsApp Web no perfil em que estou` | Abre uma aba no Chrome que você está usando e diz só "Feito, senhor." |
+| 4L.6 | Durante uma resposta longa, fale outras coisas (ou deixe o som alto) | **Não** interrompe |
+| 4L.7 | Durante a resposta, diga `Telex` | Para na hora, bipe, escuta 8 s; sem fala → standby |
+| 4L.8 | `toca charlie brown jr no youtube` | Toca, põe o volume em 30% e pergunta "O volume está bom?"; responda sem o nome em 5 s |
+| 4L.9 | `fecha o youtube` | Fecha **só a aba** do YouTube; o Chrome e a interface do TELEX continuam |
+| 4L.10 | `Telex, desligar` (ou o botão **Desligar** do HUD, dois cliques) | "Desligando. Até logo, Du." e o TELEX encerra de vez |
+
 ## 5. Forja
 
 | # | Ação | Esperado |

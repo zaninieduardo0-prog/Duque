@@ -13,7 +13,7 @@ from core.events import Event, EventType
 from brain.voice_style import SAMPLE as VOICE_SAMPLE
 from brain.voice_style import TTS_INSTRUCTIONS, TTS_SPEED, VOICES, current_voice, set_voice
 from core.emergency import describe as describe_pause
-from core.emergency import is_pause_command, is_resume_command
+from core.emergency import is_pause_command, is_resume_command, is_shutdown_command, shutdown_soon
 from core.voice_bridge import bridge
 from core.state import DuqueState
 from core.tasks import TaskStatus
@@ -575,7 +575,19 @@ def _retomar(origem: str = "hud") -> dict[str, Any]:
     return {**status, "pausado": False, "texto": texto, "origem": origem}
 
 
+def _desligar(origem: str) -> dict[str, Any]:
+    print(f"[TELEX] desligado por {origem}", flush=True)
+    _avisar("Desligando. Até logo, Du.")
+    bridge.end_voice("desligar")
+    shutdown_soon()
+    return {"ok": True, "via": "desligar", "text": "", "resposta": "", "desligando": True}
+
+
 def _comando_de_controle(texto: str, canal: str, registrar: bool) -> dict[str, Any] | None:
+    if is_shutdown_command(texto):
+        if registrar:
+            agent.conversation.add("user", texto, canal)
+        return _desligar(canal)
     if is_pause_command(texto):
         if registrar:
             agent.conversation.add("user", texto, canal)
@@ -598,6 +610,11 @@ def _comando_de_controle(texto: str, canal: str, registrar: bool) -> dict[str, A
         _avisar("Em repouso." if encerrou else "Em repouso. Me chame quando precisar.")
         return {"ok": True, "via": "repouso", "text": "", "resposta": ""}
     return None
+
+
+@app.route("/api/desligar", methods=["POST"])
+def desligar():
+    return jsonify(_desligar("hud"))
 
 
 @app.route("/api/emergencia", methods=["GET"])

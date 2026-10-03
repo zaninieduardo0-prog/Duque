@@ -49,8 +49,21 @@ _PROFILE = re.compile(
 )
 
 
+CURRENT_PROFILE = "atual"
+_CURRENT = re.compile(
+    r"perfil (?:em )?que (?:eu )?(?:estou|to|tô|uso)(?: (?:agora|usando|no momento|aberto))*|perfil atual|perfil aberto|"
+    r"(?:esse|este|nesse|neste|desse|deste) perfil|perfil (?:desse|deste|aqui)",
+    re.IGNORECASE,
+)
+
+
 def split_profile(text: str) -> tuple[str, str]:
     """("no perfil Embralan, mande ... ") → ("Embralan", "mande ...")."""
+    def current(match: re.Match[str]) -> str:
+        # "desse perfil" → "do perfil atual"; "perfil em que estou" → "perfil atual"
+        return ("do perfil " if not match.group().casefold().startswith("perfil") else "perfil ") + CURRENT_PROFILE
+
+    text = _CURRENT.sub(current, text)
     match = _PROFILE.search(text)
     if not match:
         return "", text
@@ -175,6 +188,7 @@ class WhatsAppDesktop:
         without_vision: Callable[[str, str], dict[str, Any]] | None = None,
         find_profile: Callable[[str], dict[str, str] | None] = lambda _p: None,
         open_in_profile: Callable[[str, str], Any] = lambda _d, _u: None,
+        open_current: Callable[[str], bool] = lambda _u: False,
         profile_names: Callable[[], list[str]] = lambda: [],
     ) -> None:
         self.open_app = open_app
@@ -189,6 +203,7 @@ class WhatsAppDesktop:
         self.without_vision = without_vision
         self.find_profile = find_profile
         self.open_in_profile = open_in_profile
+        self.open_current = open_current
         self.profile_names = profile_names
 
     # conferências pela tela ---------------------------------------------------
@@ -305,17 +320,38 @@ class WhatsAppDesktop:
                 return state
         return "desconhecido"
 
-    def _send_web(self, contact: str, text: str, hint: str, send: bool, profile: str) -> dict[str, Any]:
+    def open_web(self, profile: str = "") -> dict[str, Any]:
+        """Só abre o WhatsApp Web (no perfil pedido ou no que ele está usando)."""
+        if not profile or profile == CURRENT_PROFILE:
+            if self.open_current(WEB_URL):
+                return {"message": "Feito, senhor.", "where": "perfil atual"}
+            self.open_target(WEB_URL)
+            return {"message": "Feito, senhor.", "where": "navegador"}
         info = self.find_profile(profile)
+        if info is None:
+            names = ", ".join(self.profile_names()) or "nenhum encontrado"
+            return {"success": False, "error": f"Não achei o perfil '{profile}' no Chrome. Perfis: {names}."}
+        self.open_in_profile(info["dir"], WEB_URL)
+        return {"message": "Feito, senhor.", "where": info.get("name")}
+
+    def _send_web(self, contact: str, text: str, hint: str, send: bool, profile: str) -> dict[str, Any]:
+        if profile == CURRENT_PROFILE:
+            info: dict[str, str] | None = {"dir": "", "name": "atual"}
+        else:
+            info = self.find_profile(profile)
         if info is None:
             names = ", ".join(self.profile_names()) or "nenhum encontrado"
             return {"success": False, "error": f"Não achei o perfil '{profile}' no Chrome. Perfis: {names}."}
         where = f"WhatsApp Web, perfil {info.get('name') or profile}"
         if self.ask_screen is None:
-            self.open_in_profile(info["dir"], WEB_URL)
+            self.open_web(profile)
             return {"message": f"Abri o {where}. Sem a visão da tela não consigo procurar o contato sozinho.", "sent": False}
         # Abre (ou traz) o WhatsApp Web naquele perfil: o Chrome usa a janela desse perfil.
-        self.open_in_profile(info["dir"], WEB_URL)
+        if profile == CURRENT_PROFILE:
+            if not self.open_current(WEB_URL):
+                self.open_target(WEB_URL)
+        else:
+            self.open_in_profile(info["dir"], WEB_URL)
         if not self.wait_window("WhatsApp", 25.0):
             return {"success": False, "error": f"O {where} não abriu a tempo."}
         self.focus("WhatsApp")

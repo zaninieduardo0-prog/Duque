@@ -6,7 +6,7 @@ import os
 import threading
 import time
 import urllib.request
-from typing import cast
+from typing import Any, cast
 from collections import deque
 from pathlib import Path
 
@@ -23,7 +23,8 @@ from core.emergency import emergency
 from core.voice_bridge import bridge
 from voice import local_wake
 from voice.devices import match_input_device, pick_wake_device
-from voice.gate import LISTEN_SECONDS, ListenGate
+from voice.conversation_flow import VoiceFlow, greeting_reply
+from voice.gate import ListenGate
 from voice.session import PlaybackFence
 
 MODEL = os.getenv("DUQUE_REALTIME_MODEL", "gpt-realtime-2.1")
@@ -86,11 +87,34 @@ voice_board = Pedalboard([
     Gain(gain_db=-1.0),
 ])
 
+class TelexRealtimeModel(OpenAIRealtimeWebSocketModel):
+    """Modelo de voz que NÃO se interrompe sozinho.
+
+    A biblioteca da OpenAI, ao detectar qualquer som no microfone
+    ("input_audio_buffer.speech_started"), parava o áudio, truncava e CANCELAVA a
+    resposta — inclusive com o eco da própria voz do TELEX ou barulho de fundo.
+    Aqui esse evento só é repassado (para o HUD); quem decide interromper é o
+    portão (voice/gate.py), e só quando ouve "Telex".
+    """
+
+    async def _handle_ws_event(self, event):  # type: ignore[override]
+        if isinstance(event, dict) and event.get("type") == "input_audio_buffer.speech_started":
+            try:
+                from agents.realtime.model_events import RealtimeModelRawServerEvent
+
+                await self._emit_event(RealtimeModelRawServerEvent(data=event))  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            return
+        await super()._handle_ws_event(event)  # type: ignore[misc]
+
+
 def new_model() -> OpenAIRealtimeWebSocketModel:
     # Um modelo novo por sessão: o objeto guarda o último item falado e, se fosse
     # reaproveitado, a sessão seguinte pedia um item que não existe mais
     # ("item_retrieve_invalid_item_id") e caía na hora.
-    return OpenAIRealtimeWebSocketModel(transport_config={
+    model_class = TelexRealtimeModel if hasattr(OpenAIRealtimeWebSocketModel, "_handle_ws_event") else OpenAIRealtimeWebSocketModel
+    return model_class(transport_config={
         "ping_interval": 20.0, "ping_timeout": 60.0,
         "handshake_timeout": 30.0, "max_size": 8 * 1024 * 1024,
     })
@@ -115,7 +139,7 @@ def build_runner(voice: str) -> RealtimeRunner:
                             # ou interrompe é o portão (voice/gate.py): som de fundo
                             # não gera resposta nem corta a fala do Duque.
                             "type": "server_vad", "threshold": 0.5,
-                            "prefix_padding_ms": 300, "silence_duration_ms": 500,
+                            "prefix_padding_ms": 300, "silence_duration_ms": 900,
                             "interrupt_response": False, "create_response": False,
                         },
                     },
@@ -157,6 +181,10 @@ VAD_COUNT = 0
 LAST_INTERRUPT = 0.0
 SPEECH_STARTED_AT: float | None = None
 GATE = ListenGate()
+# Regras da conversa (voice/conversation_flow.py): saudação, "Telex", interrupção.
+FLOW = VoiceFlow()
+# Laço de prazos da conversa (fim do pedido, escuta, "continuo?"); o v3 preenche.
+flow_ticker: Any = None
 LAST_ACTIVITY = time.monotonic()
 LAST_ASSISTANT_TEXT = ""
 # A resposta ao "Bom dia, TELEX" deixa a audição aberta para o primeiro pedido.
@@ -170,7 +198,7 @@ def touch() -> None:
 
 
 def idle_expired(now: float | None = None) -> bool:
-    if IDLE_SECONDS <= 0 or DUQUE_SPEAKING or GATE.is_open:
+    if IDLE_SECONDS <= 0 or DUQUE_SPEAKING or FLOW.state != "standby" or FLOW.user_talking:
         return False
     return ((time.monotonic() if now is None else now) - LAST_ACTIVITY) >= IDLE_SECONDS
 
@@ -414,14 +442,9 @@ async def drop_item(session, item_id: str | None) -> None:
 
 
 async def idle_watch() -> None:
-    """Fecha a conversa depois de um tempo sem ser chamado (volta ao standby)."""
-    was_open = GATE.is_open
+    """Fecha a conversa depois de um tempo em standby, sem ser chamado."""
     while REALTIME and not SHUTTING_DOWN:
         await asyncio.sleep(1.0)
-        now_open = GATE.is_open
-        if was_open and not now_open and not DUQUE_SPEAKING:
-            hud_waiting()  # acabou o tempo de escuta do "Telex": standby
-        was_open = now_open
         if idle_expired():
             log(f"[GATE] {IDLE_SECONDS:.0f}s sem ser chamado; voltando ao standby.")
             return
@@ -453,6 +476,24 @@ def stop_speech_from_core() -> None:
         loop.call_soon_threadsafe(lambda: asyncio.create_task(interrupt_session()))
 
 
+def chime_audio() -> bytes:
+    """Bipe curto e suave (dois tons) para "estou ouvindo" — sem falar nada."""
+    pieces = []
+    for freq, length in ((880.0, 0.07), (1320.0, 0.09)):
+        t = np.arange(int(SAMPLE_RATE * length)) / SAMPLE_RATE
+        envelope = np.minimum(1.0, np.minimum(t, t[::-1]) / 0.01)
+        pieces.append(0.18 * envelope * np.sin(2 * np.pi * freq * t))
+        pieces.append(np.zeros(int(SAMPLE_RATE * 0.02)))
+    return (np.concatenate(pieces) * 32767).astype(np.int16).tobytes()
+
+
+def play_chime() -> None:
+    try:
+        enqueue_audio(chime_audio(), "telex-chime", 0)
+    except Exception as exc:
+        log(f"[VOZ] bipe falhou: {exc}")
+
+
 def end_session_now(reason: str = "standby") -> None:
     """Fecha a conversa de voz na hora, sem despedida ("Repousar, Telex", pausa)."""
     global MIC_ACTIVE
@@ -476,13 +517,13 @@ def send_greeting(greeting: str) -> None:
     if loop is None or session is None:
         return
     GREETING_TURN = True
-    # Pedido do Du: depois da saudação, standby. Só "Telex" reativa.
-    GATE.close()
+    FLOW.on_speaking()
     bridge.record("user", greeting, "voz")
+    reply = greeting_reply(greeting)
 
     async def deliver() -> None:
         try:
-            await session.send_message(greeting)
+            await session.send_message(f"{greeting} (Responda exatamente, e só isto: \"{reply}\")")
         except Exception as exc:
             log(f"[REALTIME] saudação não enviada: {exc}")
 
@@ -611,12 +652,14 @@ async def realtime_session(greeting: str | None = None, *, call: bool = False, p
         CANCELLED.clear()
     clear_audio()
     reset_voice_processor()
+    FLOW.collected.clear()
+    FLOW.user_talking = False
     if greeting:
-        GATE.close()  # saudação: responde e volta ao standby (só "Telex" reativa)
+        FLOW.on_speaking()  # vai responder "Boa tarde, Du. À sua disposição."
     elif call:
-        GATE.open(LISTEN_SECONDS)  # "Telex": ouvindo o pedido por alguns segundos
+        FLOW.on_call()  # "Telex": bipe e escuta
     else:
-        GATE.open()
+        FLOW.on_call()
     touch()
     hud("ouvindo", "Escutando você...")
     player = None
@@ -630,6 +673,8 @@ async def realtime_session(greeting: str | None = None, *, call: bool = False, p
         player = sd.RawOutputStream(samplerate=SAMPLE_RATE, channels=CANAIS, dtype="int16", blocksize=BLOCKSIZE, callback=output_callback)
         player.start()
         mark("alto-falante pronto")
+        if not greeting:
+            play_chime()  # "estou ouvindo"
         TRACKER = RealtimePlaybackTracker()
         try:
             await asyncio.to_thread(refresh_instructions)
@@ -660,9 +705,13 @@ async def realtime_session(greeting: str | None = None, *, call: bool = False, p
             event_task = asyncio.create_task(receive_events(session))
             shutdown_task = asyncio.create_task(SHUTDOWN_EVENT.wait())
             idle_task = asyncio.create_task(idle_watch())
+            flow_task = asyncio.create_task(flow_ticker(session)) if flow_ticker is not None else None
             if greeting:
                 send_greeting(greeting)
-            done, pending = await asyncio.wait((mic_task, event_task, shutdown_task, idle_task), return_when=asyncio.FIRST_COMPLETED)
+            watched = [mic_task, event_task, shutdown_task, idle_task]
+            done, pending = await asyncio.wait(watched, return_when=asyncio.FIRST_COMPLETED)
+            if flow_task is not None:
+                flow_task.cancel()
             for task in pending:
                 task.cancel()
             for task in pending:
@@ -710,6 +759,7 @@ async def realtime_session(greeting: str | None = None, *, call: bool = False, p
         CURRENT_ITEM = None
         GREETING_TURN = False
         GATE.close()
+        FLOW.state, FLOW.deadline = "standby", None
         if emergency.paused:
             hud("standby", "Pausa de emergência")
         else:

@@ -433,6 +433,7 @@ class AgentLoop:
             (ToolSpec("whatsapp_send", "Abre o WhatsApp, acha a conversa da pessoa (pista opcional, ex.: 'da Embralan'), confere pela tela, escreve e envia (send=false só deixa escrito)", ("contact", "text"), {"contact": str, "text": str, "hint": str, "send": bool, "profile": str}), self.whatsapp.whatsapp_send),
             (ToolSpec("click_on", "Clica num elemento visível na tela descrito em palavras (ex.: 'botão Enviar', 'campo de busca do YouTube')", ("target",), {"target": str, "double": bool}), self._click_on),
             (ToolSpec("wait", "Espera alguns segundos (1 a 10) para algo carregar", ("seconds",), {"seconds": (int, float)}), self._wait),
+            (ToolSpec("whatsapp_web_open", "Abre o WhatsApp Web no perfil do Chrome pedido ('atual' = o que ele está usando)", (), {"profile": str}), self.whatsapp.open_web),
             (ToolSpec("chrome_profiles", "Perfis do Chrome (nome, e-mail) e as janelas do Chrome abertas agora"), self._chrome_profiles),
             (ToolSpec("notepad_write", "Escreve no Bloco de Notas: um texto ditado ou algo para criar (ex.: 'um poema sobre o mar', 'lista de compras')", ("request",), {"request": str}), self.notepad.notepad_write),
         ]
@@ -619,7 +620,7 @@ class AgentLoop:
 
     def _create_whatsapp(self) -> WhatsAppDesktop:
         from computer.chrome import list_profiles, match_profile, open_in_chrome
-        from computer.windows_focus import focus_window, wait_for_window
+        from computer.windows_focus import focus_window, open_in_current_chrome, wait_for_window
 
         def open_in_profile(profile_dir: str, url: str) -> None:
             if not open_in_chrome(url, profile_dir):
@@ -647,6 +648,7 @@ class AgentLoop:
             find_profile=lambda name: match_profile(name, list_profiles()),
             open_in_profile=open_in_profile,
             profile_names=lambda: [profile["name"] for profile in list_profiles()],
+            open_current=open_in_current_chrome,
         )
 
     def _click_on(self, target: str, double: bool = False) -> dict[str, Any]:
@@ -1041,6 +1043,13 @@ class AgentLoop:
                 pending.task_id,
             )
 
+        from core.emergency import is_shutdown_command, shutdown_soon
+
+        if is_shutdown_command(text):
+            # Pedido pela voz ("Telex, desligar"): encerra o TELEX inteiro.
+            shutdown_soon(4.0)
+            return AgentResult("Desligando. Até logo, Du.")
+
         if self.forge_service is not None and self._forge_status_requested(text):
             return AgentResult(self._forge_status_text())
 
@@ -1051,6 +1060,16 @@ class AgentLoop:
                 "se o CI passar, aplico e reinicio sozinho. "
                 f"Trabalho {job['id']}, posição {job['position']} na fila."
             )
+
+        if re.search(r"\b(?:abr\w*|abre|abra)\b.*\bwhats\s?app\s+web\b", text, re.IGNORECASE) and not WHATSAPP_ACTION.search(text.casefold()):
+            # "Abra meu WhatsApp Web (no perfil X / no perfil em que estou)": só abrir, no Chrome.
+            from computer.whatsapp_flow import split_profile
+
+            profile, _rest = split_profile(text)
+            task = self.tasks.create(text, intent="whatsapp_web")
+            result = self.executor.execute_step(task, "whatsapp_web_open", {"profile": profile})
+            value = result.value if isinstance(result.value, dict) else {}
+            return AgentResult(str(value.get("message") or result.error or "Feito, senhor."), task.id, result)
 
         if re.search(r"\b(?:perfil|conta)\b", text, re.IGNORECASE) and WHATSAPP_ACTION.search(text.casefold()):
             many = self._handle_whatsapp_jobs(text)

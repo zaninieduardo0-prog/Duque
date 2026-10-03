@@ -109,6 +109,8 @@ class SecurityPolicy:
         "list_processes": RiskLevel.LOW,
         "kill_process": RiskLevel.HIGH,
         "click_on": RiskLevel.MEDIUM,
+        "volume_set": RiskLevel.LOW,
+        "whatsapp_web_open": RiskLevel.LOW,
         "wait": RiskLevel.LOW,
         "chrome_profiles": RiskLevel.LOW,
         "youtube_play": RiskLevel.LOW,

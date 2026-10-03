@@ -194,3 +194,23 @@ def describe(status: dict[str, Any]) -> str:
 
 
 emergency = EmergencyPause()
+
+
+_SHUTDOWN_RE = re.compile(
+    r"^(?:telex )?(?:(?:pode )?(?:se )?(?:deslig(?:a|ar|ue)(?:-se)?|encerr(?:a|ar|e)|deslig(?:a|ar|ue) tudo)"
+    r"(?: o telex| voce| o sistema| o assistente)?|(?:deslig(?:a|ar|ue)|encerr(?:a|ar|e)|fech(?:a|ar|e)) o telex)$"
+)
+
+
+def is_shutdown_command(text: str) -> bool:
+    """ "Telex, desligar" / "desligue o TELEX" / "encerrar" (não "desligue o computador")."""
+    return bool(_SHUTDOWN_RE.match(_plain(text)))
+
+
+def shutdown_soon(delay: float = 2.5) -> None:
+    """Encerra o TELEX (o supervisor entende o código 0 como "parar de vez")."""
+    import os
+
+    timer = threading.Timer(delay, lambda: os._exit(0))
+    timer.daemon = True
+    timer.start()

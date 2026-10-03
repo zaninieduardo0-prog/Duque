@@ -152,3 +152,98 @@ def navigate_window(fragment: str, url: str) -> bool:
     time.sleep(0.1)
     _keys(0x0D)  # Enter
     return True
+
+
+HUD_TITLE = "TELEX"  # a aba da interface ("TELEX — NEURAL CORE")
+
+
+def close_tab(fragment: str, attempts: int = 4) -> int:
+    """Fecha só as abas cujo título tem `fragment` (ex.: YouTube). Nunca a do TELEX.
+
+    A aba precisa estar ativa para o Windows mostrar o título; se não estiver,
+    usa a busca de abas do Chrome (Ctrl+Shift+A) para trazê-la. Devolve quantas fechou.
+    """
+    if not IS_WINDOWS:
+        return 0
+    closed = 0
+    wanted = _plain(fragment)
+    for _ in range(attempts):
+        target = next(
+            (hwnd for hwnd, title in _windows() if wanted in _plain(title) and HUD_TITLE.casefold() not in title.casefold()),
+            None,
+        )
+        if target is None:
+            # Talvez esteja numa aba de fundo: a busca de abas do Chrome a ativa.
+            chrome = next((hwnd for hwnd, title in _windows() if title.endswith("Google Chrome")), None)
+            if chrome is None or closed:
+                break
+            _focus_hwnd(chrome)
+            _keys(0x11, 0x10, 0x41)  # Ctrl+Shift+A
+            time.sleep(0.5)
+            if not set_clipboard_text(fragment):
+                break
+            _keys(0x11, 0x56)
+            time.sleep(0.5)
+            _keys(0x0D)
+            time.sleep(0.8)
+            target = next(
+                (hwnd for hwnd, title in _windows() if wanted in _plain(title) and HUD_TITLE.casefold() not in title.casefold()),
+                None,
+            )
+            if target is None:
+                _keys(0x1B)  # fecha a busca
+                break
+        _focus_hwnd(target)
+        _keys(0x11, 0x57)  # Ctrl+W: fecha só a aba ativa
+        time.sleep(0.6)
+        closed += 1
+    return closed
+
+
+def close_browser_windows(keep_fragment: str = HUD_TITLE) -> int:
+    """Fecha as janelas do Chrome, menos a da interface do TELEX."""
+    if not IS_WINDOWS:
+        return 0
+    import ctypes
+
+    user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+    count = 0
+    for hwnd, title in _windows():
+        if title.endswith("Google Chrome") and keep_fragment.casefold() not in title.casefold():
+            user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
+            count += 1
+    return count
+
+
+def _focus_hwnd(hwnd: int) -> None:
+    import ctypes
+
+    user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, 9)
+    user32.keybd_event(0x12, 0, 0, 0)
+    user32.keybd_event(0x12, 0, 0x0002, 0)
+    user32.SetForegroundWindow(hwnd)
+    time.sleep(0.25)
+
+
+def open_in_current_chrome(url: str) -> bool:
+    """Abre `url` numa aba nova da janela do Chrome que o Du está usando (logo, no perfil dele agora).
+
+    A janela mais recente (ordem do Windows) que não seja a interface do TELEX.
+    """
+    if not IS_WINDOWS:
+        return False
+    target = next(
+        (hwnd for hwnd, title in _windows() if title.endswith("Google Chrome") and HUD_TITLE.casefold() not in title.casefold()),
+        None,
+    ) or next((hwnd for hwnd, title in _windows() if title.endswith("Google Chrome")), None)
+    if target is None or not set_clipboard_text(url):
+        return False
+    _focus_hwnd(target)
+    _keys(0x11, 0x54)  # Ctrl+T: aba nova nesta janela/perfil
+    time.sleep(0.4)
+    _keys(0x11, 0x56)
+    time.sleep(0.1)
+    _keys(0x0D)
+    return True
