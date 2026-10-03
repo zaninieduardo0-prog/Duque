@@ -19,12 +19,26 @@ from pedalboard import Compressor, Gain, HighpassFilter, LowShelfFilter, Pedalbo
 from agents.realtime import OpenAIRealtimeWebSocketModel, RealtimeRunner, RealtimePlaybackTracker
 from agent.duque_realtime import duque_realtime, refresh_instructions
 from core.voice_bridge import bridge
+from voice.devices import match_input_device, pick_wake_device
 from voice.session import PlaybackFence
 
 MODEL = os.getenv("DUQUE_REALTIME_MODEL", "gpt-realtime-2.1")
 VOICE = os.getenv("DUQUE_VOICE", "ballad")
-MICROFONE = int(os.getenv("DUQUE_MIC", "1"))
-WAKE_MICROFONE = int(os.getenv("DUQUE_WAKE_MIC", os.getenv("DUQUE_MIC", "1")))
+# Microfones: definidos por DUQUE_WAKE_MIC / DUQUE_MIC ou escolhidos automaticamente.
+MICROFONE: int | None = int(os.environ["DUQUE_MIC"]) if os.getenv("DUQUE_MIC", "").strip() else None
+WAKE_MICROFONE = int(os.environ["DUQUE_WAKE_MIC"]) if os.getenv("DUQUE_WAKE_MIC", "").strip() else -1
+WAKE_DEVICE_NAME = ""
+
+
+
+def pick_input_device(wake_name: str) -> int | None:
+    """Microfone da conversa: o mesmo da wake word (os índices do sounddevice são outros)."""
+    if MICROFONE is not None:
+        return MICROFONE
+    try:
+        return match_input_device(wake_name, sd.query_devices())
+    except Exception:
+        return None  # padrão do Windows
 SAMPLE_RATE = 24000
 CANAIS = 1
 BLOCKSIZE = 480
@@ -448,20 +462,28 @@ async def realtime_session() -> None:
     player = None
     input_stream = None
     try:
+        started = time.perf_counter()
+
+        def mark(step: str) -> None:
+            log(f"[REALTIME] {step} (+{time.perf_counter() - started:.1f}s)")
+
         player = sd.RawOutputStream(samplerate=SAMPLE_RATE, channels=CANAIS, dtype="int16", blocksize=BLOCKSIZE, callback=output_callback)
         player.start()
+        mark("alto-falante pronto")
         TRACKER = RealtimePlaybackTracker()
         try:
             await asyncio.to_thread(refresh_instructions)
         except Exception as exc:
             log(f"[REALTIME] contexto da conversa indisponível: {exc}")
         voice = await asyncio.to_thread(current_voice)
-        log(f"[REALTIME] sessão com a voz {voice}")
+        mark(f"contexto pronto; voz {voice}")
         session = await build_runner(voice).run(model_config={"playback_tracker": TRACKER})
         async with session:
             SESSION = session
             bridge.attach_session(send_text_to_session, stop_speech_from_core)
-            input_stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=CANAIS, dtype=np.int16, device=MICROFONE, blocksize=BLOCKSIZE, callback=microphone_callback)
+            mark("conectado ao modelo de voz")
+            input_device = pick_input_device(WAKE_DEVICE_NAME)
+            input_stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=CANAIS, dtype=np.int16, device=input_device, blocksize=BLOCKSIZE, callback=microphone_callback)
             input_stream.start()
             MIC_ACTIVE = True
             mic_task = asyncio.create_task(send_microphone(session))
@@ -549,10 +571,13 @@ def wake_loop() -> None:
         f"threshold={WAKE_THRESHOLD} | frame={FRAME_LENGTH} | wake_mic={WAKE_MICROFONE}"
     )
 
+    global WAKE_MICROFONE, WAKE_DEVICE_NAME
     devices = PvRecorder.get_available_devices()
     log(f"[WAKE] dispositivos PvRecorder: {devices}")
     if not devices:
         raise RuntimeError("Nenhum dispositivo de entrada foi encontrado pelo PvRecorder.")
+    WAKE_MICROFONE, reason = pick_wake_device(devices)
+    log(f"[WAKE] microfone {WAKE_MICROFONE}: {reason}")
     if WAKE_MICROFONE >= len(devices):
         raise RuntimeError(
             f"DUQUE_WAKE_MIC={WAKE_MICROFONE} inválido; "
@@ -562,6 +587,7 @@ def wake_loop() -> None:
     selected_name = (
         devices[WAKE_MICROFONE] if WAKE_MICROFONE >= 0 else "padrão do sistema"
     )
+    WAKE_DEVICE_NAME = selected_name if WAKE_MICROFONE >= 0 else ""
     log(f"[WAKE] dispositivo selecionado: {selected_name!r}")
 
     wake_model = Model(

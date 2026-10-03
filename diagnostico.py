@@ -97,14 +97,21 @@ def check_microphones() -> list[Check]:
     try:
         from pvrecorder import PvRecorder
 
+        from voice.devices import HANDS_FREE, pick_wake_device
+
         devices = PvRecorder.get_available_devices()
-        wake_index = int(os.getenv("DUQUE_WAKE_MIC", os.getenv("DUQUE_MIC", "1")))
         if not devices:
             checks.append(Check(FAIL, "microfones", "nenhum encontrado"))
         else:
+            wake_index, reason = pick_wake_device(devices)
             listing = "; ".join(f"{index}: {name}" for index, name in enumerate(devices))
             valid = -1 <= wake_index < len(devices)
-            checks.append(Check(OK if valid else FAIL, "microfone da wake word", f"DUQUE_WAKE_MIC={wake_index} | disponíveis → {listing}"))
+            chosen = devices[wake_index] if 0 <= wake_index < len(devices) else "padrão"
+            status = OK if valid else FAIL
+            if valid and HANDS_FREE.search(chosen):
+                status = WARN
+                reason += " — microfone Bluetooth: o som do fone pode sumir enquanto o Duque escuta"
+            checks.append(Check(status, "microfone da wake word", f"{wake_index} ({chosen}) — {reason} | disponíveis → {listing}"))
     except Exception as exc:
         checks.append(Check(FAIL, "microfones", f"{type(exc).__name__}: {exc}"))
     return checks
