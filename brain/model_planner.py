@@ -15,7 +15,10 @@ class ModelPlanner:
         "Você é o planejador de tarefas do Duque. Retorne SOMENTE JSON no formato "
         '{"goal": "...", "steps": [{"description":"...", "kind":"tool", '
         '"tool":"nome", "arguments":{}}]}. '
-        '"kind" pode ser think, tool ou respond. Use apenas ferramentas fornecidas.'
+        '"kind" pode ser think, tool ou respond. Use apenas ferramentas fornecidas. '
+        "Use ferramentas só quando o pedido exigir uma ação no computador ou um dado que você não "
+        'tem (hora, clima, arquivos...). Cumprimentos, conversa e perguntas de conhecimento geral '
+        'não usam ferramentas: devolva apenas uma etapa "respond".'
     )
 
     def __init__(self, model: ModelAdapter, schemas: ToolSchemaRegistry) -> None:

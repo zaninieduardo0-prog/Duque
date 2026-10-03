@@ -9,12 +9,14 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from core.windows import hide_console_windows
 from forge.supervisor import Supervisor
 
 ROOT = Path(__file__).resolve().parent
 
 
 def main() -> int:
+    hide_console_windows()
     log_path = ROOT / "duque_data" / "supervisor.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = log_path.open("a", encoding="utf-8", buffering=1)

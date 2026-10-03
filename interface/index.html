@@ -156,7 +156,7 @@ body{
 
 /* ---------- conversa única (texto + voz) ---------- */
 #chat{position:absolute;right:44px;bottom:118px;width:300px;display:flex;flex-direction:column;justify-content:flex-end;
-  gap:8px;text-align:right;max-height:26vh;overflow:hidden}
+  gap:8px;text-align:right;max-height:44vh;overflow:hidden}
 #chat .t:nth-last-child(3){opacity:.62}
 #chat .t:nth-last-child(n+4){opacity:.32}
 #chat .t{font-size:11px;line-height:1.55;letter-spacing:.08em;color:rgba(246,234,214,.42);animation:telIn .45s ease both}
@@ -1152,14 +1152,14 @@ function stopLocalSpeech(){
 
 function renderChat(){
   const box=$('chat'); box.innerHTML='';
-  chatTurns.slice(-5).forEach(turn=>{
+  chatTurns.slice(-4).forEach(turn=>{
     const el=document.createElement('div');
     const who = turn.role==='user' ? 'Du' : 'Duque';
     const via = turn.channel==='voz' ? ' · voz' : (turn.channel==='aviso' ? ' · aviso' : (turn.channel==='silencioso' ? ' · foco' : ''));
     el.className='t'+(turn.role==='assistant'?' duque':'')+(turn.channel==='aviso'?' aviso':'');
     const tag=document.createElement('b'); tag.textContent=who+via;
     el.appendChild(tag);
-    el.appendChild(document.createTextNode(turn.text.length>420 ? turn.text.slice(0,420)+'…' : turn.text));
+    el.appendChild(document.createTextNode(turn.text.length>260 ? turn.text.slice(0,260)+'…' : turn.text));
     box.appendChild(el);
   });
 }
@@ -1175,9 +1175,11 @@ async function pollConversation(){
     voiceActive=Boolean(data.voz_ativa);
     // "Hey Jarvis" durante uma resposta falada pelo HUD: a voz assume na hora.
     if(voiceActive && !wasActive && speechBusy) stopLocalSpeech();
+    let changed=false;
     for(const turn of (data.turnos||[])){
       if(turn.id<=lastTurn) continue;
       chatTurns.push(turn);
+      changed=true;
       // Respostas ao que foi digitado (fora da sessão de voz) e avisos são falados pelo HUD.
       const speakable = turn.role==='assistant' && (turn.channel==='texto' || turn.channel==='aviso');
       if(convPrimed && speakable && !voiceActive) void speakResponse(turn.text);
@@ -1185,7 +1187,8 @@ async function pollConversation(){
     lastTurn=Math.max(lastTurn, data.ultimo||0);
     if(chatTurns.length>40) chatTurns.splice(0, chatTurns.length-40);
     convPrimed=true;
-    renderChat();
+    // Só redesenha quando chega mensagem nova (antes piscava a cada segundo).
+    if(changed) renderChat();
   }catch(e){ /* servidor indisponível: tenta de novo */ }
   finally{ convBusy=false; }
 }

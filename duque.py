@@ -13,6 +13,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 os.chdir(ROOT)
 
+from core.windows import hide_console_windows  # noqa: E402
+
+# Nenhum comando em segundo plano (Spotify, git, abrir apps) pisca janela de CMD.
+hide_console_windows()
+
 os.environ.setdefault("DUQUE_WORKSPACE_ROOT", str(ROOT))
 os.environ.setdefault("DUQUE_AUTONOMOUS_AGENT", "1")
 os.environ.setdefault("DUQUE_VOICE", "cedar")

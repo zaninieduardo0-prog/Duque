@@ -556,7 +556,31 @@ class AgentLoop:
         response = self.model.respond([{"role": "system", "content": text_system_prompt(self.memory_digest())}, *history])
         return response.text.strip() or "Não consegui formular uma resposta agora."
 
+    SMALL_TALK = frozenset({
+        "oi", "ola", "olá", "e ai", "e aí", "eai", "fala", "salve", "opa", "hey",
+        "bom dia", "boa tarde", "boa noite", "tudo bem", "tudo bom", "tudo certo", "beleza", "blz",
+        "como vai", "como você está", "como voce esta", "como vai você", "como vai voce",
+        "valeu", "vlw", "obrigado", "obrigada", "brigado", "muito obrigado", "tchau", "até mais", "ate mais",
+        "boa", "show", "top", "ok", "certo", "entendi", "perfeito",
+    })
+
+    @classmethod
+    def _is_small_talk(cls, text: str) -> bool:
+        """Cumprimentos e respostas curtas vão direto para a conversa, sem ferramentas.
+
+        Antes, "bom dia" passava pelo planejador do modelo, que às vezes
+        respondia chamando a ferramenta de hora.
+        """
+        import re
+
+        value = re.sub(r"\b(?:duque|jarvis|du)\b", " ", text.casefold())
+        parts = [" ".join(re.sub(r"[^\wà-ú ]", " ", part).split()) for part in re.split(r"[,.!?;]+", value)]
+        parts = [part for part in parts if part]
+        return bool(parts) and all(part in cls.SMALL_TALK for part in parts)
+
     def _build_plan(self, text: str, intent: str):
+        if intent in {"chat", "unknown"} and self._is_small_talk(text):
+            return self.planner.build(text, "chat")
         # Ações operacionais simples devem ser determinísticas. O modelo fica
         # para tarefas ambíguas/complexas, evitando que um pedido claro vire "chat".
         if isinstance(self.model, NullModel) or intent in {"open_app", "close_app", "check_app", "file_operation", "system", "reminder", "open_search_result", "time", "weather", "media", "note", "calc", "shortcut"}:
