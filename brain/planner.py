@@ -31,6 +31,13 @@ class Plan:
     steps: list[PlanStep] = field(default_factory=list)
 
 
+# Pedido de mensagem no WhatsApp: verbo de envio/escrita + mensagem/WhatsApp, ou "procure X no WhatsApp ... mande".
+WHATSAPP_ACTION = re.compile(
+    r"\b(?:mand[ae]|envi[ae]|encaminh\w*|escrev[ae]|digit[ae])\b[^.?!]*\b(?:mensagem|msg|zap|whats\s?app)\b"
+    r"|\b(?:zap|whats\s?app)\b.*\b(?:mand[ae]|envi[ae]|encaminh\w*|escrev[ae]|digit[ae])\b"
+)
+
+
 class Planner:
     """Planejador heurístico determinístico para ações operacionais comuns."""
 
@@ -356,6 +363,15 @@ class Planner:
             if chosen and re.search(r"\b(?:mud|troc|us|coloqu?|alter|escolh)\w*", lowered):
                 return single("Trocar a voz", "set_voice", {"name": chosen})
             return single("Listar vozes", "list_voices", {})
+        if WHATSAPP_ACTION.search(lowered):
+            from computer.whatsapp_flow import parse_request
+
+            request = parse_request(text)
+            if request is not None:
+                # Abre a conversa certa (confere pela tela), escreve e envia se ele pediu.
+                return single("Mensagem no WhatsApp", "whatsapp_send", {
+                    "contact": request.contact, "text": request.text, "hint": request.hint, "send": request.send,
+                })
         if re.search(r"\b(?:mand[ae]|envi[ae]|escrev[ae])\b[^.?!]*\b(?:mensagem|msg|zap|whatsapp)\b", lowered):
             match = re.search(
                 r"\b(?:para|pro|pra|ao|à)\s+(?:o |a )?(.+?)(?:\s+(?:no|pelo) (?:whatsapp|zap))?(?:\s+(?:dizendo(?: que)?|falando(?: que)?|escrito|com o texto|que)\s+|\s*:\s*)(.+)$",

@@ -178,6 +178,18 @@ Ajustes opcionais (PowerShell, depois reinicie o Duque):
 | 4H.3 | Depois de uma atualização | O HUD se recarrega sozinho com a versão nova |
 | 4H.4 | Se o TELEX cair | `Get-Content .\duque.log -Tail 80` mostra uma linha `[QUEDA]` com o motivo; mande para o Claude |
 
+## 4I. Um nome só, ouvido aberto, YouTube e WhatsApp completo
+
+| # | Ação | Esperado |
+|---|------|----------|
+| 4I.1 | Diga `Duque, que horas são?` ou `Hey Jarvis` | **Não** responde (só TELEX chama) |
+| 4I.2 | Diga `Boa tarde, TELEX` e, logo depois, **sem o nome**: `abre o youtube` | Responde a saudação e abre o YouTube; no log: `[GATE] saudação respondida; ouvindo sem precisar do nome` |
+| 4I.3 | Durante a saudação, olhe o log | A própria voz do TELEX aparece como `ignore (eco...)` e o ouvido continua aberto |
+| 4I.4 | `abre o youtube` (com o Chrome já aberto) | Abre como **aba** no Chrome aberto e diz "Abri youtube"; se não aparecer, ele avisa |
+| 4I.5 | `abra o whatsapp, procure pelo Otávio que trabalha comigo na Embralan, e encaminhe a mensagem Teste do TELEX` | Abre o WhatsApp, busca Otávio, escolhe o certo, **confere o nome no topo da conversa**, cola o texto, envia e diz "Mensagem enviada para ..." |
+| 4I.6 | Mesmo pedido com um nome que não existe | Diz que não achou a conversa certa e **não escreve nada** |
+| 4I.7 | `procura a Maria no whatsapp e escreve: oi` | Deixa escrito **sem enviar** |
+
 ## 5. Forja
 
 | # | Ação | Esperado |

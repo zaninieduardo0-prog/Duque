@@ -1,7 +1,8 @@
-"""Mensagens pelo WhatsApp com confirmação humana.
+"""Contatos do Du e mensagens pelo WhatsApp.
 
-O Duque abre a conversa com o texto já escrito; quem envia é o Du (Enter).
-Nada é enviado sozinho. Contatos ficam na memória local do Duque.
+`whatsapp_message` só deixa a mensagem pronta (o Du envia). O envio completo,
+com busca da pessoa e conferência pela tela, está em computer/whatsapp_flow.py.
+Contatos ficam na memória local do TELEX.
 """
 
 from __future__ import annotations
@@ -47,6 +48,10 @@ class Messaging:
         contacts[_key(name)] = {"name": name.strip(), "phone": number}
         self.memory.remember(MemoryLayer.PERSONAL, KEY, contacts)
         return {"message": f"Contato {name.strip()} salvo.", "phone": number}
+
+    def phone_of(self, name: str) -> str | None:
+        found = self._contacts().get(_key(name)) if name.strip() else None
+        return found["phone"] if found else None
 
     def contacts_list(self) -> dict[str, Any]:
         contacts = self._contacts()

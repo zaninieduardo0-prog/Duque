@@ -67,7 +67,7 @@ class TranscriptTests(unittest.TestCase):
 
 class PersonaAndBridgeTests(unittest.TestCase):
     def test_persona(self) -> None:
-        self.assertIn("Duque", text_system_prompt())
+        self.assertIn("TELEX", text_system_prompt())
         self.assertIn("senhor", text_system_prompt())  # regra de nunca usar "senhor"
         instructions = voice_instructions("Du (texto): abre o spotify")
         self.assertIn("CONVERSA ATÉ AGORA", instructions)
@@ -112,7 +112,7 @@ class AgentConversationTests(TempDirTestCase):
 
         messages = model.calls[-1]
         self.assertEqual(messages[0]["role"], "system")
-        self.assertIn("Duque", messages[0]["content"])
+        self.assertIn("TELEX", messages[0]["content"])
         self.assertIn({"role": "user", "content": "abre o spotify"}, messages)
         self.assertEqual(messages[-1], {"role": "user", "content": "o que você abriu por último?"})
         self.assertEqual(result.text, "Spotify aberto há pouco, Du.")

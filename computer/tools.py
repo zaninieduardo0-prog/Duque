@@ -51,6 +51,10 @@ def _normalize_search_url(href: str) -> str:
     return href
 
 
+# Texto que aparece no título da janela do navegador quando o site abriu.
+SITE_TITLES = {"youtube": "YouTube", "gmail": "Gmail", "instagram": "Instagram", "chatgpt": "ChatGPT", "github": "GitHub"}
+
+
 class ComputerTools:
     """Ferramentas de computador expostas ao executor, sem shell arbitrário."""
 
@@ -138,8 +142,19 @@ class ComputerTools:
         # Sites cadastrados como app (YouTube, Gmail...) abrem no Chrome do Du.
         target = command[-1] if isinstance(command, list) and command else ""
         if isinstance(target, str) and target.startswith(("http://", "https://")):
-            self.controller.open_url(target)
-            return {**result, "url": target, "message": f"Abri {name} no navegador."}
+            expect = SITE_TITLES.get(key, name)
+            opener = getattr(self.controller, "open_url_verified", None)
+            if callable(opener):
+                seen = opener(target, expect)
+            else:
+                self.controller.open_url(target)
+                seen = True
+            if seen:
+                return {**result, "url": target, "verified": True, "message": f"Abri {name} no navegador."}
+            return {
+                **result, "url": target, "verified": False,
+                "message": f"Mandei abrir {name}, mas não vi a página aparecer no navegador. Confere o Chrome para mim?",
+            }
 
         if key in CHROME_NAMES and windows and self.controller.open_chrome():
             return {**result, "message": "Abri o Chrome no seu perfil."}

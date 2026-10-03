@@ -5,7 +5,7 @@ import asyncio
 import duque_wake_v2 as runtime
 from core.voice_bridge import bridge
 from core.emergency import is_pause_command
-from voice.gate import FOLLOW_UP_SECONDS, OPEN_SECONDS, addressed, ends_with_question
+from voice.gate import FOLLOW_UP_SECONDS, addressed, ends_with_question, is_echo
 from voice.transcripts import speech_from_event
 
 log = runtime.log
@@ -138,23 +138,32 @@ def busy() -> bool:
 
 RESPONDING = False
 TURN = 0
+# Última resposta falada: o que o microfone ouvir parecido logo depois é eco.
+RECENT_SPOKEN = ""
+RECENT_SPOKEN_AT = 0.0
+ECHO_SECONDS = 6.0
 
 
 async def finish_turn(turn: int, spoken: str) -> None:
     """Depois que a fala terminou de tocar: trava a audição (ou abre, se perguntou)."""
     await runtime.wait_playback()
     if turn != TURN or RESPONDING or runtime.SHUTTING_DOWN or not runtime.REALTIME:
+        if runtime.GREETING_TURN and runtime.REALTIME:
+            runtime.GATE.open(runtime.GREETING_OPEN_SECONDS)  # nunca fechar após a saudação
         return  # outra resposta já começou
+    global RECENT_SPOKEN_AT
     runtime.DUQUE_SPEAKING = False
     runtime.SPEECH_STARTED_AT = None
     runtime.touch()
+    RECENT_SPOKEN_AT = runtime.time.monotonic()  # eco possível por mais alguns segundos
     if runtime.GREETING_TURN:
         # Respondeu ao "Bom dia, TELEX": o primeiro pedido vale sem o nome.
         runtime.GREETING_TURN = False
-        runtime.GATE.open(OPEN_SECONDS)
+        runtime.GATE.open(runtime.GREETING_OPEN_SECONDS)
+        runtime.log(f"[GATE] saudação respondida; ouvindo sem precisar do nome por {runtime.GREETING_OPEN_SECONDS:.0f}s")
         runtime.hud("ouvindo", "Pode falar...")
     elif ends_with_question(spoken):
-        # Ele perguntou algo: a resposta vale sem dizer "Duque".
+        # Ele perguntou algo: a resposta vale sem dizer "Telex".
         runtime.GATE.open(FOLLOW_UP_SECONDS)
         runtime.hud("ouvindo", "Pode responder...")
     else:
@@ -173,8 +182,14 @@ async def handle_user_speech(session, item_id: str, text: str) -> None:
             runtime.post_server, "/api/emergencia", {"acao": "pausar", "origem": "voz"}
         )
         return
+    recent = RECENT_SPOKEN if runtime.time.monotonic() - RECENT_SPOKEN_AT < ECHO_SECONDS else ""
+    if is_echo(text, (recent + " " + runtime.LAST_ASSISTANT_TEXT).strip()) and not addressed(text):
+        runtime.log(f"[GATE] ignore (eco da própria voz): {short!r}")
+        await runtime.drop_item(session, item_id)
+        return
+    was_open = runtime.GATE.is_open
     decision = runtime.GATE.decide(text, speaking=speaking)
-    runtime.log(f"[GATE] {decision.action} ({decision.reason}): {short!r}")
+    runtime.log(f"[GATE] {decision.action} ({decision.reason}; ouvido {'aberto' if was_open else 'fechado'}): {short!r}")
     if decision.action == "ignore":
         await runtime.drop_item(session, item_id)
         return
@@ -206,7 +221,7 @@ async def handle_user_speech(session, item_id: str, text: str) -> None:
 
 async def receive_events(session) -> None:
     """Consumidor de eventos sem despejar deltas de áudio Base64 no terminal."""
-    global RESPONDING, TURN
+    global RESPONDING, TURN, RECENT_SPOKEN, RECENT_SPOKEN_AT
     runtime.DUQUE_SPEAKING = False
     runtime.SPEECH_STARTED_AT = None
     RESPONDING = False
@@ -310,6 +325,7 @@ async def receive_events(session) -> None:
             # eventos para ouvir "Duque, stop" no meio de uma explicação.
             spoken = runtime.LAST_ASSISTANT_TEXT
             runtime.LAST_ASSISTANT_TEXT = ""
+            RECENT_SPOKEN, RECENT_SPOKEN_AT = spoken, runtime.time.monotonic() + 30  # vale até tocar tudo
             runtime.asyncio.create_task(finish_turn(TURN, spoken))
 
         elif kind == "error":

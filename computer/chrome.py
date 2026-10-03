@@ -40,8 +40,11 @@ def chrome_executable(env: Mapping[str, str] | None = None) -> str | None:
     return None
 
 
-def find_profile(local_state: dict[str, Any], wanted: str) -> str | None:
-    """Pasta do perfil (ex.: "Profile 2") cujo nome/e-mail bate com `wanted`."""
+def find_profile(local_state: dict[str, Any], wanted: str, *, strict: bool = False) -> str | None:
+    """Pasta do perfil (ex.: "Profile 2") cujo nome/e-mail bate com `wanted`.
+
+    Com ``strict``, não cai no último perfil usado quando nada bate.
+    """
     profile = local_state.get("profile") or {}
     cache = profile.get("info_cache") or {}
     target = wanted.casefold().strip()
@@ -55,6 +58,8 @@ def find_profile(local_state: dict[str, Any], wanted: str) -> str | None:
             fields = (info.get(key) for key in ("user_name", "name", "gaia_name", "gaia_given_name", "shortcut_name"))
             if any(target in str(value).casefold() for value in fields if value):
                 return directory
+    if strict:
+        return None
     last_used = profile.get("last_used")
     return str(last_used) if last_used else None
 
@@ -65,7 +70,10 @@ def resolve_profile(env: Mapping[str, str] | None = None) -> str | None:
         local_state = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
-    return find_profile(local_state, wanted_profile(env))
+    # Só força um perfil quando ele foi encontrado pelo nome/e-mail. Forçar o
+    # "último usado" abria uma janela nova (às vezes sem carregar o site);
+    # sem perfil, o link vira uma aba nova no Chrome que já está aberto.
+    return find_profile(local_state, wanted_profile(env), strict=True)
 
 
 def chrome_command(url: str | None = None, env: Mapping[str, str] | None = None) -> list[str] | None:

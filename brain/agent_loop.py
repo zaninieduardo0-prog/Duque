@@ -29,6 +29,7 @@ from computer.workspace import Workspace
 from computer.assistant_tools import AssistantTools
 from computer.messaging import Messaging
 from computer.notepad import NotepadWriter
+from computer.whatsapp_flow import WhatsAppDesktop
 from computer.now_playing import NowPlaying
 from computer.screen_vision import ScreenVision
 from memory.conversation import ConversationStore
@@ -86,6 +87,7 @@ class AgentLoop:
         self.self_development.register(self.executor)
         active_ui_tools = ui_tools or create_ui_tools()
         active_ui_tools.register(self.executor)
+        self.ui_controller = active_ui_tools.controller
         if self.verification is not None:
             VerificationTools(self.verification).register(self.executor)
             ScreenTools(self.verification).register(self.executor)
@@ -366,6 +368,7 @@ class AgentLoop:
     # agenda, foco e visão ----------------------------------------------------
     def _register_life_tools(self) -> None:
         self.notepad = NotepadWriter(None if isinstance(self.model, NullModel) else self._compose_text)
+        self.whatsapp = self._create_whatsapp()
         self.routines = Routines(self.memory, self._run_routine_step, lambda: set(self.schemas.names()))
         self.messaging = Messaging(self.memory, self.assistant_tools.open_target)
         tools = [
@@ -384,6 +387,7 @@ class AgentLoop:
             (ToolSpec("reminder_cancel", "Cancela o lembrete de número indicado (0 = todos)", (), {"index": int}), self.reminder_cancel),
             (ToolSpec("focus_mode", "Modo foco/pomodoro: action 'start' (pausa a música e silencia avisos) ou 'stop'", (), {"action": str, "minutes": (int, float)}), self.focus_mode),
             (ToolSpec("describe_screen", "Olha a tela do Du e explica o que há nela (ou responde uma pergunta sobre ela)", (), {"question": str}), self.screen_vision.describe_screen),
+            (ToolSpec("whatsapp_send", "Abre o WhatsApp, acha a conversa da pessoa (pista opcional, ex.: 'da Embralan'), confere pela tela, escreve e envia (send=false só deixa escrito)", ("contact", "text"), {"contact": str, "text": str, "hint": str, "send": bool}), self.whatsapp.whatsapp_send),
             (ToolSpec("notepad_write", "Escreve no Bloco de Notas: um texto ditado ou algo para criar (ex.: 'um poema sobre o mar', 'lista de compras')", ("request",), {"request": str}), self.notepad.notepad_write),
         ]
         for spec, function in tools:
@@ -566,6 +570,30 @@ class AgentLoop:
             "message": f"Modo foco por {label}." + (" Pausei a música." if paused else "") + " Seguro os avisos até lá.",
             "until": self._focus_until,
         }
+
+    def _create_whatsapp(self) -> WhatsAppDesktop:
+        from computer.windows_focus import focus_window, wait_for_window
+
+        def ask_screen(question: str) -> str | None:
+            result = self.screen_vision.describe_screen(question)
+            return str(result["message"]) if result.get("success") is not False and result.get("message") else None
+
+        def open_app(name: str) -> Any:
+            tool = self.executor.tools.get("open_app")
+            if tool is None:
+                raise RuntimeError("ferramenta open_app indisponível")
+            return tool(name=name)
+
+        return WhatsAppDesktop(
+            open_app=open_app,
+            open_target=self.assistant_tools.open_target,
+            keys=self.ui_controller,
+            ask_screen=None if isinstance(self.model, NullModel) else ask_screen,
+            phone_of=lambda name: self.messaging.phone_of(name),
+            wait_window=wait_for_window,
+            focus=focus_window,
+            without_vision=lambda contact, text: self.messaging.whatsapp_message(contact, text),
+        )
 
     def _compose_text(self, prompt: str) -> str:
         """Texto criado pelo modelo para ferramentas (poema no Bloco de Notas...)."""

@@ -23,8 +23,10 @@ class TelexGateTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertTrue(addressed(phrase))
 
-    def test_old_names_still_work(self) -> None:
-        self.assertTrue(addressed("Duque, abre o chrome"))
+    def test_only_telex_calls(self) -> None:
+        """Pedido do Du: um nome só."""
+        self.assertFalse(addressed("Duque, abre o chrome"))
+        self.assertFalse(addressed("Jarvis, abre o chrome"))
 
     def test_stop_with_new_name(self) -> None:
         gate = ListenGate()

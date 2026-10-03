@@ -22,6 +22,25 @@ class ComputerController:
                 pass
         webbrowser.open(url)
 
+    def open_url_verified(self, url: str, expect: str, timeout: float = 8.0) -> bool:
+        """Abre o link e confere pelo título da janela que o site apareceu.
+
+        Se não aparecer, tenta de novo pelo navegador padrão do Windows (que abre
+        como aba no navegador já aberto). Fora do Windows não há como conferir.
+        """
+        from .windows_focus import IS_WINDOWS, wait_for_window
+
+        self.open_url(url)
+        if not IS_WINDOWS:
+            return True
+        if wait_for_window(expect, timeout):
+            return True
+        try:
+            os.startfile(url)  # type: ignore[attr-defined]  # noqa: S606
+        except OSError:
+            webbrowser.open(url)
+        return wait_for_window(expect, timeout)
+
     def open_chrome(self) -> bool:
         from .chrome import open_in_chrome
 

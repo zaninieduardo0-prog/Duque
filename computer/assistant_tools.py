@@ -154,6 +154,12 @@ def _http_text(url: str, timeout: float = 8) -> str:
 _VIDEO_ID = re.compile(r'"videoId":"([\w-]{11})"')
 
 
+def _default_wait_window(fragment: str, timeout: float) -> bool:
+    from .windows_focus import IS_WINDOWS as on_windows, wait_for_window
+
+    return wait_for_window(fragment, timeout) if on_windows else True
+
+
 def first_video_id(html: str) -> str | None:
     """Primeiro vídeo de uma página de busca do YouTube (ignora anúncios e shorts repetidos)."""
     match = _VIDEO_ID.search(html or "")
@@ -215,6 +221,7 @@ class AssistantTools:
         notify: Callable[[str], Any] | None = None,
         fetch_json: Callable[[str], Any] = _http_json,
         fetch_text: Callable[[str], str] = _http_text,
+        wait_window: Callable[[str, float], bool] | None = None,
         open_target: Callable[[str], None] = _open_target,
         press_key: Callable[[int, int], None] = _press_key,
         clock: Callable[[], datetime] = datetime.now,
@@ -224,6 +231,7 @@ class AssistantTools:
         self.notify = notify
         self.fetch_json = fetch_json
         self.fetch_text = fetch_text
+        self.wait_window = wait_window if wait_window is not None else _default_wait_window
         self.open_target = open_target
         self.press_key = press_key
         self.clock = clock
@@ -459,6 +467,15 @@ class AssistantTools:
             return {"message": f"Abri a busca de '{query}' no YouTube; não consegui escolher o vídeo sozinho.", "url": search, "playing": False}
         url = f"https://www.youtube.com/watch?v={video}&autoplay=1"
         self.open_target(url)
+        if not self.wait_window("YouTube", 10.0):
+            # Não apareceu: tenta pelo navegador padrão (aba no navegador já aberto).
+            try:
+                if IS_WINDOWS:
+                    os.startfile(url)  # type: ignore[attr-defined]  # noqa: S606
+            except OSError:
+                pass
+            if not self.wait_window("YouTube", 8.0):
+                return {"message": f"Mandei tocar '{query}' no YouTube, mas não vi a página abrir. Confere o navegador?", "url": url, "playing": False}
         return {"message": f"Tocando '{query}' no YouTube.", "url": url, "video_id": video, "playing": True}
 
     def spotify(self, query: str) -> dict[str, Any]:

@@ -44,11 +44,11 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.gate.decide("abra o whatsapp").action, "respond")
 
     def test_locks_after_a_command(self) -> None:
-        """Pedido do Du: depois de "Duque, abra o WhatsApp" o som ambiente não conta."""
+        """Pedido do Du: depois de "Telex, abra o WhatsApp" o som ambiente não conta."""
         self.gate.open(12)
-        self.gate.decide("Duque, abra o whatsapp")
+        self.gate.decide("Telex, abra o whatsapp")
         self.assertEqual(self.gate.decide("e aí, tudo bem com você?").action, "ignore")
-        self.assertEqual(self.gate.decide("Duque, que horas são?").action, "respond")
+        self.assertEqual(self.gate.decide("Telex, que horas são?").action, "respond")
 
     def test_open_window_expires(self) -> None:
         self.gate.open(12)
@@ -56,7 +56,7 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.gate.decide("abra o whatsapp").action, "ignore")
 
     def test_stop_interrupts(self) -> None:
-        for phrase in ("Duque, stop", "Duque, para!", "para, Duque", "Duque, chega", "Duque, para de falar aí", "Duke stop"):
+        for phrase in ("Telex, stop", "Telex, para!", "para, Telex", "Telex, chega", "Telex, para de falar aí", "Teles stop"):
             with self.subTest(phrase=phrase):
                 self.assertEqual(self.gate.decide(phrase, speaking=True).action, "stop")
 
@@ -65,19 +65,21 @@ class GateTests(unittest.TestCase):
 
     def test_calling_name_while_speaking_stops(self) -> None:
         """O Duque acima de tudo: chamou durante a explicação, ele para na hora."""
-        decision = self.gate.decide("Duque!", speaking=True)
+        decision = self.gate.decide("Telex!", speaking=True)
         self.assertEqual(decision.action, "stop")
         self.assertTrue(self.gate.is_open)  # e já escuta o próximo pedido
         self.assertEqual(self.gate.decide("abre o spotify").action, "respond")
 
     def test_name_with_preposition_para_is_a_request(self) -> None:
-        self.assertEqual(self.gate.decide("Duque, manda mensagem para a Ana").action, "respond")
+        self.assertEqual(self.gate.decide("Telex, manda mensagem para a Ana").action, "respond")
 
     def test_helpers(self) -> None:
-        self.assertTrue(addressed("Ei Duque"))
-        self.assertTrue(addressed("Hey Jarvis"))
-        self.assertFalse(addressed("o duquesa"))
-        self.assertTrue(is_stop("duque pare"))
+        self.assertTrue(addressed("Ei Telex"))
+        # Um nome só: "Duque" e "Jarvis" não chamam mais.
+        self.assertFalse(addressed("Ei Duque"))
+        self.assertFalse(addressed("Hey Jarvis"))
+        self.assertFalse(addressed("o telefone"))
+        self.assertTrue(is_stop("telex pare"))
         self.assertTrue(ends_with_question("Para quem? "))
         self.assertFalse(ends_with_question("Pronto."))
 

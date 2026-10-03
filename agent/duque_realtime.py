@@ -12,15 +12,18 @@ from core.voice_bridge import bridge
 
 @function_tool
 async def executar_no_duque(pedido: str) -> str:
-    """Executa um pedido usando o cérebro e as ferramentas do Duque.
+    """Executa um pedido usando o cérebro e as ferramentas do TELEX.
 
     Use para tudo que exige agir: abrir ou fechar aplicativos e pastas, ler e
     procurar arquivos, pesquisar na web, clima, hora, contas, notas, timers e
     lembretes, música e volume, área de transferência, estado do computador,
-    YouTube, Spotify, mapas e melhorias no próprio código do Duque (Forja).
+    YouTube (tocar vídeos), Spotify, mapas, Bloco de Notas, mensagens no
+    WhatsApp (acha a pessoa, confere e envia) e melhorias no próprio código (Forja).
+    Pedidos com várias etapas ("abra X e faça Y") vão inteiros, numa chamada só.
 
     Args:
-        pedido: o pedido completo do Du, em português, com todos os detalhes.
+        pedido: o pedido completo do Du, em português, com todos os detalhes e
+            com as palavras dele (nomes, pistas como "da Embralan" e o texto exato da mensagem).
     """
     return await asyncio.to_thread(bridge.execute, pedido)
 

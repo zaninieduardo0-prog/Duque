@@ -127,7 +127,7 @@ def check_chrome() -> Check:
         return Check(WARN, "Chrome", "não encontrado: links abrem no navegador padrão")
     profile = resolve_profile()
     if not profile:
-        return Check(WARN, "Chrome", f"perfil '{wanted_profile()}' não encontrado: o Chrome pode pedir para escolher a conta")
+        return Check(OK, "Chrome", f"perfil '{wanted_profile()}' não encontrado: links abrem como aba nova no Chrome já aberto")
     return Check(OK, "Chrome", f"perfil '{profile}' (procurado: {wanted_profile()})")
 
 

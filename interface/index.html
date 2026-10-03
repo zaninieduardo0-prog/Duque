@@ -1193,7 +1193,7 @@ async function speakResponse(text, voz){
 }
 
 /* ---------------- envio de comando: campo → núcleo → servidor ---------------- */
-const STOP_RE=/^\s*((duque|telex|teles)[\s,!.]*)?(stop|para|pare|chega|silêncio|silencio|cala a boca)[\s!.]*$/i;
+const STOP_RE=/^\s*((telex|teles)[\s,!.]*)?(stop|para|pare|chega|silêncio|silencio|cala a boca)[\s!.]*$/i;
 async function runCommand(text){
   const q=(text||'').trim(); if(!q) return;
   // "stop" digitado: cala a fala na hora (HUD e conversa de voz) e não vira pedido.

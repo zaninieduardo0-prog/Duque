@@ -1,13 +1,13 @@
 """Portão de audição: o TELEX só responde quando é chamado.
 
 Regras (pedido do Du):
-- Depois de acordar ("Bom dia, TELEX" ou "Hey Jarvis") a primeira frase vale
-  sem dizer o nome.
+- Depois de acordar ("Bom dia, TELEX") a audição fica aberta para o primeiro
+  pedido, sem precisar repetir o nome.
 - Depois de cada pedido a audição "trava": falas de fundo são ignoradas até
   ele dizer "Telex" de novo.
 - "Telex, stop" (ou só "Telex" enquanto ele fala) interrompe na hora.
 - "Repousar, Telex" volta ao standby na hora.
-- Se o Duque terminar com uma pergunta, a próxima frase vale por alguns
+- Se o TELEX terminar com uma pergunta, a próxima frase vale por alguns
   segundos sem precisar do nome.
 """
 
@@ -21,16 +21,15 @@ from dataclasses import dataclass
 from threading import Lock
 from typing import Callable, Literal
 
-# Nome atual: TELEX (a transcrição às vezes escreve "Teles" ou "Tele X").
-# "Duque" e "Jarvis" continuam chamando, para não quebrar o costume.
+# Um nome só: TELEX (a transcrição às vezes escreve "Teles", "Télex" ou "Tele X").
 TELEX_NAMES = frozenset({"telex", "teles", "telecs", "teleks", "telexi", "talex", "telax"})
-WAKE_NAMES = TELEX_NAMES | frozenset({"duque", "duke", "duck", "duk", "jarvis", "javis"})
+WAKE_NAMES = TELEX_NAMES
 SLEEP_WORDS = frozenset({"repousar", "repousa", "repouse", "repouso", "repousando"})
 STOP_WORDS = frozenset({
     "stop", "stopa", "para", "pare", "parar", "chega", "silencio", "cala", "calaboca", "quieto",
     "cancela", "cancelar", "esquece", "espera", "pausa", "basta", "shh", "psiu",
 })
-# Palavras que podem acompanhar o "parar" ("Duque, para de falar aí").
+# Palavras que podem acompanhar o "parar" ("Telex, para de falar aí").
 STOP_EXTRA = frozenset({"de", "falar", "fala", "ai", "isso", "tudo", "um", "pouco", "momento", "minuto"})
 FILLER = frozenset({"ei", "hey", "hei", "oi", "ok", "okay", "o", "a", "por", "favor", "agora", "ja", "e", "boca"})
 
@@ -52,7 +51,7 @@ def addressed(text: str) -> bool:
 
 
 def is_stop(text: str) -> bool:
-    """Só o nome + palavras de parar ("Duque, stop", "para, Duque", "Duque, chega")."""
+    """Só o nome + palavras de parar ("Telex, stop", "para, Telex", "Telex, chega")."""
     rest = [word for word in words(text) if word not in WAKE_NAMES and word not in FILLER]
     return (
         any(word in STOP_WORDS for word in rest)
@@ -114,10 +113,24 @@ class ListenGate:
         if called:
             self.close()
             return Decision("respond", "chamado pelo nome")
+        if speaking:
+            # Enquanto ele fala, o microfone também ouve o alto-falante: sem o nome,
+            # é eco (ou conversa de fundo). O ouvido continua aberto para depois.
+            return Decision("ignore", "durante a fala, sem o nome (eco)")
         if self.is_open:
             self.close()
             return Decision("respond", "audição aberta")
         return Decision("ignore", "sem o nome: som de fundo")
+
+
+def is_echo(heard: str, spoken: str, threshold: float = 0.6) -> bool:
+    """A "fala do Du" é, na verdade, o microfone ouvindo a última resposta do TELEX?"""
+    heard_words = [word for word in words(heard) if len(word) > 2]
+    spoken_words = set(word for word in words(spoken) if len(word) > 2)
+    if len(heard_words) < 2 or not spoken_words:
+        return False
+    hits = sum(1 for word in heard_words if word in spoken_words)
+    return hits / len(heard_words) >= threshold
 
 
 def ends_with_question(text: str) -> bool:

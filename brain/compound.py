@@ -57,7 +57,9 @@ _WHOLE = re.compile(
     r"mand[ae]|mandar|envi[ae]|enviar|diga|diz|fal[ae] (?:que|pr[oa])|pergunt[ae]|responda|"
     r"(?:cri[ae]|salv[ae]|nova|edit[ae]|mud[ae]) (?:a |uma )?rotina|agend[ae]|marqu?e|"
     r"melhor[ae]|corrij[ae]|corrig[ei]|implement[ae]|analis[ae]|revis[ae]|investig[ae]|traduz[ai]?|resum[ae])\b"
-    r"|\b(?:forja|seu c[oó]digo|rotina \w+:|dizendo)\b",
+    r"|\b(?:forja|seu c[oó]digo|rotina \w+:|dizendo)\b"
+    # WhatsApp com mensagem: abrir + procurar a pessoa + enviar é uma ação só.
+    r"|\b(?:zap|whats\s?app)\b.*\b(?:mand[ae]|envi[ae]|encaminh\w*|escrev[ae]|digit[ae])\b",
     re.IGNORECASE,
 )
 

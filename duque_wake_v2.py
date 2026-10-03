@@ -61,6 +61,8 @@ LOCAL_VAD_IGNORE_AFTER_SPEECH = 0.25
 LOCAL_VAD_INTERRUPT = os.getenv("DUQUE_VAD_INTERRUPT", "0").casefold() in {"1", "true", "yes", "on"}
 # Sem ser chamado por este tempo, a conversa fecha e volta a esperar "Hey Jarvis".
 IDLE_SECONDS = float(os.getenv("DUQUE_VOICE_IDLE", "60"))
+# Depois de "Bom dia, TELEX": quanto tempo o primeiro pedido vale sem o nome.
+GREETING_OPEN_SECONDS = float(os.getenv("DUQUE_GREETING_OPEN", "45"))
 PITCH_SEMITONES = float(os.getenv("DUQUE_PITCH", "-2.0"))
 VOICE_SPEED = float(os.getenv("DUQUE_VOICE_SPEED", "0.96"))
 # Colchão de áudio: a fala só começa a tocar com ~180 ms guardados. Sem ele,
@@ -70,13 +72,12 @@ PREBUFFER_MAX_WAIT = 0.35
 VOICE_PROCESSING = os.getenv("DUQUE_VOICE_PROCESSING", "0").casefold() in {"1", "true", "yes", "on"}
 
 FAREWELLS = (
-    "até mais duque", "até logo duque", "tchau duque", "pode dormir duque",
-    "até mais, duque", "até logo, duque", "tchau, duque", "pode dormir, duque",
     "até mais telex", "até logo telex", "tchau telex", "pode dormir telex",
     "até mais, telex", "até logo, telex", "tchau, telex", "pode dormir, telex",
 )
-# "Hey Jarvis" continua acordando junto com "Bom dia, TELEX" (DUQUE_HEY_JARVIS=0 desliga).
-HEY_JARVIS = os.getenv("DUQUE_HEY_JARVIS", "1").casefold() not in {"0", "false", "off", "no", "nao", "não"}
+# Um nome só: "Hey Jarvis" fica desligado. Ele só volta sozinho, como reserva,
+# se a ativação "Bom dia, TELEX" não puder ser carregada (DUQUE_HEY_JARVIS=1 força).
+HEY_JARVIS = os.getenv("DUQUE_HEY_JARVIS", "0").casefold() not in {"0", "false", "off", "no", "nao", "não"}
 
 voice_board = Pedalboard([
     HighpassFilter(cutoff_frequency_hz=60.0),
@@ -470,6 +471,9 @@ def send_greeting(greeting: str) -> None:
     if loop is None or session is None:
         return
     GREETING_TURN = True
+    # Ouvido aberto já durante a saudação: o pedido que vier logo depois (mesmo
+    # enquanto ele ainda responde "Boa tarde") vale sem repetir "TELEX".
+    GATE.open(GREETING_OPEN_SECONDS)
     bridge.record("user", greeting, "voz")
 
     async def deliver() -> None:
@@ -744,7 +748,8 @@ def wake_loop() -> None:
     # "Bom dia / Boa tarde / Boa noite, TELEX" (local, sem internet).
     local = local_wake.load(log)
     if local is None and not HEY_JARVIS:
-        log('[WAKE] sem ativação local; religando "Hey Jarvis" para o TELEX não ficar surdo.')
+        log('[WAKE] AVISO: ativação "Bom dia, TELEX" indisponível; usando "Hey Jarvis" só como reserva até o modelo instalar.')
+        hud("erro", 'Ativação "Bom dia, TELEX" indisponível — rode o preparar_duque.bat')
     jarvis_on = HEY_JARVIS or local is None
     hud("standby", "Pausa de emergência" if emergency.paused else "Sistema online")
 
