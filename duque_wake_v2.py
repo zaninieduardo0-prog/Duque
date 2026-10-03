@@ -539,6 +539,7 @@ async def realtime_session() -> None:
 
 
 def wake_loop() -> None:
+    global WAKE_MICROFONE, WAKE_DEVICE_NAME
     log("[WAKE] verificando chave, modelo e microfone...")
     if not os.getenv("OPENAI_API_KEY"):
         raise RuntimeError("OPENAI_API_KEY não encontrada no ambiente do Duque")
@@ -571,7 +572,6 @@ def wake_loop() -> None:
         f"threshold={WAKE_THRESHOLD} | frame={FRAME_LENGTH} | wake_mic={WAKE_MICROFONE}"
     )
 
-    global WAKE_MICROFONE, WAKE_DEVICE_NAME
     devices = PvRecorder.get_available_devices()
     log(f"[WAKE] dispositivos PvRecorder: {devices}")
     if not devices:
