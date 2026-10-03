@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from core.windows import console_python
+
 import subprocess
-import sys
 from typing import Any
 
 from .workspace import Workspace
@@ -33,7 +34,7 @@ class CodeTools:
         if target.suffix.lower() != ".py":
             raise ValueError("run_python aceita apenas arquivos .py")
         completed = subprocess.run(
-            [sys.executable, str(target)],
+            [console_python(), str(target)],
             cwd=str(self.workspace.root),
             capture_output=True,
             text=True,
@@ -53,11 +54,11 @@ class CodeTools:
         target = self.workspace.resolve(path)
         tests_dir = self.workspace.root / "tests"
         if tests_dir.is_dir():
-            command = [sys.executable, "-m", "pytest", str(tests_dir)]
+            command = [console_python(), "-m", "pytest", str(tests_dir)]
             target_label = "tests"
         else:
             command = [
-                sys.executable,
+                console_python(),
                 "-m",
                 "compileall",
                 "-q",

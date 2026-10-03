@@ -23,7 +23,7 @@ from core.emergency import emergency
 from core.voice_bridge import bridge
 from voice import local_wake
 from voice.devices import match_input_device, pick_wake_device
-from voice.gate import ListenGate
+from voice.gate import LISTEN_SECONDS, ListenGate
 from voice.session import PlaybackFence
 
 MODEL = os.getenv("DUQUE_REALTIME_MODEL", "gpt-realtime-2.1")
@@ -61,8 +61,8 @@ LOCAL_VAD_IGNORE_AFTER_SPEECH = 0.25
 LOCAL_VAD_INTERRUPT = os.getenv("DUQUE_VAD_INTERRUPT", "0").casefold() in {"1", "true", "yes", "on"}
 # Sem ser chamado por este tempo, a conversa fecha e volta a esperar "Hey Jarvis".
 IDLE_SECONDS = float(os.getenv("DUQUE_VOICE_IDLE", "60"))
-# Depois de "Bom dia, TELEX": quanto tempo o primeiro pedido vale sem o nome.
-GREETING_OPEN_SECONDS = float(os.getenv("DUQUE_GREETING_OPEN", "45"))
+# Quanto áudio antes do "Telex" é guardado para não perder o começo do pedido.
+PREROLL_FRAMES = 30  # 30 x 80 ms = 2,4 s
 PITCH_SEMITONES = float(os.getenv("DUQUE_PITCH", "-2.0"))
 VOICE_SPEED = float(os.getenv("DUQUE_VOICE_SPEED", "0.96"))
 # Colchão de áudio: a fala só começa a tocar com ~180 ms guardados. Sem ele,
@@ -415,8 +415,13 @@ async def drop_item(session, item_id: str | None) -> None:
 
 async def idle_watch() -> None:
     """Fecha a conversa depois de um tempo sem ser chamado (volta ao standby)."""
+    was_open = GATE.is_open
     while REALTIME and not SHUTTING_DOWN:
         await asyncio.sleep(1.0)
+        now_open = GATE.is_open
+        if was_open and not now_open and not DUQUE_SPEAKING:
+            hud_waiting()  # acabou o tempo de escuta do "Telex": standby
+        was_open = now_open
         if idle_expired():
             log(f"[GATE] {IDLE_SECONDS:.0f}s sem ser chamado; voltando ao standby.")
             return
@@ -471,9 +476,8 @@ def send_greeting(greeting: str) -> None:
     if loop is None or session is None:
         return
     GREETING_TURN = True
-    # Ouvido aberto já durante a saudação: o pedido que vier logo depois (mesmo
-    # enquanto ele ainda responde "Boa tarde") vale sem repetir "TELEX".
-    GATE.open(GREETING_OPEN_SECONDS)
+    # Pedido do Du: depois da saudação, standby. Só "Telex" reativa.
+    GATE.close()
     bridge.record("user", greeting, "voz")
 
     async def deliver() -> None:
@@ -581,7 +585,16 @@ async def receive_events(session) -> None:
             return
 
 
-async def realtime_session(greeting: str | None = None) -> None:
+def resample_16k_to_24k(pcm: bytes) -> bytes:
+    """Áudio do microfone da ativação (16 kHz) no formato da conversa (24 kHz)."""
+    samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
+    if not len(samples):
+        return b""
+    target = np.linspace(0, len(samples) - 1, int(len(samples) * 1.5))
+    return np.interp(target, np.arange(len(samples)), samples).astype(np.int16).tobytes()
+
+
+async def realtime_session(greeting: str | None = None, *, call: bool = False, preroll: bytes = b"") -> None:
     global LOOP, MIC_QUEUE, SHUTDOWN_EVENT, REALTIME, MIC_ACTIVE, SESSION, TRACKER
     global DUQUE_SPEAKING, SHUTTING_DOWN, SPEECH_STARTED_AT, CURRENT_ITEM, GREETING_TURN
     LOOP = asyncio.get_running_loop()
@@ -598,7 +611,12 @@ async def realtime_session(greeting: str | None = None) -> None:
         CANCELLED.clear()
     clear_audio()
     reset_voice_processor()
-    GATE.open()
+    if greeting:
+        GATE.close()  # saudação: responde e volta ao standby (só "Telex" reativa)
+    elif call:
+        GATE.open(LISTEN_SECONDS)  # "Telex": ouvindo o pedido por alguns segundos
+    else:
+        GATE.open()
     touch()
     hud("ouvindo", "Escutando você...")
     player = None
@@ -626,6 +644,16 @@ async def realtime_session(greeting: str | None = None) -> None:
             mark("conectado ao modelo de voz")
             input_device = pick_input_device(WAKE_DEVICE_NAME)
             input_stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=CANAIS, dtype=np.int16, device=input_device, blocksize=BLOCKSIZE, callback=microphone_callback)
+            if preroll and MIC_QUEUE is not None:
+                # O que ele já disse junto com "Telex" ("Telex, que horas são")
+                # entra na conversa antes do microfone ao vivo.
+                audio = resample_16k_to_24k(preroll)
+                step = SAMPLE_RATE // 5 * 2  # 200 ms por pedaço
+                for start in range(0, len(audio), step):
+                    try:
+                        MIC_QUEUE.put_nowait(audio[start:start + step])
+                    except asyncio.QueueFull:
+                        break
             input_stream.start()
             MIC_ACTIVE = True
             mic_task = asyncio.create_task(send_microphone(session))
@@ -762,7 +790,7 @@ def wake_loop() -> None:
                 device_index=WAKE_MICROFONE,
             )
             recorder.start()
-            phrases = '"Bom dia, TELEX"' if local else ""
+            phrases = '"Bom dia, TELEX" e "Telex"' if local else ""
             if jarvis_on:
                 phrases = (phrases + ' e ' if phrases else "") + '"Hey Jarvis"'
             log(
@@ -772,9 +800,11 @@ def wake_loop() -> None:
             )
             if local:
                 local.reset()
+            recent: deque[bytes] = deque(maxlen=PREROLL_FRAMES)
 
             while True:
                 frame = np.asarray(recorder.read(), dtype=np.int16)
+                recent.append(frame.tobytes())
                 heard = None
                 if local is not None:
                     try:
@@ -804,15 +834,16 @@ def wake_loop() -> None:
                     last_wake = now
                     post_server("/api/emergencia", {"acao": "retomar", "origem": "voz"})
                     continue
-                if action != "wake":
+                if action not in {"wake", "call"}:
                     if emergency.paused:
                         hud("standby", 'Pausa de emergência — diga "Retomar, TELEX"')
                     continue
                 last_wake = now
+                preroll = b"".join(recent) if action == "call" else b""
                 recorder.stop()
                 recorder.delete()
                 recorder = None
-                asyncio.run(realtime_session(greeting))
+                asyncio.run(realtime_session(greeting, call=action == "call", preroll=preroll))
                 break
 
         except KeyboardInterrupt:

@@ -1356,7 +1356,8 @@ async function pollTasks(){
     let show=Boolean((d.tarefas||[]).length);
     if(current){
       $('fGoal').textContent='Forja · '+current.goal;
-      $('fStep').textContent=(current.step||'iniciando')+(current.segundos!=null?` · ${fmtElapsed(current.segundos)}`:'')+(f.queued?` · ${f.queued} na fila`:'');
+      const doing=current.waiting?`esperando ${current.waiting}`:(current.now||'');
+      $('fStep').textContent=(current.step||'iniciando')+(current.segundos!=null?` · ${fmtElapsed(current.segundos)}`:'')+(f.queued?` · ${f.queued} na fila`:'')+(doing?` — ${doing}`:'');
       $('fStep').className=''; show=true;
     }else if(last){
       const labels={merged:'Aplicado',awaiting_approval:'Aguardando aprovação',no_changes:'Sem alterações',failed:'Falhou'};

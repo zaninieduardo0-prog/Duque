@@ -1,8 +1,9 @@
 """Portão de audição: o TELEX só responde quando é chamado.
 
 Regras (pedido do Du):
-- Depois de acordar ("Bom dia, TELEX") a audição fica aberta para o primeiro
-  pedido, sem precisar repetir o nome.
+- "Bom dia, TELEX" → saudação curta e volta ao standby.
+- "Telex" sozinho → fica ouvindo por alguns segundos o pedido.
+- "Telex, <pedido>" → responde direto. Depois de responder, standby de novo.
 - Depois de cada pedido a audição "trava": falas de fundo são ignoradas até
   ele dizer "Telex" de novo.
 - "Telex, stop" (ou só "Telex" enquanto ele fala) interrompe na hora.
@@ -35,8 +36,13 @@ FILLER = frozenset({"ei", "hey", "hei", "oi", "ok", "okay", "o", "a", "por", "fa
 
 OPEN_SECONDS = float(os.getenv("DUQUE_OPEN_SECONDS", "12"))
 FOLLOW_UP_SECONDS = float(os.getenv("DUQUE_FOLLOW_UP_SECONDS", "8"))
+# "Telex" sozinho: por quanto tempo ele fica ouvindo o pedido.
+LISTEN_SECONDS = float(os.getenv("DUQUE_LISTEN_SECONDS", "8"))
+# Responder sem o nome quando o TELEX terminou com uma pergunta. Desligado:
+# o Du quer que só o nome reative (DUQUE_FOLLOW_UP=1 religa).
+FOLLOW_UP_ENABLED = os.getenv("DUQUE_FOLLOW_UP", "0").casefold() in {"1", "true", "yes", "on", "sim"}
 
-Action = Literal["ignore", "stop", "respond", "sleep"]
+Action = Literal["ignore", "stop", "respond", "sleep", "listen"]
 
 
 def words(text: str) -> list[str]:
@@ -108,8 +114,12 @@ class ListenGate:
             return Decision("stop", "pediu para parar")
         if called and speaking and only_name(transcript):
             # Chamou pelo nome enquanto ele falava: para na hora e escuta.
-            self.open(FOLLOW_UP_SECONDS)
+            self.open(LISTEN_SECONDS)
             return Decision("stop", "chamado durante a fala")
+        if called and only_name(transcript):
+            # Só "Telex": abre a escuta por alguns segundos, sem responder nada.
+            self.open(LISTEN_SECONDS)
+            return Decision("listen", "chamado só pelo nome")
         if called:
             self.close()
             return Decision("respond", "chamado pelo nome")

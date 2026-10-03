@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from core.windows import console_python
+
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,9 +54,8 @@ class SelfDevelopment:
         target = self.workspace.resolve(path)
         if target.is_dir():
             import subprocess
-            import sys
             completed = subprocess.run(
-                [sys.executable, "-m", "pytest", str(target)],
+                [console_python(), "-m", "pytest", str(target)],
                 cwd=str(self.workspace.root), capture_output=True, text=True, timeout=120, shell=False,
             )
             return {

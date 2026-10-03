@@ -369,9 +369,12 @@ class Planner:
             request = parse_request(text)
             if request is not None:
                 # Abre a conversa certa (confere pela tela), escreve e envia se ele pediu.
-                return single("Mensagem no WhatsApp", "whatsapp_send", {
+                arguments: dict[str, Any] = {
                     "contact": request.contact, "text": request.text, "hint": request.hint, "send": request.send,
-                })
+                }
+                if request.profile:
+                    arguments["profile"] = request.profile
+                return single("Mensagem no WhatsApp", "whatsapp_send", arguments)
         if re.search(r"\b(?:mand[ae]|envi[ae]|escrev[ae])\b[^.?!]*\b(?:mensagem|msg|zap|whatsapp)\b", lowered):
             match = re.search(
                 r"\b(?:para|pro|pra|ao|à)\s+(?:o |a )?(.+?)(?:\s+(?:no|pelo) (?:whatsapp|zap))?(?:\s+(?:dizendo(?: que)?|falando(?: que)?|escrito|com o texto|que)\s+|\s*:\s*)(.+)$",

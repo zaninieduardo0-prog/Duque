@@ -21,6 +21,31 @@ def request_restart(delay: float = 4.0) -> bool:
     return True
 
 
+def describe_action(tool: str, arguments: dict[str, Any]) -> str:
+    """Ação do agente programador em português ("editando computer/apps.py")."""
+    path = str(arguments.get("path") or "").strip()
+    if tool == "read_file":
+        return f"lendo {path}" if path else "lendo um arquivo"
+    if tool == "read_many_files":
+        paths = [str(item) for item in (arguments.get("paths") or [])][:3]
+        return "lendo " + (", ".join(paths) if paths else "vários arquivos")
+    if tool == "list_files":
+        return f"listando arquivos em {path or 'raiz do projeto'}"
+    if tool == "search_code":
+        return f"procurando '{str(arguments.get('pattern', ''))[:40]}' no código"
+    if tool == "edit_file":
+        return f"editando {path}"
+    if tool == "write_file":
+        return f"escrevendo {path}"
+    if tool == "delete_file":
+        return f"apagando {path}"
+    if tool == "run_checks":
+        return "rodando compilação, testes e lint"
+    if tool == "show_diff":
+        return "revisando o que mudou"
+    return tool.replace("_", " ")
+
+
 class ForgeService:
     """Fila de trabalhos da Forja rodando em segundo plano (um por vez)."""
 
@@ -44,6 +69,11 @@ class ForgeService:
         # Pausa de emergência: a Forja para entre as etapas e continua de onde parou.
         self.pause: Any | None = None
         forge.progress = self._on_progress
+        # Cada ação do agente programador ("lendo X", "editando Y") fica visível
+        # no HUD e na resposta a "o que a Forja está fazendo?".
+        developer = getattr(forge, "developer", None)
+        if developer is not None and hasattr(developer, "event_sink"):
+            developer.event_sink = self._on_agent_event
 
     def submit(self, goal: str) -> dict[str, Any]:
         if not isinstance(goal, str) or not goal.strip():
@@ -101,12 +131,38 @@ class ForgeService:
                     self._history.append({"id": job["id"], "goal": job["goal"], "status": "failed", "summary": f"{type(exc).__name__}: {exc}"})
                     self._current = None
 
+    def _on_agent_event(self, event: Any, **data: Any) -> None:
+        name = getattr(event, "value", str(event))
+        with self._lock:
+            current = self._current
+            if current is None:
+                return
+            if name == "task_started" and data.get("tool"):
+                text = describe_action(str(data["tool"]), data.get("arguments") or {})
+                current["now"] = text
+                current["now_at"] = time.time()
+                current["actions"] = int(current.get("actions", 0)) + 1
+                activity = list(current.get("activity", []))[-5:]
+                current["activity"] = activity + [text]
+                if data.get("reason"):
+                    current["why"] = str(data["reason"])
+            elif name == "task_failed" and data.get("error"):
+                current["last_error"] = str(data["error"])[:200]
+
     def _on_progress(self, _report: ForgeReport, text: str) -> None:
         with self._lock:
             if self._current is not None:
                 self._current["step"] = text
                 self._current.setdefault("steps", 0)
                 self._current["steps"] += 1
+                self._current["step_at"] = time.time()
+                lowered = text.casefold()
+                if "aguardando ci" in lowered:
+                    self._current["waiting"] = "o CI do GitHub terminar os testes no Windows"
+                elif "verificação" in lowered:
+                    self._current["waiting"] = "a verificação independente (compilação, testes e lint)"
+                else:
+                    self._current.pop("waiting", None)
             goal = self._current.get("goal", "") if self._current else ""
         self._emit("forja_progresso", {"step": text})
         if self.pause is not None:

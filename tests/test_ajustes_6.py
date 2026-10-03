@@ -54,7 +54,7 @@ class LocalWakePhraseTests(unittest.TestCase):
                 self.assertEqual(heard.greeting, greeting)
 
     def test_other_phrases_do_not_wake(self) -> None:
-        for phrase in ("bom dia", "oi telex", "bom dia telex tudo bem", "", "telex"):
+        for phrase in ("bom dia", "oi telex", "bom dia telex tudo bem", ""):
             with self.subTest(phrase=phrase):
                 self.assertIsNone(classify(phrase))
 

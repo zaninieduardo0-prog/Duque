@@ -5,7 +5,7 @@ import asyncio
 import duque_wake_v2 as runtime
 from core.voice_bridge import bridge
 from core.emergency import is_pause_command
-from voice.gate import FOLLOW_UP_SECONDS, addressed, ends_with_question, is_echo
+from voice.gate import FOLLOW_UP_ENABLED, FOLLOW_UP_SECONDS, addressed, ends_with_question, is_echo
 from voice.transcripts import speech_from_event
 
 log = runtime.log
@@ -148,8 +148,6 @@ async def finish_turn(turn: int, spoken: str) -> None:
     """Depois que a fala terminou de tocar: trava a audição (ou abre, se perguntou)."""
     await runtime.wait_playback()
     if turn != TURN or RESPONDING or runtime.SHUTTING_DOWN or not runtime.REALTIME:
-        if runtime.GREETING_TURN and runtime.REALTIME:
-            runtime.GATE.open(runtime.GREETING_OPEN_SECONDS)  # nunca fechar após a saudação
         return  # outra resposta já começou
     global RECENT_SPOKEN_AT
     runtime.DUQUE_SPEAKING = False
@@ -157,12 +155,12 @@ async def finish_turn(turn: int, spoken: str) -> None:
     runtime.touch()
     RECENT_SPOKEN_AT = runtime.time.monotonic()  # eco possível por mais alguns segundos
     if runtime.GREETING_TURN:
-        # Respondeu ao "Bom dia, TELEX": o primeiro pedido vale sem o nome.
+        # Respondeu ao "Bom dia, TELEX": volta ao standby; só "Telex" reativa.
         runtime.GREETING_TURN = False
-        runtime.GATE.open(runtime.GREETING_OPEN_SECONDS)
-        runtime.log(f"[GATE] saudação respondida; ouvindo sem precisar do nome por {runtime.GREETING_OPEN_SECONDS:.0f}s")
-        runtime.hud("ouvindo", "Pode falar...")
-    elif ends_with_question(spoken):
+        runtime.GATE.close()
+        runtime.log("[GATE] saudação respondida; em standby até ouvir \"Telex\"")
+        runtime.hud_waiting()
+    elif FOLLOW_UP_ENABLED and ends_with_question(spoken):
         # Ele perguntou algo: a resposta vale sem dizer "Telex".
         runtime.GATE.open(FOLLOW_UP_SECONDS)
         runtime.hud("ouvindo", "Pode responder...")
@@ -194,6 +192,11 @@ async def handle_user_speech(session, item_id: str, text: str) -> None:
         await runtime.drop_item(session, item_id)
         return
     runtime.touch()
+    if decision.action == "listen":
+        # Só "Telex": fica ouvindo o pedido, sem responder nada.
+        await runtime.drop_item(session, item_id)
+        runtime.hud("ouvindo", "Pode falar...")
+        return
     if decision.action == "sleep":
         # "Repousar, Telex": standby na hora, sem despedida.
         await runtime.drop_item(session, item_id)

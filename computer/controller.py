@@ -22,14 +22,17 @@ class ComputerController:
                 pass
         webbrowser.open(url)
 
-    def open_url_verified(self, url: str, expect: str, timeout: float = 8.0) -> bool:
+    def open_url_verified(self, url: str, expect: str, timeout: float = 12.0) -> bool:
         """Abre o link e confere pelo título da janela que o site apareceu.
 
-        Se não aparecer, tenta de novo pelo navegador padrão do Windows (que abre
-        como aba no navegador já aberto). Fora do Windows não há como conferir.
+        Se o site já estiver aberto, só traz a janela para a frente (sem página
+        duplicada). Só tenta de novo pelo navegador padrão quando nenhuma janela
+        com o site apareceu. Fora do Windows não há como conferir.
         """
-        from .windows_focus import IS_WINDOWS, wait_for_window
+        from .windows_focus import IS_WINDOWS, focus_window, has_window, wait_for_window
 
+        if IS_WINDOWS and has_window(expect) and focus_window(expect):
+            return True
         self.open_url(url)
         if not IS_WINDOWS:
             return True

@@ -76,12 +76,59 @@ def resolve_profile(env: Mapping[str, str] | None = None) -> str | None:
     return find_profile(local_state, wanted_profile(env), strict=True)
 
 
-def chrome_command(url: str | None = None, env: Mapping[str, str] | None = None) -> list[str] | None:
+def _plain(text: str) -> str:
+    import unicodedata
+
+    normalized = unicodedata.normalize("NFKD", (text or "").casefold())
+    return "".join(char for char in normalized if not unicodedata.combining(char)).strip()
+
+
+def list_profiles(env: Mapping[str, str] | None = None) -> list[dict[str, str]]:
+    """Perfis do Chrome deste Windows: pasta, nome mostrado e e-mail."""
+    path = user_data_dir(env) / "Local State"
+    try:
+        local_state = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    cache = (local_state.get("profile") or {}).get("info_cache") or {}
+    profiles = []
+    for directory, info in cache.items():
+        if isinstance(info, dict):
+            profiles.append({
+                "dir": str(directory),
+                "name": str(info.get("name") or info.get("shortcut_name") or directory),
+                "email": str(info.get("user_name") or ""),
+                "account": str(info.get("gaia_name") or info.get("gaia_given_name") or ""),
+            })
+    return profiles
+
+
+def match_profile(spoken: str, profiles: list[dict[str, str]]) -> dict[str, str] | None:
+    """Perfil citado pelo Du ("perfil Embralan", "conta do trabalho", "Profile 2")."""
+    wanted = _plain(spoken)
+    for prefix in ("perfil ", "conta ", "do ", "da ", "de "):
+        if wanted.startswith(prefix):
+            wanted = wanted[len(prefix):].strip()
+    if not wanted:
+        return None
+    for profile in profiles:  # nome exato primeiro
+        if wanted in {_plain(profile["name"]), _plain(profile["dir"])}:
+            return profile
+    for profile in profiles:
+        fields = (profile["name"], profile["email"], profile["account"], profile["dir"])
+        if any(wanted in _plain(value) or (_plain(value) and _plain(value) in wanted) for value in fields if value):
+            return profile
+    return None
+
+
+def chrome_command(
+    url: str | None = None, env: Mapping[str, str] | None = None, *, profile_dir: str | None = None,
+) -> list[str] | None:
     executable = chrome_executable(env)
     if not executable:
         return None
     command = [executable]
-    profile = resolve_profile(env)
+    profile = profile_dir or resolve_profile(env)
     if profile:
         command.append(f"--profile-directory={profile}")
     if url:
@@ -89,11 +136,11 @@ def chrome_command(url: str | None = None, env: Mapping[str, str] | None = None)
     return command
 
 
-def open_in_chrome(url: str | None = None) -> bool:
-    """Abre no Chrome do Du. Retorna False se não for Windows ou não achar o Chrome."""
+def open_in_chrome(url: str | None = None, profile_dir: str | None = None) -> bool:
+    """Abre no Chrome do Du (num perfil específico, se pedido). False fora do Windows/sem Chrome."""
     if platform.system() != "Windows":
         return False
-    command = chrome_command(url)
+    command = chrome_command(url, profile_dir=profile_dir)
     if not command:
         return False
     subprocess.Popen(command, shell=False)

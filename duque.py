@@ -18,6 +18,16 @@ from core.windows import hide_console_windows  # noqa: E402
 # Nenhum comando em segundo plano (Spotify, git, abrir apps) pisca janela de CMD.
 hide_console_windows()
 
+# Pixels do print = pixels do mouse, mesmo com a escala do Windows em 125%/150%
+# (sem isso, "clique no botão X" acertaria o lugar errado).
+if sys.platform.startswith("win"):
+    try:
+        import ctypes
+
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
 os.environ.setdefault("DUQUE_WORKSPACE_ROOT", str(ROOT))
 os.environ.setdefault("DUQUE_AUTONOMOUS_AGENT", "1")
 os.environ.setdefault("DUQUE_PITCH", "-2.0")

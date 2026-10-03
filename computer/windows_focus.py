@@ -95,3 +95,60 @@ def focus_window(fragment: str) -> bool:
             time.sleep(0.25)
             return int(user32.GetForegroundWindow()) == hwnd
     return False
+
+
+def set_clipboard_text(text: str) -> bool:
+    """Coloca texto (com acentos) na área de transferência do Windows."""
+    if not IS_WINDOWS:
+        return False
+    import ctypes
+
+    user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    kernel32.GlobalAlloc.restype = ctypes.c_void_p
+    kernel32.GlobalLock.restype = ctypes.c_void_p
+    kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+    user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+    data = (text + "\0").encode("utf-16-le")
+    for _ in range(5):
+        if user32.OpenClipboard(0):
+            break
+        time.sleep(0.05)
+    else:
+        return False
+    try:
+        user32.EmptyClipboard()
+        handle = kernel32.GlobalAlloc(0x0042, len(data))  # GMEM_MOVEABLE | GMEM_ZEROINIT
+        pointer = kernel32.GlobalLock(handle)
+        ctypes.memmove(pointer, data, len(data))
+        kernel32.GlobalUnlock(handle)
+        user32.SetClipboardData(13, handle)  # CF_UNICODETEXT
+        return True
+    finally:
+        user32.CloseClipboard()
+
+
+def _keys(*codes: int) -> None:
+    import ctypes
+
+    user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+    for code in codes:
+        user32.keybd_event(code, 0, 0, 0)
+    for code in reversed(codes):
+        user32.keybd_event(code, 0, 0x0002, 0)
+    time.sleep(0.08)
+
+
+def navigate_window(fragment: str, url: str) -> bool:
+    """Leva a aba ativa da janela (ex.: a do YouTube) para outro endereço, sem abrir página nova."""
+    if not IS_WINDOWS or not has_window(fragment) or not focus_window(fragment):
+        return False
+    if not set_clipboard_text(url):
+        return False
+    _keys(0x11, 0x4C)  # Ctrl+L: barra de endereço
+    time.sleep(0.15)
+    _keys(0x11, 0x56)  # Ctrl+V
+    time.sleep(0.1)
+    _keys(0x0D)  # Enter
+    return True

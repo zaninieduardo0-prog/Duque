@@ -108,6 +108,12 @@ class SecurityPolicy:
         "run_command": RiskLevel.HIGH,
         "list_processes": RiskLevel.LOW,
         "kill_process": RiskLevel.HIGH,
+        "click_on": RiskLevel.MEDIUM,
+        "wait": RiskLevel.LOW,
+        "chrome_profiles": RiskLevel.LOW,
+        "youtube_play": RiskLevel.LOW,
+        "notepad_write": RiskLevel.LOW,
+        "whatsapp_send": RiskLevel.MEDIUM,
     }
 
     def assess(self, action: str) -> ActionPolicy:

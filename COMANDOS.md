@@ -194,20 +194,20 @@ git reset --hard <código>
 
 ## Aplicar uma atualização nova do Claude (branch `duque/ajustes-N`)
 
-Troque `N` pelo número que o Claude informar (a última foi **9**). Um bloco por vez:
+Troque `N` pelo número que o Claude informar (a última foi **10**). Um bloco por vez:
 
 ```powershell
 cd C:\Users\zanin\Duque
 Get-Process pythonw -ErrorAction SilentlyContinue | Stop-Process
 git fetch origin
-git merge origin/duque/ajustes-9 -m "Ajustes 9"
+git merge origin/duque/ajustes-10 -m "Ajustes 10"
 git push origin main
 .\preparar_duque.bat
 wscript .\Duque.vbs
 ```
 
 > O `preparar_duque.bat` só é obrigatório quando a atualização traz pacote novo
-> (a 9 inclui a 7 e a 8; a 7 baixa de novo o modelo do "Bom dia, TELEX"). Ele termina com o
+> (a 10 inclui da 7 em diante; a 7 baixa de novo o modelo do "Bom dia, TELEX"). Ele termina com o
 > diagnóstico; aperte uma tecla para fechar.
 
 Opcionais do TELEX (depois feche e abra):
@@ -215,7 +215,12 @@ Opcionais do TELEX (depois feche e abra):
 ```powershell
 setx DUQUE_LOCAL_WAKE "0"
 setx DUQUE_TTS_SPEED "1.12"
+setx DUQUE_LISTEN_SECONDS "8"
+setx DUQUE_OPERATOR "1"
 ```
+
+`DUQUE_LISTEN_SECONDS`: quanto tempo ele fica ouvindo depois de "Telex".
+`DUQUE_OPERATOR`: `"0"` desliga o operador autônomo (pedidos sem ferramenta pronta).
 
 `DUQUE_TTS_SPEED` é a velocidade da fala do HUD (1.0 normal, 1.2 mais rápida).
 

@@ -31,3 +31,20 @@ def hide_console_windows(popen_cls: Any = subprocess.Popen, platform: str = sys.
     popen_cls.__init__ = __init__
     popen_cls._duque_no_window = True
     return True
+
+
+def console_python(executable: str | None = None) -> str:
+    """python.exe (de console) para rodar subprocessos, mesmo quando o TELEX roda pelo pythonw.
+
+    Com o pythonw (sem console), cada git/cmd chamado pelos testes da Forja ganhava
+    uma janela preta própria que piscava. Com python.exe + CREATE_NO_WINDOW, o
+    console fica oculto e é herdado por tudo que ele chamar.
+    """
+    from pathlib import Path
+
+    path = Path(executable or sys.executable)
+    if path.name.casefold() == "pythonw.exe":
+        candidate = path.with_name("python.exe")
+        if candidate.exists():
+            return str(candidate)
+    return str(path)

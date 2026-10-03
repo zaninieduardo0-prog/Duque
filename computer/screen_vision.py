@@ -11,7 +11,7 @@ import sys
 from typing import Any, Callable
 
 PROMPT = (
-    "Você é o Duque, assistente pessoal do Du, olhando a tela do computador dele. "
+    "Você é o TELEX, assistente pessoal do Du, olhando a tela do computador dele. "
     "{question}\n"
     "Responda em português do Brasil, em no máximo 4 frases curtas, naturais para serem faladas. "
     "Se houver um erro, diga qual é e a provável solução. Não descreva elementos irrelevantes da interface."

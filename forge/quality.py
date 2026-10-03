@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from core.windows import console_python
+
 import importlib.util
 import os
 import shutil
 import subprocess
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -75,14 +76,14 @@ class QualityGate:
         targets = python_targets(root)
         if not targets:
             return CheckResult("compile", "skipped", "nenhum arquivo Python")
-        return self._run("compile", [sys.executable, "-m", "compileall", "-q", *targets], root)
+        return self._run("compile", [console_python(), "-m", "compileall", "-q", *targets], root)
 
     def _check_pytest(self, root: Path) -> CheckResult:
         if not (root / "tests").is_dir():
             return CheckResult("pytest", "failed", "pasta tests/ ausente: toda mudança precisa de testes")
         if importlib.util.find_spec("pytest") is None:
-            return self._run("pytest", [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-t", "."], root)
-        return self._run("pytest", [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"], root)
+            return self._run("pytest", [console_python(), "-m", "unittest", "discover", "-s", "tests", "-t", "."], root)
+        return self._run("pytest", [console_python(), "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"], root)
 
     def _check_ruff(self, root: Path) -> CheckResult:
         command = self._tool_command("ruff")
@@ -101,7 +102,7 @@ class QualityGate:
     @staticmethod
     def _tool_command(name: str) -> list[str] | None:
         if importlib.util.find_spec(name) is not None:
-            return [sys.executable, "-m", name]
+            return [console_python(), "-m", name]
         found = shutil.which(name)
         return [found] if found else None
 

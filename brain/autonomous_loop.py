@@ -46,8 +46,10 @@ class AutonomousLoop:
         observer: Callable[[], dict[str, Any]] | None = None,
         event_sink: Callable[..., Any] | None = None,
         system: str | None = None,
+        time_limit: float | None = None,
     ) -> None:
         self.system = system or self.SYSTEM
+        self.time_limit = time_limit
         self.model = model
         self.executor = executor
         self.schemas = schemas
@@ -74,8 +76,16 @@ class AutonomousLoop:
         last_action_key: str | None = None
         repeated_action_count = 0
         repeat_limit = 3
+        import time as _time
+
+        started = _time.monotonic()
 
         for step_number in range(1, self.max_steps + 1):
+            if self.time_limit is not None and _time.monotonic() - started > self.time_limit:
+                return AutonomousResult(
+                    False, f"Parei: passou do tempo limite de {int(self.time_limit // 60)} min sem concluir.",
+                    step_number - 1, executions, "tempo limite",
+                )
             if self.observer is not None and self._should_observe(context.goal):
                 try:
                     observation = self.observer()
@@ -93,6 +103,11 @@ class AutonomousLoop:
                 messages.append({"role": "user", "content": "AÇÃO REJEITADA: " + error + ". Retorne somente um objeto JSON válido no formato solicitado."})
                 continue
 
+            if action["action"] == "cannot":
+                # Avaliou que não consegue: resposta honesta, sem fingir sucesso.
+                message = str(action.get("message", "")).strip() or "Não consigo fazer isso com o que tenho."
+                self._emit(EventType.TASK_FAILED, task_id=task.id, step=step_number, error=message)
+                return AutonomousResult(False, message, step_number - 1, executions, "não é possível")
             if action["action"] == "finish":
                 message = str(action.get("message", "Tarefa finalizada.")).strip()
                 if not message:
@@ -132,7 +147,10 @@ class AutonomousLoop:
                 messages.append({"role": "user", "content": f"AÇÃO REJEITADA: {error}. Escolha uma ferramenta válida e tente novamente."})
                 continue
 
-            self._emit(EventType.TASK_STARTED, task_id=task.id, step=step_number, tool=tool)
+            self._emit(
+                EventType.TASK_STARTED, task_id=task.id, step=step_number, tool=tool,
+                arguments=arguments if isinstance(arguments, dict) else {}, reason=str(action.get("reason", ""))[:200],
+            )
             result = self.executor.execute_step(task, tool, arguments, confirmed=confirmed, manage_task=False)
             executions.append(result)
             if result.confirmation_required:
@@ -201,7 +219,7 @@ class AutonomousLoop:
         if not isinstance(payload, dict):
             raise ValueError("Ação do modelo deve ser um objeto JSON")
         action = payload.get("action")
-        if action not in {"tool", "finish"}:
+        if action not in {"tool", "finish", "cannot"}:
             raise ValueError(f"Ação desconhecida: {action}")
         if action == "tool":
             tool = payload.get("tool")

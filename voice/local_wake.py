@@ -7,6 +7,7 @@ só decide se ouviu exatamente uma destas:
 - "Bom dia / Boa tarde / Boa noite, TELEX" → acorda (conversa de voz)
 - "Repousar TELEX"                         → volta ao standby
 - "Retomar TELEX"                          → sai da pausa de emergência
+- "TELEX" (sozinho ou no começo da frase)   → abre a escuta (o áudio já dito vai junto)
 
 O modelo (~50 MB) fica em ``duque_data/modelos/vosk-pt`` e é baixado pelo
 ``preparar_duque.bat`` (``python -m voice.local_wake --baixar``). Sem o modelo
@@ -35,7 +36,7 @@ MODEL_URL = os.getenv(
 DEFAULT_MODEL_DIR = ROOT / "duque_data" / "modelos" / "vosk-pt"
 SAMPLE_RATE = 16000
 
-Kind = Literal["wake", "sleep", "resume"]
+Kind = Literal["wake", "sleep", "resume", "call"]
 
 # Como o nome pode estar escrito no vocabulário do modelo. Só entram na
 # gramática as grafias que o modelo conhece (Model.find_word).
@@ -84,7 +85,9 @@ def classify(text: str, *, loose: bool = False) -> Heard | None:
 
     No modo livre, a frase pode vir no fim de uma fala maior ("ok, bom dia telê").
     """
-    words = plain(text).split()
+    words = [word for word in plain(text).split() if word != "unk"]
+    if words and _is_name(words[0], loose) and (len(words) == 1 or not COMMANDS.get(" ".join(words[:-1]))):
+        return Heard("call", "telex")
     if len(words) < 2 or not _is_name(words[-1], loose):
         return None
     candidates = [" ".join(words[:-1])]
@@ -98,7 +101,7 @@ def classify(text: str, *, loose: bool = False) -> Heard | None:
 
 
 def decide(heard: Heard | None, jarvis: bool, paused: bool) -> tuple[str, str | None]:
-    """O que o laço de standby faz: ("wake", saudação), ("resume", None) ou ("none", None).
+    """O que o laço de standby faz: ("wake", saudação), ("call", None), ("resume", None) ou ("none", None).
 
     Em pausa de emergência, só "Retomar, TELEX" é atendido; acordar não.
     """
@@ -108,6 +111,8 @@ def decide(heard: Heard | None, jarvis: bool, paused: bool) -> tuple[str, str | 
         return ("none", None)
     if heard is not None and heard.kind == "wake":
         return ("wake", heard.greeting)
+    if heard is not None and heard.kind == "call":
+        return ("call", None)
     if jarvis:
         return ("wake", None)
     return ("none", None)
@@ -116,7 +121,7 @@ def decide(heard: Heard | None, jarvis: bool, paused: bool) -> tuple[str, str | 
 def grammar(known: Callable[[str], bool] | None = None) -> list[str]:
     """Frases aceitas pelo reconhecedor (+ "[unk]" para todo o resto)."""
     names = [name for name in NAME_SPELLINGS if known is None or known(name)]
-    phrases = [f"{command} {name}" for command in COMMANDS for name in names]
+    phrases = [f"{command} {name}" for command in COMMANDS for name in names] + names
     return phrases + ["[unk]"]
 
 

@@ -190,6 +190,23 @@ Ajustes opcionais (PowerShell, depois reinicie o Duque):
 | 4I.6 | Mesmo pedido com um nome que não existe | Diz que não achou a conversa certa e **não escreve nada** |
 | 4I.7 | `procura a Maria no whatsapp e escreve: oi` | Deixa escrito **sem enviar** |
 
+## 4J. Forja visível, YouTube numa página, voz pelo nome, WhatsApp por perfil e operador
+
+| # | Ação | Esperado |
+|---|------|----------|
+| 4J.1 | Peça algo à Forja | **Nenhuma** janela de CMD piscando; no painel Tarefas aparece o que ela está fazendo ("editando computer/apps.py") |
+| 4J.2 | Durante a Forja: `o que você está fazendo?` / `está esperando o quê?` | Diz a tarefa, a etapa, o que está fazendo agora, o que fez antes e o que está esperando |
+| 4J.3 | `abre o youtube` e depois `toca charlie brown jr no youtube` | Uma página só: a música troca na mesma aba |
+| 4J.4 | Diga `Boa tarde, TELEX` | Saudação curta e volta ao standby (logo apagado) |
+| 4J.5 | Diga só `Telex` e depois, sem o nome, `que horas são?` | Fica ouvindo uns 8 s e responde; depois volta ao standby |
+| 4J.6 | Diga de uma vez `Telex, que horas são?` (com ele em standby) | Responde direto (o começo da frase não se perde) |
+| 4J.7 | Durante uma resposta longa, diga `Telex` | Para de falar e fica ouvindo |
+| 4J.8 | `mande uma mensagem para o Otávio no WhatsApp do perfil Embralan dizendo teste` | Abre o WhatsApp Web **no perfil Embralan** (ou volta para a aba que já estava aberta), acha o Otávio, confere, envia |
+| 4J.9 | `no perfil Pessoal mande para a Ana e no perfil Embralan mande para o cliente Carlos, ambos dizendo reunião confirmada` | Faz os dois envios, um em cada perfil, e diz o resultado de cada um |
+| 4J.10 | `quais perfis do Chrome eu tenho?` | Lista os perfis (nome e e-mail) e as janelas do Chrome abertas |
+| 4J.11 | Um pedido sem ferramenta pronta, ex.: `abra o Paint e escreva TELEX na tela` | O operador tenta sozinho (olha a tela, clica, confere) e conta o que fez; se não der, explica por quê |
+| 4J.12 | `pague meu boleto` | Diz honestamente que não consegue (e o que faltaria), sem tentar à toa |
+
 ## 5. Forja
 
 | # | Ação | Esperado |

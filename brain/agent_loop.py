@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -36,6 +37,8 @@ from memory.conversation import ConversationStore
 from memory.memory import Memory, MemoryLayer
 from .agent_state import AgentContext
 from .compound import plan_steps, strip_name
+from .operator import OPERATOR_SYSTEM, looks_like_action
+from .planner import WHATSAPP_ACTION
 from .autonomous_loop import AutonomousLoop
 from .model import ModelAdapter, NullModel, OpenAIResponsesModel
 from .persona import text_system_prompt
@@ -104,6 +107,11 @@ class AgentLoop:
         self._register_tool_schemas()
         self.model_planner = model_planner or ModelPlanner(self.model, self.schemas)
         self.autonomous = AutonomousLoop(self.model, self.executor, self.schemas, observer=self._observe_screen, event_sink=self.engine.emit)
+        # Operador: usa o computador sozinho quando não há ferramenta pronta (brain/operator.py).
+        self.operator = AutonomousLoop(
+            self.model, self.executor, self.schemas, max_steps=30, event_sink=self.engine.emit,
+            system=OPERATOR_SYSTEM, time_limit=360,
+        )
         self.memory = memory or Memory()
         self.conversation = ConversationStore(self.memory)
         self._handle_lock = RLock()
@@ -219,23 +227,57 @@ class AgentLoop:
             return {"success": False, "error": "A Forja não está ativa"}
         return {"queued": True, **self.forge_service.submit(goal)}
 
-    @staticmethod
-    def _forge_status_requested(text: str) -> bool:
+    def _forge_status_requested(self, text: str) -> bool:
+        import re
+
         value = " ".join(text.casefold().split())
-        return "forja" in value and any(word in value for word in ("status", "andamento", "como está", "como esta", "progresso", "terminou", "o que está fazendo", "o que esta fazendo"))
+        if "forja" in value and any(word in value for word in (
+            "status", "andamento", "como está", "como esta", "progresso", "terminou", "fazendo",
+            "esperando", "aguardando", "falta", "onde está", "onde esta", "em que pé",
+        )):
+            return True
+        # Forja trabalhando: "o que você está fazendo/esperando?" fala dela.
+        busy = self.forge_service is not None and bool(self.forge_service.status().get("current"))
+        return busy and bool(re.search(
+            r"o que (?:você|voce|vc) (?:está|esta|tá|ta) (?:fazendo|programando|esperando|aguardando)"
+            r"|(?:está|esta|tá|ta) (?:esperando|aguardando) o qu|o que falta|em que (?:pé|pe) (?:está|esta)",
+            value,
+        ))
 
     def _forge_status_text(self) -> str:
         if self.forge_service is None:
             return "A Forja não está ativa."
+        import time as _time
+
+        def ago(moment: Any) -> str:
+            try:
+                seconds = max(0, int(_time.time() - float(moment)))
+            except (TypeError, ValueError):
+                return ""
+            return f"{seconds // 60} min" if seconds >= 60 else f"{seconds} s"
+
         status = self.forge_service.status()
         current = status.get("current")
         parts = []
         if current:
-            parts.append(f"Trabalhando em: {current.get('goal')} (etapa: {current.get('step', 'iniciando')}).")
+            parts.append(f"Estou trabalhando em: {current.get('goal')}.")
+            if current.get("started_at"):
+                parts.append(f"Comecei há {ago(current['started_at'])}; etapa atual: {current.get('step', 'iniciando')}.")
+            if current.get("waiting"):
+                parts.append(f"Agora estou esperando {current['waiting']} (há {ago(current.get('step_at'))}).")
+            elif current.get("now"):
+                parts.append(f"Neste momento: {current['now']}.")
+            previous = [item for item in current.get("activity", [])[:-1]][-3:]
+            if previous:
+                parts.append("Antes disso: " + "; ".join(previous) + ".")
+            if current.get("actions"):
+                parts.append(f"Já fiz {current['actions']} ações nesta tarefa.")
+            if current.get("last_error"):
+                parts.append(f"Último problema que encontrei: {current['last_error']}")
         if status.get("queued"):
             parts.append(f"{status['queued']} pedido(s) na fila.")
         history = status.get("history") or []
-        if history:
+        if history and not current:
             parts.append("Último resultado: " + str(history[-1].get("summary", "")).splitlines()[0])
         return " ".join(parts) or "A Forja está parada, sem pedidos."
 
@@ -368,6 +410,7 @@ class AgentLoop:
     # agenda, foco e visão ----------------------------------------------------
     def _register_life_tools(self) -> None:
         self.notepad = NotepadWriter(None if isinstance(self.model, NullModel) else self._compose_text)
+        self._pointer: Any = None
         self.whatsapp = self._create_whatsapp()
         self.routines = Routines(self.memory, self._run_routine_step, lambda: set(self.schemas.names()))
         self.messaging = Messaging(self.memory, self.assistant_tools.open_target)
@@ -387,7 +430,10 @@ class AgentLoop:
             (ToolSpec("reminder_cancel", "Cancela o lembrete de número indicado (0 = todos)", (), {"index": int}), self.reminder_cancel),
             (ToolSpec("focus_mode", "Modo foco/pomodoro: action 'start' (pausa a música e silencia avisos) ou 'stop'", (), {"action": str, "minutes": (int, float)}), self.focus_mode),
             (ToolSpec("describe_screen", "Olha a tela do Du e explica o que há nela (ou responde uma pergunta sobre ela)", (), {"question": str}), self.screen_vision.describe_screen),
-            (ToolSpec("whatsapp_send", "Abre o WhatsApp, acha a conversa da pessoa (pista opcional, ex.: 'da Embralan'), confere pela tela, escreve e envia (send=false só deixa escrito)", ("contact", "text"), {"contact": str, "text": str, "hint": str, "send": bool}), self.whatsapp.whatsapp_send),
+            (ToolSpec("whatsapp_send", "Abre o WhatsApp, acha a conversa da pessoa (pista opcional, ex.: 'da Embralan'), confere pela tela, escreve e envia (send=false só deixa escrito)", ("contact", "text"), {"contact": str, "text": str, "hint": str, "send": bool, "profile": str}), self.whatsapp.whatsapp_send),
+            (ToolSpec("click_on", "Clica num elemento visível na tela descrito em palavras (ex.: 'botão Enviar', 'campo de busca do YouTube')", ("target",), {"target": str, "double": bool}), self._click_on),
+            (ToolSpec("wait", "Espera alguns segundos (1 a 10) para algo carregar", ("seconds",), {"seconds": (int, float)}), self._wait),
+            (ToolSpec("chrome_profiles", "Perfis do Chrome (nome, e-mail) e as janelas do Chrome abertas agora"), self._chrome_profiles),
             (ToolSpec("notepad_write", "Escreve no Bloco de Notas: um texto ditado ou algo para criar (ex.: 'um poema sobre o mar', 'lista de compras')", ("request",), {"request": str}), self.notepad.notepad_write),
         ]
         for spec, function in tools:
@@ -572,7 +618,12 @@ class AgentLoop:
         }
 
     def _create_whatsapp(self) -> WhatsAppDesktop:
+        from computer.chrome import list_profiles, match_profile, open_in_chrome
         from computer.windows_focus import focus_window, wait_for_window
+
+        def open_in_profile(profile_dir: str, url: str) -> None:
+            if not open_in_chrome(url, profile_dir):
+                self.assistant_tools.open_target(url)
 
         def ask_screen(question: str) -> str | None:
             result = self.screen_vision.describe_screen(question)
@@ -593,7 +644,68 @@ class AgentLoop:
             wait_window=wait_for_window,
             focus=focus_window,
             without_vision=lambda contact, text: self.messaging.whatsapp_message(contact, text),
+            find_profile=lambda name: match_profile(name, list_profiles()),
+            open_in_profile=open_in_profile,
+            profile_names=lambda: [profile["name"] for profile in list_profiles()],
         )
+
+    def _click_on(self, target: str, double: bool = False) -> dict[str, Any]:
+        if self._pointer is None:
+            from computer.screen_pointer import default_pointer
+
+            try:
+                self._pointer = default_pointer(self.ui_controller) if os.name == "nt" else None
+            except Exception:
+                self._pointer = None
+        if self._pointer is None:
+            return {"success": False, "error": "Não consigo clicar pelo que vejo: precisa do Windows e da chave da OpenAI."}
+        return self._pointer.click_on(target, double)
+
+    @staticmethod
+    def _wait(seconds: float) -> dict[str, Any]:
+        value = max(1.0, min(10.0, float(seconds)))
+        time.sleep(value)
+        return {"message": f"Esperei {value:.0f} s."}
+
+    def _chrome_profiles(self) -> dict[str, Any]:
+        from computer.chrome import list_profiles
+        from computer.windows_focus import window_titles
+
+        profiles = list_profiles()
+        windows = [title for title in window_titles() if title.endswith("Google Chrome")]
+        names = ", ".join(f"{p['name']}" + (f" ({p['email']})" if p["email"] else "") for p in profiles) or "nenhum"
+        return {
+            "message": f"Perfis do Chrome: {names}. Janelas do Chrome abertas: {len(windows)}"
+            + (" — " + "; ".join(title.removesuffix(" - Google Chrome") for title in windows[:6]) if windows else "")
+            + ". (O Chrome não informa qual janela é de qual perfil; para agir num perfil, eu abro direto nele.)",
+            "profiles": profiles,
+            "windows": windows,
+        }
+
+    def _handle_whatsapp_jobs(self, text: str) -> AgentResult | None:
+        """Vários envios por perfil numa frase só ("no perfil A ... e no perfil B ...")."""
+        from computer.whatsapp_flow import parse_many
+
+        jobs = parse_many(text)
+        if len(jobs) < 2:
+            return None
+        task = self.tasks.create(text, intent="whatsapp_many")
+        self.tasks.start(task.id)
+        lines: list[str] = []
+        last: ExecutionResult | None = None
+        for index, job in enumerate(jobs, start=1):
+            last = self.executor.execute_step(task, "whatsapp_send", {
+                "contact": job.contact, "text": job.text, "hint": job.hint, "send": job.send, "profile": job.profile,
+            }, manage_task=False)
+            value = last.value if isinstance(last.value, dict) else {}
+            outcome = value.get("message") or last.error or "sem resposta"
+            lines.append(f"{index}) {job.contact}{' (perfil ' + job.profile + ')' if job.profile else ''}: {outcome}")
+        ok = all(line for line in lines) and last is not None and last.success
+        if ok:
+            self.tasks.complete(task.id, lines)
+        else:
+            self.tasks.fail(task.id, "; ".join(lines))
+        return AgentResult(" ".join(lines), task.id, last)
 
     def _compose_text(self, prompt: str) -> str:
         """Texto criado pelo modelo para ferramentas (poema no Bloco de Notas...)."""
@@ -741,13 +853,24 @@ class AgentLoop:
             return str(value.get("stdout") or value.get("stderr") or fallback).strip()
         return fallback
 
+    def _operator_available(self) -> bool:
+        return not isinstance(self.model, NullModel) and os.getenv("DUQUE_OPERATOR", "1").casefold() not in {"0", "false", "off", "no", "nao", "não"}
+
+    def _handle_operator(self, text: str, *, failure: str | None = None, confirmed: bool = False) -> AgentResult:
+        goal = text if not failure else (
+            f"{text}\n\nO caminho direto falhou ({failure}). Tente outra forma, verificando cada passo."
+        )
+        task = self.tasks.create(goal, mode="autonomous", loop="operator")
+        return self._handle_autonomous(goal, confirmed=confirmed, task=task)
+
     def _handle_autonomous(self, text: str, *, confirmed: bool = False, task: Task | None = None) -> AgentResult:
         if task is None:
             task = self.tasks.create(text, mode="autonomous")
+        loop = self.operator if task.metadata.get("loop") == "operator" else self.autonomous
         context = AgentContext(goal=text, task_id=task.id)
         try:
             self.tasks.start(task.id)
-            result = self.autonomous.run(context, confirmed=confirmed)
+            result = loop.run(context, confirmed=confirmed)
             if result.success:
                 self.tasks.complete(task.id, result.message)
                 self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "mode": "autonomous", "steps": result.steps})
@@ -929,6 +1052,11 @@ class AgentLoop:
                 f"Trabalho {job['id']}, posição {job['position']} na fila."
             )
 
+        if re.search(r"\b(?:perfil|conta)\b", text, re.IGNORECASE) and WHATSAPP_ACTION.search(text.casefold()):
+            many = self._handle_whatsapp_jobs(text)
+            if many is not None:
+                return many
+
         # Pedidos em várias etapas ("abra o YouTube e toque X", "abra o Spotify e
         # aumente o volume"): cada etapa passa pelo fluxo completo, em ordem.
         steps = plan_steps(text) if not self._is_small_talk(text) else [text]
@@ -955,6 +1083,10 @@ class AgentLoop:
         # Mesmo quando o roteador classifica uma mensagem como conversa ou desconhecida,
         # o modelo pode reconhecer que o pedido exige uma ferramenta (ex.: "abra o Chrome").
         # Só cai para a resposta conversacional quando nenhum passo executável foi planejado.
+        if not tool_steps and route.intent.value in {"chat", "unknown"} and self._operator_available() and looks_like_action(text):
+            # Pedido de ação sem ferramenta pronta: o operador tenta fazer de verdade.
+            self.tasks.cancel(task.id)
+            return self._handle_operator(text, confirmed=confirmed)
         if not tool_steps and route.intent.value in {"chat", "unknown"}:
             self.tasks.start(task.id)
             try:
@@ -1015,6 +1147,10 @@ class AgentLoop:
                 return AgentResult("Preciso da sua confirmação antes de executar essa ação.", task.id, failed, report.attempts)
             error = report.last_error or (failed.error if failed else "Falha desconhecida")
             self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "failed", "error": error, "attempts": report.attempts})
+            if self._operator_available() and route.intent.value not in {"calc", "time", "weather", "note", "reminder"} and os.getenv("DUQUE_OPERATOR_FALLBACK", "1") != "0":
+                # O caminho pronto falhou: o operador tenta outra forma, conferindo pela tela.
+                retry = self._handle_operator(text, failure=error)
+                return AgentResult(f"O caminho direto falhou ({error}). {retry.text}", retry.task_id, retry.execution, report.attempts + retry.attempts)
             return AgentResult(f"Não consegui executar a tarefa: {error}", task.id, failed, report.attempts)
         last = report.results[-1].result if report.results else None
         self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "attempts": report.attempts, "result": last.value if last is not None else None})
