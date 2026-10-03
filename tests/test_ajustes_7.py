@@ -78,7 +78,7 @@ class YouTubePlayTests(unittest.TestCase):
                 raise html
             return html
 
-        return AssistantTools(fetch_text=fetch, open_target=opened.append), opened
+        return AssistantTools(fetch_text=fetch, open_target=opened.append, wait_window=lambda _f, _t: True, reuse_window=lambda _f, _u: False), opened
 
     def test_plays_first_video(self) -> None:
         html = 'xx "videoId":"kXYiU_JCYtU" yy "videoId":"eVTXPUF4Oz4"'
