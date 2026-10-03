@@ -119,12 +119,15 @@ class LocalWake:
 
     def __init__(self, model: Any, recognizer_factory: Callable[[Any, float, str], Any]) -> None:
         self.model = model
-        known: Any = getattr(model, "find_word", None)
-        self.phrases = grammar((lambda word: int(known(word)) >= 0) if callable(known) else None)
+        self.phrases = grammar(self._knows if hasattr(model, "find_word") else None)
         if len(self.phrases) <= 1:
             raise RuntimeError("o modelo não conhece nenhuma grafia de 'telex'")
         self._factory = recognizer_factory
         self._recognizer = recognizer_factory(model, SAMPLE_RATE, json.dumps(self.phrases))
+
+    def _knows(self, word: str) -> bool:
+        index: Any = self.model.find_word(word)
+        return int(index) >= 0
 
     @property
     def names(self) -> list[str]:
