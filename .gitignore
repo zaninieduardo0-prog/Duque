@@ -4,3 +4,4 @@ __pycache__/
 *.egg-info/
 duque.log
 duque_data/
+*.db
