@@ -635,6 +635,9 @@ class AgentLoop:
                 raise RuntimeError("ferramenta open_app indisponível")
             return tool(name=name)
 
+        from computer.whatsapp_flow import set_known_names
+
+        set_known_names(lambda: [item["name"] for item in self.messaging._contacts().values()])
         return WhatsAppDesktop(
             open_app=open_app,
             open_target=self.assistant_tools.open_target,
@@ -742,8 +745,22 @@ class AgentLoop:
         parts = [part for part in parts if part]
         return bool(parts) and all(part in cls.SMALL_TALK for part in parts)
 
+    _KNOWLEDGE_QUESTION = re.compile(
+        r"^(?:telex[\s,!.:-]+)?(?:por favor[,]?\s+)?(?:me\s+)?(?:explique|explica|explicar|conte|conta|defina|resuma|resume|"
+        r"o que (?:é|e|são|sao|significa)|quem (?:foi|era|é|e)|por ?qu[eê]|como funciona|qual (?:a |é a |e a )?diferen[cç]a|"
+        r"qual (?:o )?significado|para que serve|quando (?:foi|aconteceu|nasceu))\b",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _is_knowledge_question(cls, text: str) -> bool:
+        """Pergunta de conhecimento geral ("o que é um buraco negro"): só conversa, nenhuma ferramenta."""
+        from .operator import looks_like_action
+
+        return bool(cls._KNOWLEDGE_QUESTION.match(text.strip())) and not looks_like_action(text)
+
     def _build_plan(self, text: str, intent: str):
-        if intent in {"chat", "unknown"} and self._is_small_talk(text):
+        if intent in {"chat", "unknown"} and (self._is_small_talk(text) or self._is_knowledge_question(text)):
             return self.planner.build(text, "chat")
         # Ações operacionais simples devem ser determinísticas. O modelo fica
         # para tarefas ambíguas/complexas, evitando que um pedido claro vire "chat".

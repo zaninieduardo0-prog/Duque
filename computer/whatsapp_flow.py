@@ -71,9 +71,33 @@ def split_profile(text: str) -> tuple[str, str]:
     return match.group("profile").strip(), re.sub(r"\s{2,}", " ", rest)
 
 
-_SEND_VERBS = r"encaminh\w*|mand[ae]\w*|envi[ae]\w*|diga|diz|fal[ae]"
+_APP = r"(?:whats\s?app|whats|zap(?:zap)?)"  # como o Du chama o aplicativo
+_SEND_VERBS = r"encaminh\w*|mand[ae]\w*|envi[ae]\w*|diga|diz|fal[ae]|avis[ae]\w*|pergunt[ae]\w*"
 _WRITE_VERBS = r"escrev\w*|digit\w*|prepar\w*|deix[ae] escrit\w*"
 _VERBS = rf"{_SEND_VERBS}|{_WRITE_VERBS}"
+_MSG_NOUN = r"(?:uma |um |a )?(?:mensagem|msg|recado|zap|whats\s?app|whats)?"
+_INTRO = (
+    r"(?:dizendo(?: que)?|falando(?: que)?|avisando(?: que)?|informando(?: que)?|perguntando(?: se)?|"
+    r"lembrando(?: que)?|contando(?: que)?|com o texto|escrito|que)"
+)
+_GREETINGS = r"(?:oi|ol[aá]|bom dia|boa tarde|boa noite|abra[cç]o|beijo|parab[eé]ns|feliz anivers[aá]rio)"
+
+# Qualquer jeito de pedir uma mensagem (o roteador e o planejador usam este mesmo regex).
+MESSAGE_REQUEST = re.compile(
+    rf"\b(?:mand[ae]\w*|envi[ae]\w*|encaminh\w*|escrev[ae]|digit[ae]|avis[ae]\w*|pergunt[ae]\w*|respond\w*|cham[ae]|fal[ae]|diga|diz)\b"
+    rf"[^.?!]*\b(?:mensagem|msg|recado|{_APP})\b"
+    rf"|\b{_APP}\b.*\b(?:mand[ae]\w*|envi[ae]\w*|encaminh\w*|escrev[ae]|digit[ae]|avis[ae]\w*|respond\w*|diga|diz|fal[ae])\b"
+    rf"|\b(?:mand[ae]|envi[ae])\s+(?:um |uma )?{_GREETINGS}\s+(?:para|pro|pra)\b",
+    re.IGNORECASE,
+)
+
+_known_names: Callable[[], list[str]] = lambda: []  # noqa: E731
+
+
+def set_known_names(provider: Callable[[], list[str]]) -> None:
+    """Nomes da agenda de contatos: ajudam a separar "pra Maria Clara oi tudo bem" em nome e texto."""
+    global _known_names
+    _known_names = provider
 
 # "... procure pelo Otávio que trabalha comigo na Embralan, e encaminhe a mensagem X"
 _SEARCH_FORM = re.compile(
@@ -84,11 +108,54 @@ _SEARCH_FORM = re.compile(
 )
 # "mande (no WhatsApp) para o Otávio: X" / "manda uma mensagem pro Otávio dizendo que X"
 _TO_FORM = re.compile(
-    rf"(?P<verb>{_VERBS})\s+(?:uma |a )?(?:mensagem|msg|recado)?\s*(?:(?:no|pelo) (?:whats\s?app|zap)\s+)?"
-    r"(?:para|pro|pra|ao|à)\s+(?:o |a )?(?P<who>.+?)(?:\s+(?:no|pelo) (?:whats\s?app|zap))?"
-    r"(?:\s+(?:dizendo(?: que)?|falando(?: que)?|com o texto|escrito|que)\s+|\s*:\s*)(?P<rest>.+)$",
+    rf"(?P<verb>{_VERBS})\s+{_MSG_NOUN}\s*(?:(?:no|pelo) {_APP}\s+)?"
+    rf"(?:para|pro|pra|ao|à)\s+(?:o |a )?(?P<who>.+?)(?:\s+(?:no|pelo) {_APP})?"
+    rf"(?:\s+{_INTRO}\s+|\s*:\s*)(?P<rest>.+)$",
     re.IGNORECASE | re.DOTALL,
 )
+# "chama o João no whatsapp e fala que cheguei" / "responde a Ana dizendo ok" / "avisa o Pedro que vou atrasar"
+_CALL_FORM = re.compile(
+    rf"(?:cham[ae]|avis[ae]|responde\w*|pergunt[ae]|fal[ae] com)\s+(?:para |pro |pra )?(?:o |a )?(?P<who>.+?)"
+    rf"(?:\s+(?:no|pelo) {_APP})?\s*(?:,\s*|\s+)(?:e\s+)?"
+    rf"(?:(?:diga|diz|fala|fale|manda|mande|avisa|pergunta|responde)\s+(?:que\s+|se\s+|pra ele\s+|pra ela\s+)?|{_INTRO}\s+)(?P<rest>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+# "manda um oi pra Maria (no zap)"
+_GREETING_FORM = re.compile(
+    rf"(?:{_SEND_VERBS})\s+(?:um |uma )?(?P<rest>{_GREETINGS})\s*(?:(?:no|pelo) {_APP}\s+)?"
+    rf"(?:para|pro|pra|ao|à)\s+(?:o |a )?(?P<who>.+?)(?:\s+(?:no|pelo) {_APP})?\s*$",
+    re.IGNORECASE,
+)
+# "envia no zap pra Maria oi tudo bem": sem separador entre o nome e o texto.
+_NO_SEP_FORM = re.compile(
+    rf"(?:{_VERBS})\s+{_MSG_NOUN}\s*(?:(?:no|pelo) {_APP}\s+)?(?:para|pro|pra|ao|à)\s+(?:o |a )?(?P<tail>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+_MESSAGE_STARTERS = re.compile(
+    r"^(?:oi|ol[aá]|bom dia|boa tarde|boa noite|tudo bem|tudo bom|e a[ií]|beleza|valeu|obrigad[oa]|feliz|parab[eé]ns|"
+    r"estou|to|t[ôo]|vou|j[aá]|preciso|cheguei|quando|onde|como|voc[eê]|vc|pode|podemos|vamos|n[aã]o|sim)\b",
+    re.IGNORECASE,
+)
+
+
+def _name_and_message(tail: str) -> tuple[str, str] | None:
+    """Separa "Maria Clara oi tudo bem" em ("Maria Clara", "oi tudo bem"), pela agenda ou por um começo de frase."""
+    tail = re.sub(r"\s+(?:no|pelo) " + _APP + r"\s+", " ", " " + tail.strip() + " ", flags=re.IGNORECASE).strip()
+    wanted = _plain(tail)
+    try:
+        known = [n for n in _known_names() if n.strip()]
+    except Exception:  # agenda indisponível (banco fechado...): segue só com o começo de frase
+        known = []
+    for name in sorted(known, key=len, reverse=True):
+        plain_name = _plain(name)
+        if plain_name and wanted.startswith(plain_name + " "):
+            count = len(plain_name.split())
+            return name, " ".join(tail.split()[count:])
+    words = tail.split()
+    for cut in range(1, min(4, len(words))):
+        if _MESSAGE_STARTERS.match(" ".join(words[cut:])):
+            return " ".join(words[:cut]), " ".join(words[cut:])
+    return None
 
 
 def _clean_text(rest: str) -> str:
@@ -106,7 +173,7 @@ _ROLES = re.compile(r"^(?:o |a )?(cliente|contato|colega|amig[oa]|chefe|forneced
 
 def _split_who(who: str) -> tuple[str, str]:
     """"Otávio que trabalha comigo na Embralan" → ("Otávio", "trabalha comigo na Embralan")."""
-    who = re.sub(r"\s+(?:no|pelo) (?:whats\s?app|zap)(?:\s+web)?\b", "", who.strip(" ,.:"), flags=re.IGNORECASE)
+    who = re.sub(rf"\s+(?:no|pelo) {_APP}(?:\s+web)?\b", "", who.strip(" ,.:"), flags=re.IGNORECASE)
     role = _ROLES.match(who)
     if role:
         name, hint = _split_who(who[role.end():])
@@ -124,15 +191,24 @@ def parse_request(text: str) -> WhatsAppRequest | None:
     body = re.sub(r"^\s*(?:telex[\s,!.:-]+)?", "", text.strip(), flags=re.IGNORECASE)
     body = re.sub(r"\s+(?:no|pelo) whats\s?app web\b", " no whatsapp", body, flags=re.IGNORECASE)
     body = re.sub(r"^(?:por favor[,]?\s+)?(?:abr[ae]|abrir|abre)\s+o\s+(?:whats\s?app|zap)\s*(?:,\s*|\s+e\s+)?", "", body, flags=re.IGNORECASE)
-    for form in (_SEARCH_FORM, _TO_FORM):
+    for form in (_SEARCH_FORM, _TO_FORM, _CALL_FORM, _GREETING_FORM, _NO_SEP_FORM):
         match = form.search(body)
         if not match:
             continue
-        contact, hint = _split_who(match.group("who"))
-        message = _clean_text(match.group("rest"))
+        groups = match.groupdict()
+        if groups.get("tail") is not None:
+            split = _name_and_message(groups["tail"])
+            if split is None:
+                continue
+            who, rest = split
+        else:
+            who, rest = groups["who"], groups["rest"]
+        contact, hint = _split_who(who)
+        contact = re.sub(r"^(?:meu|minha)\s+", "", contact, flags=re.IGNORECASE)  # "minha mãe" → "mãe" (como está salvo)
+        message = _clean_text(rest)
         if not contact or not message:
             continue
-        send = not re.fullmatch(_WRITE_VERBS, match.group("verb"), flags=re.IGNORECASE)
+        send = not re.fullmatch(_WRITE_VERBS, groups.get("verb") or "", flags=re.IGNORECASE)
         return WhatsAppRequest(contact, hint, message, send, profile)
     return None
 

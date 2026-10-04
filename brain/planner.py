@@ -32,10 +32,7 @@ class Plan:
 
 
 # Pedido de mensagem no WhatsApp: verbo de envio/escrita + mensagem/WhatsApp, ou "procure X no WhatsApp ... mande".
-WHATSAPP_ACTION = re.compile(
-    r"\b(?:mand[ae]|envi[ae]|encaminh\w*|escrev[ae]|digit[ae])\b[^.?!]*\b(?:mensagem|msg|zap|whats\s?app)\b"
-    r"|\b(?:zap|whats\s?app)\b.*\b(?:mand[ae]|envi[ae]|encaminh\w*|escrev[ae]|digit[ae])\b"
-)
+from computer.whatsapp_flow import MESSAGE_REQUEST as WHATSAPP_ACTION  # noqa: E402  (mesmo regex do roteador)
 
 
 class Planner:
