@@ -47,6 +47,9 @@ COMMANDS: dict[str, Kind] = {
     "repousar": "sleep",
     "retomar": "resume",
 }
+# Ganho automático para microfones baixos (pico ~0.1): nunca passa deste fator.
+MAX_GAIN = float(os.getenv("DUQUE_WAKE_MAX_GAIN", "6"))
+TARGET_PEAK = 0.30
 
 
 def plain(text: str) -> str:
@@ -130,6 +133,29 @@ def grammar(known: Callable[[str], bool] | None = None) -> list[str]:
     return phrases + ["[unk]"]
 
 
+def boost(pcm: bytes, peak_seen: float) -> tuple[bytes, float]:
+    """Amplifica áudio baixo (int16) até um pico razoável; devolve (áudio, pico lembrado).
+
+    O pico lembrado cai devagar, então um microfone baixo é amplificado de forma
+    estável e um barulho forte não deixa o ganho em 1 para sempre.
+    """
+    import array
+
+    samples = array.array("h")
+    samples.frombytes(pcm[: len(pcm) - len(pcm) % 2])
+    if not samples:
+        return pcm, peak_seen
+    frame_peak = max(max(samples), -min(samples)) / 32768.0
+    peak_seen = max(frame_peak, peak_seen * 0.995)
+    if peak_seen < 0.01:  # silêncio: amplificar só levanta ruído
+        return pcm, peak_seen
+    gain = min(MAX_GAIN, TARGET_PEAK / peak_seen)
+    if gain <= 1.05:
+        return pcm, peak_seen
+    boosted = array.array("h", (max(-32768, min(32767, int(sample * gain))) for sample in samples))
+    return boosted.tobytes(), peak_seen
+
+
 def is_model_dir(path: Path) -> bool:
     """Modelos novos têm am/ e conf/; os antigos (como o small-pt-0.3) têm os arquivos soltos."""
     if (path / "am").is_dir() or (path / "conf").is_dir():
@@ -165,6 +191,7 @@ class LocalWake:
         if self.loose:
             self.phrases = []
         self._factory = recognizer_factory
+        self._peak = 0.0
         self._recognizer = self._new_recognizer()
 
     def _new_recognizer(self) -> Any:
@@ -194,6 +221,7 @@ class LocalWake:
 
     def feed(self, pcm: bytes) -> Heard | None:
         recognizer = self._recognizer
+        pcm, self._peak = boost(pcm, self._peak)
         if recognizer.AcceptWaveform(pcm):
             text = _field(recognizer.Result(), "text")
         else:

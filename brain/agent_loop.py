@@ -69,6 +69,10 @@ class PendingConfirmation:
     steps: list[tuple[str, dict[str, object]]]
 
 
+# Etapa que só faz sentido se a anterior deu certo ("toque lá", "feche ele", "salve isso").
+_DEPENDS_ON_PREVIOUS = re.compile(r"\b(?:l[aá]|nele|nela|neles|nelas|ali|a[ií]|isso|ele|ela|o mesmo)\b", re.IGNORECASE)
+
+
 class AgentLoop:
     """Orquestra entendimento, planejamento, execução, verificação, correção, memória e agenda."""
 
@@ -1176,24 +1180,37 @@ class AgentLoop:
         return AgentResult(self._execution_message(last), task.id, last, report.attempts)
 
     def _handle_sequence(self, steps: list[str], *, confirmed: bool, max_attempts: int) -> AgentResult:
-        """Executa as etapas em ordem; para na primeira que falhar e conta onde parou."""
+        """Executa as etapas em ordem. Uma etapa que falha não derruba as independentes dela.
+
+        Etapa que depende da anterior ("lá", "nele", "isso") é pulada quando a
+        anterior falhou; as demais seguem. No fim, conta o que foi feito e o que não deu.
+        """
         done: list[str] = []
+        problems: list[str] = []
         last: AgentResult | None = None
+        failed_result: AgentResult | None = None
+        previous_failed = False
         for index, step in enumerate(steps, start=1):
+            if previous_failed and _DEPENDS_ON_PREVIOUS.search(step):
+                problems.append(f"Pulei a etapa {index} ({step}) porque dependia da anterior.")
+                continue
             result = self._handle(step, confirmed=confirmed, max_attempts=max_attempts)
             last = result
-            failed = result.execution is not None and not result.execution.success
             if self._pending_confirmation is not None:
                 prefix = (" ".join(done) + " ") if done else ""
                 return AgentResult(prefix + result.text, result.task_id, result.execution, result.attempts)
-            if failed or result.text.startswith(("Não consegui", "Não consigo")):
-                head = (" ".join(done) + " ") if done else ""
-                rest = len(steps) - index
-                tail = f" Parei aí; faltaram {rest} etapa(s)." if rest else ""
-                return AgentResult(f"{head}Na etapa {index} ({step}): {result.text}{tail}".strip(), result.task_id, result.execution, result.attempts)
+            previous_failed = (
+                result.execution is not None and not result.execution.success
+            ) or result.text.startswith(("Não consegui", "Não consigo"))
+            if previous_failed:
+                failed_result = failed_result or result
+                problems.append(f"Na etapa {index} ({step}): {result.text}")
+                continue
             done.append(result.text.strip().rstrip(".") + ".")
         assert last is not None
-        return AgentResult(" ".join(done), last.task_id, last.execution, last.attempts)
+        report = " ".join(done + problems).strip()
+        final = failed_result or last
+        return AgentResult(report, final.task_id, final.execution, final.attempts)
 
     def _correct_steps(
         self,

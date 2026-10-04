@@ -22,10 +22,26 @@ ACTION_VERBS = (
     r"fech[ae]|fechar|mand[ae]|mandar|envi[ae]|enviar|cri[ae]|criar|aument[ae]|aumentar|diminu[ai]|diminuir|"
     r"paus[ae]|pausar|anot[ae]|anotar|me lembr[ae]|lembr[ae]|salv[ae]|salvar|copi[ae]|copiar|ativ[ae]|ativar|"
     r"deslig[ae]|desligar|pul[ae]|pular|volt[ae]|mostr[ae]|mostrar|le[ia]a?|ler|inici[ae]|iniciar|"
-    r"execut[ae]|executar|bloqu[ei][ia]a?|bloquear|silenci[ae]|tir[ae]|ponha|p[oõ]e|faz|fa[cç]a"
+    r"execut[ae]|executar|bloqu[ei][ia]a?|bloquear|silenci[ae]|tir[ae]|ponha|p[oõ]e|faz|fa[cç]a|"
+    r"sub[ae]|subir|abaix[ae]|abaixar|mud[ae]|mudar|troqu?e|troca|trocar|lig[ue]|ligar|liga|"
+    r"baix[ae]|baixar|instal[ae]|instalar|imprim[ae]|imprimir|renomei[ae]|organiz[ae]|limp[ae]|"
+    r"atualiz[ae]|verifiqu?e|verifica|confir[mo]\w*|minimiz[ae]|maximiz[ae]|cliqu?e|clica|"
+    r"compartilh[ae]|selecion[ae]|rol[ae]|marqu?e|acess[ae]|entr[ae]"
+)
+# Palavras que ligam uma etapa à outra ("... e depois", "por fim", "além disso").
+_LINK = (
+    r"(?:depois disso|logo depois|em seguida|na sequ[eê]ncia|por fim|por [uú]ltimo|al[eé]m disso|"
+    r"e tamb[eé]m|depois|ent[aã]o|a[ií])"
 )
 _CONNECTOR = re.compile(
-    rf"\s*(?:,\s*(?:e\s+)?(?:depois\s+|em seguida\s+|ent[aã]o\s+)?|\s+e\s+(?:depois\s+|em seguida\s+|ent[aã]o\s+)?|\s+depois\s+|\s+em seguida\s+)(?=(?:{ACTION_VERBS})\b)",
+    rf"\s*(?:[,;]\s*(?:e\s+)?(?:{_LINK}\s*,?\s+)?|\.\s+(?:{_LINK}\s*,?\s+)?|\s+e\s+(?:{_LINK}\s*,?\s+)?"
+    rf"|\s+(?:depois disso|logo depois|em seguida|na sequ[eê]ncia|por fim|por [uú]ltimo|al[eé]m disso|depois)\s*,?\s+)"
+    rf"(?=(?:{ACTION_VERBS})\b)",
+    flags=re.IGNORECASE,
+)
+# "Primeiro abra X, segundo ..." — a ordem já é a da frase; só tira a palavra.
+_ORDINAL = re.compile(
+    rf"^(?:primeiro|segundo|terceiro|quarto|quinto|por fim|por [uú]ltimo|depois|ent[aã]o)\s*[,:]?\s+(?=(?:{ACTION_VERBS})\b)",
     flags=re.IGNORECASE,
 )
 _NAME_PREFIX = re.compile(r"^\s*(?:telex|teles|duque|jarvis)[\s,!.:-]+", flags=re.IGNORECASE)
@@ -76,14 +92,14 @@ def split_steps(text: str) -> list[str]:
         head, tail = clean[: dictation.start()], clean[dictation.start():]
         joint = _TRAILING_CONNECTOR.search(head)
         clean = head[: joint.start()] if joint else head
-    parts = [part.strip(" ,.;") for part in _CONNECTOR.split(clean)] if clean.strip() else []
+    parts = [_ORDINAL.sub("", part.strip(" ,.;")) for part in _CONNECTOR.split(clean)] if clean.strip() else []
     if tail.strip():
         parts.append(tail.strip(" ,;"))
     return [part for part in parts if part]
 
 
 _TRAILING_CONNECTOR = re.compile(
-    r"(?:,\s*(?:e\s+)?(?:depois\s+|em seguida\s+)?|\s+e\s+(?:depois\s+|em seguida\s+)?|\s+depois\s+|\s+em seguida\s+)$",
+    r"(?:[,;]\s*(?:e\s+)?(?:depois\s+|em seguida\s+)?|\s+e\s+(?:depois\s+|em seguida\s+)?|\s+depois\s+|\s+em seguida\s+)$",
     flags=re.IGNORECASE,
 )
 
