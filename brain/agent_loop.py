@@ -69,6 +69,21 @@ class PendingConfirmation:
     steps: list[tuple[str, dict[str, object]]]
 
 
+# "crie/faça/escreva um poema..." (etapa que produz um texto) e "salve isso no bloco de notas".
+_CREATE_TEXT = re.compile(
+    r"^(?:por favor[,]?\s+)?(?:cri[ae]|criar|fa[çc]a|fazer|escrev[ae]|escrever|componh[ao]|redij[ao]|mont[ae]|ger[ae]|elabor[ae])\s+"
+    r"(?:para mim\s+)?(?=(?:um[a]?s?\s+)?(?:pequen[oa]\s+|curt[oa]\s+|bel[oa]\s+)?"
+    r"(?:poema|poesia|soneto|haicai|texto|carta|hist[oó]ria|conto|mensagem|resumo|piada|receita|e-?mail|par[aá]grafo|frase|discurso|"
+    r"letra|legenda|bilhete|cr[oô]nica|pensamento|reflex[aã]o|lista)\b)",
+    re.IGNORECASE,
+)
+_SAVE_TO_NOTEPAD = re.compile(
+    r"^(?:por favor[,]?\s+)?(?:salv[ae]|guard[ae]|coloqu?e|p[oõ]e|ponha|escrev[ae]|anot[ae]|cole)\s+"
+    r"(?:(?:isso|ele|ela|o poema|a poesia|o texto|a carta|tudo|o que (?:voc[eê] )?(?:escreveu|criou))\s+)?"
+    r"(?:n[oa]|no)\s+(?:bloco de notas|notepad)\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+
 # Etapa que só faz sentido se a anterior deu certo ("toque lá", "feche ele", "salve isso").
 _DEPENDS_ON_PREVIOUS = re.compile(r"\b(?:l[aá]|nele|nela|neles|nelas|ali|a[ií]|isso|ele|ela|o mesmo)\b", re.IGNORECASE)
 
@@ -434,7 +449,8 @@ class AgentLoop:
             (ToolSpec("wait", "Espera alguns segundos (1 a 10) para algo carregar", ("seconds",), {"seconds": (int, float)}), self._wait),
             (ToolSpec("whatsapp_web_open", "Abre o WhatsApp Web no perfil do Chrome pedido ('atual' = o que ele está usando)", (), {"profile": str}), self.whatsapp.open_web),
             (ToolSpec("chrome_profiles", "Perfis do Chrome (nome, e-mail) e as janelas do Chrome abertas agora"), self._chrome_profiles),
-            (ToolSpec("notepad_write", "Escreve no Bloco de Notas: um texto ditado ou algo para criar (ex.: 'um poema sobre o mar', 'lista de compras')", ("request",), {"request": str}), self.notepad.notepad_write),
+            (ToolSpec("notepad_write", "Escreve no Bloco de Notas: um texto ditado ou algo para criar (ex.: 'um poema sobre o mar', 'lista de compras')", ("request",), {"request": str, "literal": bool}), self.notepad.notepad_write),
+            (ToolSpec("compose_text", "Cria um texto (poema, carta, mensagem...) sem salvar nem falar; devolve o texto para a próxima etapa", ("request",), {"request": str}), self.compose_text),
         ]
         for spec, function in tools:
             self.executor.register(spec.name, function)
@@ -710,6 +726,24 @@ class AgentLoop:
         else:
             self.tasks.fail(task.id, "; ".join(lines))
         return AgentResult(" ".join(lines), task.id, last)
+
+    def compose_text(self, request: str) -> dict[str, Any]:
+        """Cria um texto para as etapas seguintes. A resposta falada nunca inclui o texto."""
+        from computer.notepad import COMPOSE_PROMPT
+
+        request = (request or "").strip()
+        if not request:
+            return {"success": False, "error": "Não sei o que criar."}
+        if isinstance(self.model, NullModel):
+            return {"success": False, "error": "Para criar o texto eu preciso do modelo (OpenAI ou Ollama); sem ele não consigo compor."}
+        try:
+            content = self._compose_text(COMPOSE_PROMPT.format(request=request))
+            content = "\n".join(line.rstrip() for line in content.strip().splitlines())
+        except Exception as exc:
+            return {"success": False, "error": f"Não consegui criar o texto: {type(exc).__name__}: {exc}"}
+        if not content:
+            return {"success": False, "error": "O texto ficou vazio."}
+        return {"message": f"Criei o texto ({len(content.split())} palavras).", "text": content}
 
     def _compose_text(self, prompt: str) -> str:
         """Texto criado pelo modelo para ferramentas (poema no Bloco de Notas...)."""
@@ -1209,11 +1243,29 @@ class AgentLoop:
         last: AgentResult | None = None
         failed_result: AgentResult | None = None
         previous_failed = False
+        carry = ""  # texto produzido por uma etapa (poema...) para a próxima usar (salvar, enviar)
         for index, step in enumerate(steps, start=1):
-            if previous_failed and _DEPENDS_ON_PREVIOUS.search(step):
+            consumer = self._carry_action(step)
+            if consumer is not None and not carry:
+                problems.append(f"Pulei a etapa {index} ({step}) porque não havia texto pronto para usar.")
+                previous_failed = True
+                continue
+            if previous_failed and consumer is None and _DEPENDS_ON_PREVIOUS.search(step):
                 problems.append(f"Pulei a etapa {index} ({step}) porque dependia da anterior.")
                 continue
-            result = self._handle(step, confirmed=confirmed, max_attempts=max_attempts)
+            if consumer is not None:
+                result = self._run_carry_action(step, consumer, carry)
+            elif (
+                _CREATE_TEXT.match(step)
+                and not re.search(r"\b(?:bloco de notas|notepad)\b", step, re.IGNORECASE)  # essa etapa já grava no Bloco de Notas
+                and any(self._carry_action(later) for later in steps[index:])
+            ):
+                result = self._run_tool_step(step, "compose_text", {"request": _CREATE_TEXT.sub("", step, count=1).strip() or step})
+            else:
+                result = self._handle(step, confirmed=confirmed, max_attempts=max_attempts)
+            value = result.execution.value if result.execution is not None and result.execution.success else None
+            if isinstance(value, dict) and isinstance(value.get("text"), str) and value["text"].strip():
+                carry = value["text"]
             last = result
             if self._pending_confirmation is not None:
                 prefix = (" ".join(done) + " ") if done else ""
@@ -1230,6 +1282,36 @@ class AgentLoop:
         report = " ".join(done + problems).strip()
         final = failed_result or last
         return AgentResult(report, final.task_id, final.execution, final.attempts)
+
+    def _carry_action(self, step: str) -> tuple[str, dict[str, Any]] | None:
+        """Etapa que usa o texto da anterior: ("whatsapp_send", args sem o texto) ou ("notepad_write", {})."""
+        from computer.whatsapp_flow import parse_delivery, parse_request
+
+        if _SAVE_TO_NOTEPAD.match(step):
+            return ("notepad_write", {})
+        if parse_request(step) is not None:
+            return None  # já traz o texto da mensagem: segue o fluxo normal
+        delivery = parse_delivery(step)
+        if delivery is None:
+            return None
+        arguments: dict[str, Any] = {"contact": delivery.contact, "hint": delivery.hint, "send": True}
+        if delivery.profile:
+            arguments["profile"] = delivery.profile
+        return ("whatsapp_send", arguments)
+
+    def _run_carry_action(self, step: str, action: tuple[str, dict[str, Any]], carry: str) -> AgentResult:
+        tool, arguments = action
+        if tool == "notepad_write":
+            return self._run_tool_step(step, "notepad_write", {"request": carry, "literal": True})
+        return self._run_tool_step(step, tool, {**arguments, "text": carry})
+
+    def _run_tool_step(self, step: str, tool: str, arguments: dict[str, Any]) -> AgentResult:
+        task = self.tasks.create(step, intent="pipeline")
+        result = self.executor.execute_step(task, tool, arguments)
+        value = result.value if isinstance(result.value, dict) else {}
+        if result.success:
+            return AgentResult(str(value.get("message") or "Feito."), task.id, result)
+        return AgentResult(f"Não consegui: {result.error or value.get('error') or 'falha desconhecida'}", task.id, result)
 
     def _correct_steps(
         self,

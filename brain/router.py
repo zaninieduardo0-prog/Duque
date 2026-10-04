@@ -19,7 +19,7 @@ SHORTCUT_PATTERNS = (
     re.compile(r"\b(?:modo foco|pomodoro|foco por|(?:sair|sai|encerr[ae]|termin[ae]|desativ[ae]|desliga|para) (?:do |o )?(?:modo )?foco)\b"),
     re.compile(r"\b(?:meus lembretes|minha agenda|o que (?:eu )?tenho (?:agendado|marcado)|cancel(?:a|e|ar) (?:o|os|todos os) lembretes?)\b"),
     re.compile(r"\bno (?:youtube|spotify)\b"),
-    re.compile(r"\b(?:escrev[ae]|escrever|digit[ae]|digitar)\b.*\b(?:bloco de notas|notepad)\b"),
+    re.compile(r"\b(?:escrev[ae]|escrever|digit[ae]|digitar|cri[ae]|criar|fa[çc]a|fazer|componh[ao]|redij[ao]|mont[ae]|ger[ae]|elabor[ae])\b.*\b(?:bloco de notas|notepad)\b"),
     re.compile(r"\b(?:como (?:chego|chegar|vou)|rota (?:para|até|ate)|mapa (?:de|do|da|para))\b"),
     re.compile(r"\b(?:como (?:está|esta) o (?:computador|pc|notebook)|status do (?:pc|computador|sistema)|uso (?:de|da) (?:cpu|memória|memoria)|quanto de bateria|nível da bateria|nivel da bateria)\b"),
     re.compile(_PREFIX + r"cop(?:ie|ia|iar)\b"),

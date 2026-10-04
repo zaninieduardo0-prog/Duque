@@ -138,6 +138,37 @@ _MESSAGE_STARTERS = re.compile(
 )
 
 
+_CARRY_OBJECT = (
+    r"(?:(?:isso|ele|ela|esse|essa|o poema|a poesia|o texto|a carta|a mensagem|o que (?:voc[eê] )?(?:escreveu|criou|fez)|tudo|o arquivo)\s+)?"
+)
+# "mande pro contato Maria no whatsapp web, sem ler pra mim" — o texto vem da etapa anterior.
+_DELIVERY_FORM = re.compile(
+    rf"^(?:por favor[,]?\s+)?(?:{_SEND_VERBS})\s+{_CARRY_OBJECT}(?:(?:no|pelo) {_APP}(?:\s+web)?\s+)?"
+    rf"(?:para|pro|pra|ao|à)\s+(?:o |a )?(?:contato |cliente |amig[oa] )?(?P<who>.+?)"
+    rf"(?:\s+(?:no|pelo) {_APP}(?:\s+web)?)?(?:\s*[,.]?\s*(?:sem|n[aã]o)\b.*)?\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def parse_delivery(text: str) -> WhatsAppRequest | None:
+    """Pedido de ENTREGAR algo já pronto a um contato (o texto fica vazio; quem chama preenche)."""
+    profile, body = split_profile(text)
+    body = re.sub(r"^\s*(?:telex[\s,!.:-]+)?", "", body.strip(), flags=re.IGNORECASE).strip(" .")
+    match = _DELIVERY_FORM.match(body)
+    if not match:
+        return None
+    who = match.group("who")
+    if re.search(r"\b(?:dizendo|falando|avisando|perguntando|informando|lembrando|contando)\b|:", who, flags=re.IGNORECASE):
+        return None  # traz o texto da mensagem: não é uma entrega pura
+    contact, hint = _split_who(who)
+    contact = re.sub(r"^(?:meu|minha)\s+", "", contact, flags=re.IGNORECASE)
+    if not contact:
+        return None
+    if not profile and re.search(r"\bweb\b", text, flags=re.IGNORECASE):
+        profile = CURRENT_PROFILE  # "whatsapp web" sem perfil: o Chrome que ele já está usando
+    return WhatsAppRequest(contact, hint, "", True, profile)
+
+
 def _name_and_message(tail: str) -> tuple[str, str] | None:
     """Separa "Maria Clara oi tudo bem" em ("Maria Clara", "oi tudo bem"), pela agenda ou por um começo de frase."""
     tail = re.sub(r"\s+(?:no|pelo) " + _APP + r"\s+", " ", " " + tail.strip() + " ", flags=re.IGNORECASE).strip()

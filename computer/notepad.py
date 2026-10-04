@@ -79,15 +79,16 @@ class NotepadWriter:
         self.opener = opener
         self.clock = clock
 
-    def notepad_write(self, request: str) -> dict[str, Any]:
+    def notepad_write(self, request: str, literal: bool = False) -> dict[str, Any]:
+        """``literal=True``: grava o texto como veio (já criado por outra etapa), sem pedir ao modelo."""
         request = (request or "").strip()
         if not request:
             return {"success": False, "error": "Não sei o que escrever no Bloco de Notas."}
-        composed = needs_composing(request) and self.compose is not None
+        composed = not literal and needs_composing(request) and self.compose is not None
         if composed:
             assert self.compose is not None
             try:
-                content = self.compose(COMPOSE_PROMPT.format(request=request)).strip()
+                content = "\n".join(line.rstrip() for line in self.compose(COMPOSE_PROMPT.format(request=request)).strip().splitlines())
             except Exception as exc:
                 return {"success": False, "error": f"Não consegui escrever o texto: {type(exc).__name__}: {exc}"}
         else:
@@ -110,6 +111,7 @@ class NotepadWriter:
             return {"success": False, "error": f"Escrevi em {path}, mas o Bloco de Notas não abriu: {exc}"}
         what = "Escrevi" if composed else "Coloquei o texto"
         return {
+            "text": content,  # para a próxima etapa ("...e mande para o João"); nunca vai para a fala
             "message": f"{what} no Bloco de Notas ({len(content.split())} palavras). Arquivo salvo em Documentos/TELEX/{path.name}.",
             "path": str(path),
             "words": len(content.split()),

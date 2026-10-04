@@ -336,13 +336,13 @@ class Planner:
         if not re.search(r"\b(?:bloco de notas|notepad)\b", text, flags=re.IGNORECASE):
             return None
         match = re.match(
-            r"^(?:por favor[,]?\s+)?(?:escrev[ae]|escrever|digit[ae]|digitar|anot[ae])\s+(?:no|na)\s+(?:bloco de notas|notepad)[\s:,-]*(.+)$",
+            r"^(?:por favor[,]?\s+)?(?:escrev[ae]|escrever|digit[ae]|digitar|anot[ae]|cri[ae]|criar|fa[çc]a|fazer)\s+(?:no|na)\s+(?:bloco de notas|notepad)[\s:,-]*(.+)$",
             text, flags=re.IGNORECASE | re.DOTALL,
         )
         if match:
             return match.group(1).strip(" \"“”")
         match = re.match(
-            r"^(?:por favor[,]?\s+)?(?:escrev[ae]|escrever|digit[ae]|digitar)\s+(.+?)\s+(?:no|na)\s+(?:bloco de notas|notepad)\b.*$",
+            r"^(?:por favor[,]?\s+)?(?:escrev[ae]|escrever|digit[ae]|digitar|cri[ae]|criar|fa[çc]a|fazer|componh[ao]|redij[ao])\s+(.+?)\s+(?:no|na)\s+(?:bloco de notas|notepad)\b.*$",
             text, flags=re.IGNORECASE | re.DOTALL,
         )
         if match:

@@ -19,7 +19,10 @@ async def executar_no_duque(pedido: str) -> str:
     lembretes, música e volume, área de transferência, estado do computador,
     YouTube (tocar vídeos), Spotify, mapas, Bloco de Notas, mensagens no
     WhatsApp (acha a pessoa, confere e envia) e melhorias no próprio código (Forja).
-    Pedidos com várias etapas ("abra X e faça Y") vão inteiros, numa chamada só.
+    Pedidos com várias etapas ("abra X e faça Y", "crie um poema no bloco de notas e mande para o João")
+    vão inteiros, numa chamada só: o TELEX passa o resultado de uma etapa para a próxima.
+    NUNCA leia em voz alta textos que ele criou (poemas, cartas, mensagens longas): só confirme em uma
+    frase o que foi feito, a menos que ele peça para ler.
 
     Args:
         pedido: o pedido completo do Du, em português, com todos os detalhes e
