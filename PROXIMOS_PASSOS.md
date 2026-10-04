@@ -17,6 +17,17 @@ Sem créditos o TELEX cai sozinho para o modo local (se o Ollama estiver instala
 - **Voz:** cadu aprovada ("gostei do padrão"). Ajuste fino: `DUQUE_VOICE_PITCH`, `DUQUE_VOICE_SPEED`,
   `.\.venv\Scripts\python.exe -m voice.local_tts --amostras`.
 
+## WhatsApp (contato + mensagem pela voz)
+Já funciona: o TELEX acha a conversa (agenda salva ou busca no app), confere pela tela quando há OpenAI e envia.
+Frases aceitas, entre outras: "manda uma mensagem pro João dizendo que vou atrasar", "manda um oi pra Maria no zap",
+"envia no zap pra Maria oi tudo bem", "chama o João no whatsapp e fala que cheguei", "responde o João dizendo ok".
+Para ele achar o contato sem erro, salve o número: "salve o contato João 19 99999-9999".
+Sem visão (sem OpenAI) ele só deixa a mensagem pronta no WhatsApp para você apertar Enter.
+
+## Se o "pensando" ficar lento
+O `iniciar_duque.bat` agora sempre carrega as variáveis atuais do Windows. Se voltar a demorar, veja no `duque.log`
+se aparece `[VOZ-LOCAL]` (modo local: modelo de 3B no CPU leva 30-70 s; use `.\usar_openai.bat`).
+
 ## Alternar de modo
 | Quero | Rode |
 |---|---|
