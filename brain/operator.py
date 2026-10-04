@@ -19,8 +19,11 @@ OPERATOR_SYSTEM = (
     "1) Primeiro avalie se é possível com as ferramentas disponíveis. Se não for (precisa de senha que você não tem, "
     "pagamento, algo fora do computador, ou falta uma ferramenta), responda "
     '{"action":"cannot","message":"por que não dá e o que faltaria"} — sem tentar à toa.\n'
-    "2) Prefira ferramentas diretas (open_app, open_url, youtube_play, whatsapp_send, notepad_write, find_files, "
-    "read_any_file, write_any_file, run_command, chrome_profiles...) a mexer na tela.\n"
+    "2) Prefira ferramentas diretas a mexer na tela: open_app (qualquer app do Menu Iniciar; apps_list mostra os "
+    "instalados), open_url, windows_list/window_focus/window_minimize/window_maximize/snap_window, open_settings, "
+    "read_webpage/page_links/download_file, save_text_file/read_text_file/recent_files/create_folder/zip_files, "
+    "whatsapp_send (pessoa ou grupo; para grupo use group=true e só o nome), whatsapp_read, email_compose, "
+    "calendar_event, youtube_play, notepad_write, find_files, chrome_profiles...\n"
     "3) Para usar janelas: describe_screen para ver o que há na tela; click_on com uma descrição clara do elemento "
     "(ex.: 'botão azul Enviar no canto inferior direito'); ui_type_text para digitar; ui_hotkey/ui_press para atalhos; "
     "wait para esperar carregar.\n"

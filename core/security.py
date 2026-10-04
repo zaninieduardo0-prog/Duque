@@ -27,6 +27,11 @@ class SecurityPolicy:
         "page_links": RiskLevel.LOW,
         "check_url": RiskLevel.LOW,
         "download_file": RiskLevel.MEDIUM,
+        # Rascunhos (computer/compose_links.py): só abrem prontos; o Du confere e envia.
+        "email_compose": RiskLevel.LOW,
+        "calendar_event": RiskLevel.LOW,
+        "share_text": RiskLevel.LOW,
+        "whatsapp_read": RiskLevel.LOW,
         "open_app": RiskLevel.LOW,
         "close_app": RiskLevel.MEDIUM,
         "is_app_running": RiskLevel.LOW,
@@ -141,6 +146,16 @@ class SecurityPolicy:
 
     def known(self, action: str) -> bool:
         return action in self._DEFAULTS
+
+    @classmethod
+    def declare(cls, risks: dict[str, str]) -> None:
+        """Risco declarado por um módulo de ferramentas ("low"/"medium"/"high").
+
+        Fica na tabela da classe (vale para toda política criada depois) e nunca
+        rebaixa uma classificação já definida aqui.
+        """
+        for name, level in risks.items():
+            cls._DEFAULTS.setdefault(name, RiskLevel(str(level).casefold()))
 
     def assess(self, action: str) -> ActionPolicy:
         risk = self._DEFAULTS.get(action, self.default)

@@ -277,3 +277,19 @@ setx DUQUE_CHROME_PROFILE "zaninieduardo0"
 setx DUQUE_VOICE_IDLE "60"
 setx DUQUE_VAD_INTERRUPT "0"
 ```
+
+## Autonomia ampliada (novas ferramentas)
+Fale do jeito normal; estes são exemplos do que agora funciona:
+
+| Área | Exemplos |
+|---|---|
+| WhatsApp (pessoas **e grupos**) | "escreva um poema no bloco de notas e envie para o grupo Teste no WhatsApp", "manda no grupo Família dizendo que chego às 8", "lê as últimas mensagens do grupo do trabalho" |
+| E-mail e agenda (rascunho, você confere e envia/salva) | "faça um resumo e mande por e-mail para ana@exemplo.com", "marque reunião com o João amanhã às 15h" |
+| Texto criado → destino | "crie um poema e copie isso", "crie uma carta e salve num arquivo chamado carta" |
+| Janelas | "quais janelas estão abertas?", "traz o Excel para a frente", "minimiza o Chrome", "coloca o VS Code na esquerda", "mostra a área de trabalho" |
+| Qualquer app instalado | "abre o Excel", "abre o OBS" (procura no Menu Iniciar), "quais apps eu tenho com 'adobe'?" |
+| Configurações do Windows | "abre as configurações de Bluetooth", "coloca o brilho em 60", "como está o Wi-Fi?", "tira um print e salva" |
+| Arquivos | "o que eu baixei por último?", "cria a pasta Projetos em documentos", "compacta esses arquivos", "manda esse arquivo para a lixeira" (pede confirmação) |
+| Web | "lê esse site e me resume: <link>", "baixa esse PDF: <link>", "esse site está no ar?" |
+
+Quando não houver atalho pronto, o TELEX tenta pela tela (olha, clica e digita) em vez de dizer que não tem ferramenta.

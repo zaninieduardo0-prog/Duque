@@ -376,6 +376,8 @@ class Planner:
                 arguments: dict[str, Any] = {
                     "contact": request.contact, "text": request.text, "hint": request.hint, "send": request.send,
                 }
+                if request.group:
+                    arguments["group"] = True
                 if request.profile:
                     arguments["profile"] = request.profile
                 return single("Mensagem no WhatsApp", "whatsapp_send", arguments)

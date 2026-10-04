@@ -122,7 +122,7 @@ LIVE_REPO_TOOLS = frozenset({"write_file", "delete_file", "apply_code_change", "
 # Ferramentas cuja falha é a resposta final: o operador não tenta "outra forma"
 # (ex.: não achou a conversa certa no WhatsApp → não escreve nada, como pedido).
 NO_OPERATOR_FALLBACK = frozenset({
-    "whatsapp_send", "whatsapp_message", "whatsapp_web_open", "contact_save", "routine_run", "routine_save",
+    "whatsapp_send", "whatsapp_message", "whatsapp_read", "whatsapp_web_open", "email_compose", "calendar_event", "share_text", "contact_save", "routine_run", "routine_save",
     "routine_delete", "reminder_at", "timer_set", "note_add", "forge_improve", "schedule_task", "describe_screen",
     "day_summary", "set_voice", "focus_mode", "calculate", "current_time", "weather", "notepad_write", "compose_text",
 })
@@ -550,20 +550,32 @@ class AgentLoop:
     def _register_extra_tools(self) -> None:
         """Ferramentas de autonomia (web, janelas, arquivos, e-mail...). Um módulo que
         falhar ao carregar não derruba o Duque: só fica sem aquelas ferramentas."""
-        factories: list[Any] = []
-        try:
-            from computer.web_tools import WebTools
+        import importlib
 
-            factories.append(WebTools)
-        except Exception as exc:
-            logging.getLogger(__name__).warning("Ferramentas web indisponíveis: %s", exc)
-        for factory in factories:
+        from core.security import SecurityPolicy
+
+        modules = (
+            ("computer.web_tools", "WebTools", {}),
+            ("computer.windows_tools", "WindowTools", {}),
+            ("computer.file_tools", "FileTools", {}),
+            ("computer.compose_links", "ComposeLinks", {"open_url": self.assistant_tools.open_target}),
+        )
+        existing = set(self.executor.tools.names())
+        for module_name, class_name, kwargs in modules:
             try:
-                factory().register(self.executor, self.schemas)
+                factory = getattr(importlib.import_module(module_name), class_name)
+                SecurityPolicy.declare(getattr(factory, "RISK", {}))
+                clashes = existing & {spec[0] for spec in getattr(factory, "SPECS", [])}
+                if clashes:
+                    logging.getLogger(__name__).warning("%s substitui ferramentas existentes: %s", class_name, sorted(clashes))
+                factory(**kwargs).register(self.executor, self.schemas)
+                existing = set(self.executor.tools.names())
             except Exception as exc:
-                logging.getLogger(__name__).warning("Falha ao registrar %s: %s", getattr(factory, "__name__", factory), exc)
+                logging.getLogger(__name__).warning("Ferramentas de %s indisponíveis: %s", module_name, exc)
 
     def _register_life_tools(self) -> None:
+        from computer.whatsapp_flow import TOOL_DOCS as WA_DOCS
+
         self.notepad = NotepadWriter(None if isinstance(self.model, NullModel) else self._compose_text)
         self._pointer: Any = None
         self.whatsapp = self._create_whatsapp()
@@ -576,7 +588,7 @@ class AgentLoop:
             (ToolSpec("routine_delete", "Apaga uma rotina", ("name",), {"name": str}), self.routines.routine_delete),
             (ToolSpec("contact_save", "Salva um contato com telefone para o WhatsApp", ("name", "phone"), {"name": str, "phone": str}), self.messaging.contact_save),
             (ToolSpec("contacts_list", "Lista os contatos salvos"), self.messaging.contacts_list),
-            (ToolSpec("whatsapp_message", "Abre o WhatsApp com a mensagem pronta para o contato; o Du confere e envia", ("text",), {"contact": str, "text": str}), self.messaging.whatsapp_message),
+            (ToolSpec("whatsapp_message", *WA_DOCS["whatsapp_message"]), self.messaging.whatsapp_message),
             (ToolSpec("day_summary", "Resumo do dia: o que foi feito, o que falhou e a agenda de amanhã"), self.day_summary),
             (ToolSpec("set_voice", "Troca a voz do TELEX (ballad, cedar, ash, echo, verse, alloy, marin, sage)", ("name",), {"name": str}), lambda name: set_voice(self.memory, name)),
             (ToolSpec("list_voices", "Lista as vozes disponíveis e a atual"), lambda: list_voices(self.memory)),
@@ -585,7 +597,8 @@ class AgentLoop:
             (ToolSpec("reminder_cancel", "Cancela o lembrete de número indicado (0 = todos)", (), {"index": int}), self.reminder_cancel),
             (ToolSpec("focus_mode", "Modo foco/pomodoro: action 'start' (pausa a música e silencia avisos) ou 'stop'", (), {"action": str, "minutes": (int, float)}), self.focus_mode),
             (ToolSpec("describe_screen", "Olha a tela do Du e explica o que há nela (ou responde uma pergunta sobre ela)", (), {"question": str}), self.screen_vision.describe_screen),
-            (ToolSpec("whatsapp_send", "Abre o WhatsApp, acha a conversa da pessoa (pista opcional, ex.: 'da Embralan'), confere pela tela, escreve e envia (send=false só deixa escrito)", ("contact", "text"), {"contact": str, "text": str, "hint": str, "send": bool, "profile": str}), self.whatsapp.whatsapp_send),
+            (ToolSpec("whatsapp_send", *WA_DOCS["whatsapp_send"]), self.whatsapp.whatsapp_send),
+            (ToolSpec("whatsapp_read", *WA_DOCS["whatsapp_read"]), self.whatsapp.whatsapp_read),
             (ToolSpec("click_on", "Clica num elemento visível na tela descrito em palavras (ex.: 'botão Enviar', 'campo de busca do YouTube')", ("target",), {"target": str, "double": bool}), self._click_on),
             (ToolSpec("wait", "Espera alguns segundos (1 a 10) para algo carregar", ("seconds",), {"seconds": (int, float)}), self._wait),
             (ToolSpec("whatsapp_web_open", "Abre o WhatsApp Web no perfil do Chrome pedido ('atual' = o que ele está usando)", (), {"profile": str}), self.whatsapp.open_web),
@@ -871,7 +884,7 @@ class AgentLoop:
         all_ok = True
         for index, job in enumerate(jobs, start=1):
             last = self.executor.execute_step(task, "whatsapp_send", {
-                "contact": job.contact, "text": job.text, "hint": job.hint, "send": job.send, "profile": job.profile,
+                "contact": job.contact, "text": job.text, "hint": job.hint, "send": job.send, "profile": job.profile, **({"group": True} if job.group else {}),
             }, manage_task=False)
             all_ok = all_ok and last.success
             value = last.value if isinstance(last.value, dict) else {}

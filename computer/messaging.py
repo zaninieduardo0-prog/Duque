@@ -60,9 +60,19 @@ class Messaging:
         items = sorted(contacts.values(), key=lambda item: item["name"].casefold())
         return {"message": "Contatos: " + ", ".join(item["name"] for item in items), "contacts": items}
 
-    def whatsapp_message(self, contact: str, text: str) -> dict[str, Any]:
+    def whatsapp_message(self, contact: str, text: str, group: bool = False) -> dict[str, Any]:
         if not text.strip():
             return {"success": False, "error": "A mensagem está vazia."}
+        from computer.whatsapp_flow import split_group
+
+        contact, named_group = split_group(contact or "")
+        if group or named_group:
+            # Grupo não tem telefone (nem fica na agenda): abre com o texto e o Du escolhe o grupo.
+            url = "whatsapp://send?" + urllib.parse.urlencode({"text": text.strip()}, quote_via=urllib.parse.quote)
+            self.open_target(url)
+            where = f"o grupo {contact}" if contact else "o grupo"
+            return {"message": f"Abri o WhatsApp com a mensagem pronta. É só escolher {where} e apertar Enter.",
+                    "url": url, "contact_found": False, "group": True}
         found = self._contacts().get(_key(contact)) if contact.strip() else None
         query = {"text": text.strip()}
         if found:

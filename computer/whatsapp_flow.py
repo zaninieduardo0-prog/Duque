@@ -39,6 +39,7 @@ class WhatsAppRequest:
     text: str
     send: bool
     profile: str = ""  # perfil do Chrome (WhatsApp Web); vazio = app do WhatsApp
+    group: bool = False  # "grupo Teste": contact traz só o nome do grupo (grupos não têm telefone)
 
 
 WEB_URL = "https://web.whatsapp.com/"
@@ -87,7 +88,9 @@ MESSAGE_REQUEST = re.compile(
     rf"\b(?:mand[ae]\w*|envi[ae]\w*|encaminh\w*|escrev[ae]|digit[ae]|avis[ae]\w*|pergunt[ae]\w*|respond\w*|cham[ae]|fal[ae]|diga|diz)\b"
     rf"[^.?!]*\b(?:mensagem|msg|recado|{_APP})\b"
     rf"|\b{_APP}\b.*\b(?:mand[ae]\w*|envi[ae]\w*|encaminh\w*|escrev[ae]|digit[ae]|avis[ae]\w*|respond\w*|diga|diz|fal[ae])\b"
-    rf"|\b(?:mand[ae]|envi[ae])\s+(?:um |uma )?{_GREETINGS}\s+(?:para|pro|pra)\b",
+    rf"|\b(?:mand[ae]|envi[ae])\s+(?:um |uma )?{_GREETINGS}\s+(?:para|pro|pra)\b"
+    # "manda no grupo Teste dizendo oi": grupo já diz que é conversa de mensagens.
+    rf"|\b(?:mand[ae]\w*|envi[ae]\w*|escrev[ae]|avis[ae]\w*|fal[ae])\s+(?:\w+\s+){{0,2}}(?:n[oa]|pr[oa]|para|pra)\s+(?:o\s+)?grupo\s+\w",
     re.IGNORECASE,
 )
 
@@ -154,19 +157,18 @@ def parse_delivery(text: str) -> WhatsAppRequest | None:
     """Pedido de ENTREGAR algo já pronto a um contato (o texto fica vazio; quem chama preenche)."""
     profile, body = split_profile(text)
     body = re.sub(r"^\s*(?:telex[\s,!.:-]+)?", "", body.strip(), flags=re.IGNORECASE).strip(" .")
-    match = _DELIVERY_FORM.match(body)
+    match = _DELIVERY_FORM.match(_normalize_groups(body))
     if not match:
         return None
     who = match.group("who")
     if re.search(r"\b(?:dizendo|falando|avisando|perguntando|informando|lembrando|contando)\b|:", who, flags=re.IGNORECASE):
         return None  # traz o texto da mensagem: não é uma entrega pura
-    contact, hint = _split_who(who)
-    contact = re.sub(r"^(?:meu|minha)\s+", "", contact, flags=re.IGNORECASE)
+    contact, hint, group = _recipient(who)
     if not contact:
         return None
     if not profile and re.search(r"\bweb\b", text, flags=re.IGNORECASE):
         profile = CURRENT_PROFILE  # "whatsapp web" sem perfil: o Chrome que ele já está usando
-    return WhatsAppRequest(contact, hint, "", True, profile)
+    return WhatsAppRequest(contact, hint, "", True, profile, group)
 
 
 def _name_and_message(tail: str) -> tuple[str, str] | None:
@@ -216,12 +218,56 @@ def _split_who(who: str) -> tuple[str, str]:
     return who, ""
 
 
+# "o grupo Teste", "conversa do grupo Família", "a conversa Teste" → nome sem o rótulo.
+_GROUP_PREFIX = re.compile(
+    r"^(?:(?:o|a|meu|minha|nosso|nossa)\s+)?(?:(?P<group>(?:conversa\s+d[oa]\s+)?grupo)|conversa)(?:\s+d[oa](?=\s))?\s*[:\s]\s*",
+    re.IGNORECASE,
+)
+# "no grupo X" / "na conversa X" / "em grupo X" → "para o grupo X" (as formas de pedido usam "para").
+_GROUP_PREPOSITION = re.compile(r"\b(?:n[oa]|em|dentro d[oa])\s+(?:o\s+|a\s+)?(?=(?:grupo|conversa)\s)", re.IGNORECASE)
+# "do zap" / "do whatsapp" no fim do destinatário = "no zap".
+_OF_APP = re.compile(rf"\s+(?:d[oa])\s+{_APP}(?=\s+web\b|\s*[,.:]|\s+(?:{_INTRO})\b|\s*$|\s+(?:sem|n[aã]o)\b)", re.IGNORECASE)
+
+
+def _normalize_groups(body: str) -> str:
+    body = _GROUP_PREPOSITION.sub("para a ", body)
+    body = re.sub(r"\bpara a (?=grupo\s)", "para o ", body, flags=re.IGNORECASE)
+    return _OF_APP.sub(" no whatsapp", body)
+
+
+def split_group(name: str) -> tuple[str, bool]:
+    """"grupo Teste" → ("Teste", True); "conversa Ana" → ("Ana", False); "Ana" → ("Ana", False)."""
+    name = (name or "").strip()
+    match = _GROUP_PREFIX.match(name + " ")
+    if not match:
+        return name, False
+    bare = name[match.end():].strip() if match.end() <= len(name) else ""
+    bare = bare.strip(" ,.:").strip("\"“”'").strip()
+    if not bare:
+        return name, False  # só "grupo": não há nome para tirar o rótulo
+    return bare, bool(match.group("group"))
+
+
+def _recipient(who: str) -> tuple[str, str, bool]:
+    """Contato, pista e se é grupo. Grupos não passam por "da/do" (é parte do nome: "Família do Zé")."""
+    cleaned = re.sub(rf"\s+(?:no|pelo|d[oa]) {_APP}(?:\s+web)?\b", "", who.strip(" ,.:"), flags=re.IGNORECASE)
+    name, group = split_group(cleaned)
+    if group:
+        parts = re.split(r"\s*,?\s+que\s+|\s*,\s*", name, maxsplit=1)
+        hint = parts[1].strip(" ,.") if len(parts) == 2 and parts[0].strip() else ""
+        return (parts[0].strip() if hint else name), hint, True
+    contact, hint = _split_who(name)
+    contact = re.sub(r"^(?:meu|minha)\s+", "", contact, flags=re.IGNORECASE)  # "minha mãe" → "mãe" (como está salvo)
+    return contact, hint, False
+
+
 def parse_request(text: str) -> WhatsAppRequest | None:
     """Contato, pista, texto e se é para enviar. None se a frase não é um envio de mensagem."""
     profile, text = split_profile(text)
     body = re.sub(r"^\s*(?:telex[\s,!.:-]+)?", "", text.strip(), flags=re.IGNORECASE)
     body = re.sub(r"\s+(?:no|pelo) whats\s?app web\b", " no whatsapp", body, flags=re.IGNORECASE)
     body = re.sub(r"^(?:por favor[,]?\s+)?(?:abr[ae]|abrir|abre)\s+o\s+(?:whats\s?app|zap)\s*(?:,\s*|\s+e\s+)?", "", body, flags=re.IGNORECASE)
+    body = _normalize_groups(body)
     for form in (_SEARCH_FORM, _TO_FORM, _CALL_FORM, _GREETING_FORM, _NO_SEP_FORM):
         match = form.search(body)
         if not match:
@@ -234,13 +280,12 @@ def parse_request(text: str) -> WhatsAppRequest | None:
             who, rest = split
         else:
             who, rest = groups["who"], groups["rest"]
-        contact, hint = _split_who(who)
-        contact = re.sub(r"^(?:meu|minha)\s+", "", contact, flags=re.IGNORECASE)  # "minha mãe" → "mãe" (como está salvo)
+        contact, hint, group = _recipient(who)
         message = _clean_text(rest)
         if not contact or not message:
             continue
         send = not re.fullmatch(_WRITE_VERBS, groups.get("verb") or "", flags=re.IGNORECASE)
-        return WhatsAppRequest(contact, hint, message, send, profile)
+        return WhatsAppRequest(contact, hint, message, send, profile, group)
     return None
 
 
@@ -266,10 +311,10 @@ def parse_many(text: str) -> list[WhatsAppRequest]:
         request = parse_request(candidate)
         if request is None and shared:
             profile, rest = split_profile(part)
-            who = re.search(r"(?:para|pro|pra|ao|à)\s+(?:o |a )?(?P<who>.+?)\s*$", rest, re.IGNORECASE)
+            who = re.search(r"(?:para|pro|pra|ao|à)\s+(?:o |a )?(?P<who>.+?)\s*$", _normalize_groups(rest), re.IGNORECASE)
             if who:
-                contact, hint = _split_who(who.group("who"))
-                request = WhatsAppRequest(contact, hint, shared, True, profile)
+                contact, hint, group = _recipient(who.group("who"))
+                request = WhatsAppRequest(contact, hint, shared, True, profile, group)
         if request is not None:
             jobs.append(request)
     return jobs
@@ -329,27 +374,47 @@ class WhatsAppDesktop:
         )
 
     @staticmethod
-    def _same_person(contact: str, seen: str | None) -> bool | None:
+    def _same_person(contact: str, seen: str | None, group: bool = False) -> bool | None:
         if seen is None:
             return None
         wanted = _plain(contact).split()
         shown = _plain(seen)
-        return bool(wanted) and wanted[0] in shown.split() and "nenhuma" not in shown.split()
+        if not wanted or "nenhuma" in shown.split():
+            return False
+        if group:
+            # Grupo: o topo mostra o nome do grupo (às vezes com emoji ou "Grupo"); vale o nome inteiro ou a 1ª palavra.
+            return " ".join(wanted) in shown or wanted[0] in shown.split()
+        return wanted[0] in shown.split()
 
     # fluxo --------------------------------------------------------------------
-    def whatsapp_send(self, contact: str, text: str, hint: str = "", send: bool = True, profile: str = "") -> dict[str, Any]:
+    def whatsapp_send(
+        self, contact: str, text: str, hint: str = "", send: bool = True, profile: str = "", group: bool = False,
+    ) -> dict[str, Any]:
         contact, text, profile = (contact or "").strip(), (text or "").strip(), (profile or "").strip()
+        contact, named_group = split_group(contact)  # o modelo às vezes manda contact="grupo Teste"
+        group = bool(group) or named_group
         if not contact or not text:
-            return {"success": False, "error": "Preciso do contato e do texto da mensagem."}
+            return {"success": False, "error": "Preciso do contato (pessoa ou grupo) e do texto da mensagem."}
         if profile:
-            return self._send_web(contact, text, hint, send, profile)
+            return self._send_web(contact, text, hint, send, profile, group)
         if self.ask_screen is None and self.without_vision is not None:
-            return self.without_vision(contact, text)
+            result = self.without_vision(contact, text)
+            if group and isinstance(result, dict) and result.get("success") is not False:
+                # A agenda só tem pessoas: o aviso "não tenho o número" não serve para grupo.
+                result = {**result, "message": f"Abri o WhatsApp com a mensagem pronta. É só escolher o grupo {contact} e apertar Enter.", "group": True}
+            return result
+        phone = None if group else self.phone_of(contact)  # grupo não tem telefone: sempre pela busca
+        failure = self._open_desktop_chat(contact, hint, phone, text, group)
+        if failure is not None:
+            return failure
+        return self._verify_type_send(contact, text, send, typed=bool(phone), where="WhatsApp", group=group)
 
-        phone = self.phone_of(contact)
+    def _open_desktop_chat(self, contact: str, hint: str, phone: str | None, text: str | None, group: bool) -> dict[str, Any] | None:
+        """Abre a conversa no app (link com telefone ou busca). Devolve o erro, ou None se abriu."""
         web = False
         if phone:
-            url = "whatsapp://send?" + urllib.parse.urlencode({"phone": phone, "text": text}, quote_via=urllib.parse.quote)
+            query = {"phone": phone} if text is None else {"phone": phone, "text": text}
+            url = "whatsapp://send?" + urllib.parse.urlencode(query, quote_via=urllib.parse.quote)
             self.open_target(url)
         else:
             try:
@@ -371,18 +436,68 @@ class WhatsAppDesktop:
                 self.keys.hotkey("ctrl", "alt", "/")  # busca do WhatsApp Web
             else:
                 self.keys.hotkey("ctrl", "f")
-            self._search_and_open(contact, hint)
-        return self._verify_type_send(contact, text, send, typed=bool(phone), where="WhatsApp")
+            self._search_and_open(contact, hint, group)
+        return None
 
-    def _search_and_open(self, contact: str, hint: str) -> None:
+    def whatsapp_read(self, contact: str, count: int = 5, group: bool = False, hint: str = "", profile: str = "") -> dict[str, Any]:
+        """Abre a conversa (pessoa ou grupo), confere pela tela e lê as últimas mensagens. Não escreve nada na conversa."""
+        contact, profile = (contact or "").strip(), (profile or "").strip()
+        contact, named_group = split_group(contact)
+        group = bool(group) or named_group
+        if not contact:
+            return {"success": False, "error": "De qual conversa (pessoa ou grupo) eu leio as mensagens?"}
+        if self.ask_screen is None:
+            return {"success": False, "error": "Sem a visão da tela (chave da OpenAI) não consigo ler as mensagens do WhatsApp."}
+        try:
+            count = max(1, min(20, int(count)))
+        except (TypeError, ValueError):
+            count = 5
+        if profile:
+            stop, where = self._open_web_chat(contact, hint, profile, group)
+            if stop is not None:
+                return stop if stop.get("success") is False else {"success": False, "error": str(stop.get("message"))}
+        else:
+            where = "WhatsApp"
+            phone = None if group else self.phone_of(contact)
+            failure = self._open_desktop_chat(contact, hint, phone, None, group)
+            if failure is not None:
+                return failure
+        seen = self._open_chat_name()
+        same = self._same_person(contact, seen, group)
+        if same is not True:
+            if same is False:
+                self.keys.press("esc")
+            return {
+                "success": False,
+                "error": f"Não achei a conversa certa: procurei '{contact}' e abriu '{seen}'." if same is False
+                else "Abri o WhatsApp, mas não consegui conferir a conversa pela tela.",
+            }
+        answer = self._ask(
+            f"Na conversa aberta do WhatsApp ('{seen}'), transcreva as últimas {count} mensagens visíveis, da mais antiga "
+            "para a mais recente, uma por linha, no formato 'Remetente: texto'. Use 'Eu' para as minhas (balões à direita); "
+            "em grupo, use o nome que aparece acima do balão. Para foto, áudio ou figurinha escreva [foto], [áudio] ou "
+            "[figurinha]. Não invente nada. Se não houver mensagens visíveis, responda NENHUMA."
+        )
+        if answer is None:
+            return {"success": False, "error": f"Abri a conversa com {seen}, mas não consegui ler a tela."}
+        lines = [line.strip(" -•\t") for line in answer.splitlines() if line.strip(" -•\t")]
+        if not lines or _plain(lines[0]) == "nenhuma":
+            return {"message": f"Não vi mensagens na conversa com {seen}.", "messages": [], "chat": seen, "group": group}
+        lines = lines[-count:]
+        return {
+            "message": f"Últimas mensagens de {seen} ({where}):\n" + "\n".join(lines),
+            "messages": lines, "chat": seen, "group": group,
+        }
+
+    def _search_and_open(self, contact: str, hint: str, group: bool = False) -> None:
         self.sleep(0.6)
         self.keys.type_text(contact)
         self.sleep(2.0)
         position = 1
         if hint:
             answer = self._ask(
-                f"Na lista de resultados da busca do WhatsApp, qual posição (1 = primeiro de cima) é a conversa de "
-                f"'{contact}' que combina com esta descrição: '{hint}'? Responda só o número; 0 se nenhuma combinar."
+                f"Na lista de resultados da busca do WhatsApp, qual posição (1 = primeiro de cima) é a conversa "
+                f"{'do grupo' if group else 'de'} '{contact}' que combina com esta descrição: '{hint}'? Responda só o número; 0 se nenhuma combinar."
             )
             number = _answer_number(answer)
             if number and 1 <= number <= 8:
@@ -393,9 +508,9 @@ class WhatsAppDesktop:
         self.keys.press("enter")
         self.sleep(1.6)
 
-    def _verify_type_send(self, contact: str, text: str, send: bool, *, typed: bool, where: str) -> dict[str, Any]:
+    def _verify_type_send(self, contact: str, text: str, send: bool, *, typed: bool, where: str, group: bool = False) -> dict[str, Any]:
         seen = self._open_chat_name()
-        same = self._same_person(contact, seen)
+        same = self._same_person(contact, seen, group)
         if same is False:
             self.keys.press("esc")
             return {
@@ -457,18 +572,25 @@ class WhatsAppDesktop:
         self.open_in_profile(info["dir"], WEB_URL)
         return {"message": "Feito, senhor.", "where": info.get("name")}
 
-    def _send_web(self, contact: str, text: str, hint: str, send: bool, profile: str) -> dict[str, Any]:
+    def _send_web(self, contact: str, text: str, hint: str, send: bool, profile: str, group: bool = False) -> dict[str, Any]:
+        stop, where = self._open_web_chat(contact, hint, profile, group)
+        if stop is not None:
+            return stop
+        return self._verify_type_send(contact, text, send, typed=False, where=where, group=group)
+
+    def _open_web_chat(self, contact: str, hint: str, profile: str, group: bool) -> tuple[dict[str, Any] | None, str]:
+        """Abre a conversa no WhatsApp Web do perfil. Devolve (resultado final se parou, onde)."""
         if profile == CURRENT_PROFILE:
             info: dict[str, str] | None = {"dir": "", "name": "atual"}
         else:
             info = self.find_profile(profile)
         if info is None:
             names = ", ".join(self.profile_names()) or "nenhum encontrado"
-            return {"success": False, "error": f"Não achei o perfil '{profile}' no Chrome. Perfis: {names}."}
+            return {"success": False, "error": f"Não achei o perfil '{profile}' no Chrome. Perfis: {names}."}, ""
         where = f"WhatsApp Web, perfil {info.get('name') or profile}"
         if self.ask_screen is None:
             self.open_web(profile)
-            return {"message": f"Abri o {where}. Sem a visão da tela não consigo procurar o contato sozinho.", "sent": False}
+            return {"message": f"Abri o {where}. Sem a visão da tela não consigo procurar o contato sozinho.", "sent": False}, where
         # Abre (ou traz) o WhatsApp Web naquele perfil: o Chrome usa a janela desse perfil.
         if profile == CURRENT_PROFILE:
             if not self.open_current(WEB_URL):
@@ -476,16 +598,16 @@ class WhatsAppDesktop:
         else:
             self.open_in_profile(info["dir"], WEB_URL)
         if not self.wait_window("WhatsApp", 25.0):
-            return {"success": False, "error": f"O {where} não abriu a tempo."}
+            return {"success": False, "error": f"O {where} não abriu a tempo."}, where
         if not self.focus("WhatsApp"):
-            return {"success": False, "error": f"Abri o {where}, mas não consegui trazer a janela para a frente. Não escrevi nada."}
+            return {"success": False, "error": f"Abri o {where}, mas não consegui trazer a janela para a frente. Não escrevi nada."}, where
         self.sleep(4.0)
         for _ in range(5):
             state = self._web_state()
             if state == "pronto":
                 break
             if state == "qrcode":
-                return {"success": False, "error": f"O {where} não está conectado: precisa escanear o QR code no celular."}
+                return {"success": False, "error": f"O {where} não está conectado: precisa escanear o QR code no celular."}, where
             if state == "duplicado":
                 # Já estava aberto noutra aba desse perfil: fecha a nova e vai para a antiga.
                 self.keys.hotkey("ctrl", "w")
@@ -499,8 +621,33 @@ class WhatsAppDesktop:
                 continue
             self.sleep(4.0)
         else:
-            return {"success": False, "error": f"O {where} não carregou."}
+            return {"success": False, "error": f"O {where} não carregou."}, where
         self.keys.press("esc")
         self.keys.hotkey("ctrl", "alt", "/")  # busca do WhatsApp Web
-        self._search_and_open(contact, hint)
-        return self._verify_type_send(contact, text, send, typed=False, where=where)
+        self._search_and_open(contact, hint, group)
+        return None, where
+
+
+# Descrições sugeridas para o catálogo de ferramentas do agente (brain/agent_loop.py).
+TOOL_DOCS: dict[str, tuple[str, tuple[str, ...], dict[str, Any]]] = {
+    "whatsapp_send": (
+        "Manda mensagem no WhatsApp para uma pessoa OU um grupo: abre o app (ou o WhatsApp Web do perfil), acha a "
+        "conversa pela agenda ou pela busca (pista opcional, ex.: 'da Embralan'), confere pela tela e envia. "
+        "Para grupo use contact só com o nome (ex.: 'Teste', não 'grupo Teste') e group=true. "
+        "send=false só deixa escrito para o Du conferir.",
+        ("contact", "text"),
+        {"contact": str, "text": str, "hint": str, "send": bool, "profile": str, "group": bool},
+    ),
+    "whatsapp_message": (
+        "Só abre o WhatsApp com a mensagem pronta (o Du escolhe a conversa e aperta Enter). Serve para pessoa ou "
+        "grupo (group=true); use quando não der para conferir pela tela.",
+        ("contact", "text"),
+        {"contact": str, "text": str, "group": bool},
+    ),
+    "whatsapp_read": (
+        "Lê as últimas mensagens de uma conversa do WhatsApp (pessoa ou grupo): abre a conversa, confere pela tela e "
+        "devolve as últimas N mensagens como texto. Não escreve nem envia nada. Para grupo use group=true.",
+        ("contact",),
+        {"contact": str, "count": int, "group": bool, "hint": str, "profile": str},
+    ),
+}
