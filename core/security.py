@@ -22,6 +22,11 @@ class SecurityPolicy:
     """Ponto central para autorizações antes de ações externas."""
 
     _DEFAULTS = {
+        # Web (computer/web_tools.py): leitura com bloqueio de endereços internos.
+        "read_webpage": RiskLevel.LOW,
+        "page_links": RiskLevel.LOW,
+        "check_url": RiskLevel.LOW,
+        "download_file": RiskLevel.MEDIUM,
         "open_app": RiskLevel.LOW,
         "close_app": RiskLevel.MEDIUM,
         "is_app_running": RiskLevel.LOW,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import json
 import os
 import re
@@ -217,6 +218,7 @@ class AgentLoop:
         self._handle_lock = RLock()
         self.assistant_tools = AssistantTools(self.memory, notify=self.announce)
         self.assistant_tools.register(self.executor, self.schemas)
+        self._register_extra_tools()
         self._pending_confirmation: PendingConfirmation | None = None
         self._last_app_value: str | None = None
         self._last_app_at = 0.0
@@ -545,6 +547,22 @@ class AgentLoop:
         self.conversation.add("assistant", text, channel)
 
     # agenda, foco e visão ----------------------------------------------------
+    def _register_extra_tools(self) -> None:
+        """Ferramentas de autonomia (web, janelas, arquivos, e-mail...). Um módulo que
+        falhar ao carregar não derruba o Duque: só fica sem aquelas ferramentas."""
+        factories: list[Any] = []
+        try:
+            from computer.web_tools import WebTools
+
+            factories.append(WebTools)
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Ferramentas web indisponíveis: %s", exc)
+        for factory in factories:
+            try:
+                factory().register(self.executor, self.schemas)
+            except Exception as exc:
+                logging.getLogger(__name__).warning("Falha ao registrar %s: %s", getattr(factory, "__name__", factory), exc)
+
     def _register_life_tools(self) -> None:
         self.notepad = NotepadWriter(None if isinstance(self.model, NullModel) else self._compose_text)
         self._pointer: Any = None
