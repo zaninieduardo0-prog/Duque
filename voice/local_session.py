@@ -4,7 +4,7 @@
     pensa (AgentLoop: regras + Ollama) → fala (Piper/SAPI)
 
 Segue as mesmas regras da conversa de antes (voice/conversation_flow.py):
-- "Bom dia, TELEX" → "Bom dia, Du. À sua disposição." e escuta 5 s;
+- (a saudação "Bom dia, TELEX" foi removida: a ativação é só pelo nome)
 - "TELEX" sozinho → bipe e escuta 8 s; sem fala, volta ao standby;
 - "TELEX, <pedido>" → faz e responde; depois standby;
 - se a resposta termina em pergunta, a próxima fala vale sem o nome;

@@ -131,16 +131,16 @@ marque ✅ ou ❌. Se der ❌, anote o que aconteceu (e, se houver, o trecho de
 Ajustes opcionais (PowerShell, depois reinicie o Duque):
 `setx DUQUE_CHROME_PROFILE "Profile 1"` (outro perfil) · `setx DUQUE_VOICE_IDLE 120` (tempo até voltar ao standby, em segundos) · `setx DUQUE_VAD_INTERRUPT 1` (qualquer som volta a interromper).
 
-## 4F. TELEX: ativação "Bom dia, TELEX", repouso e pausa de emergência
+## 4F. TELEX: ativação pelo nome "TELEX", repouso e pausa de emergência
 
 > Antes: rode o `preparar_duque.bat` uma vez (instala o reconhecedor local e baixa o
 > modelo de português, ~50 MB). O diagnóstico deve mostrar
-> `[OK] ativação Bom dia, TELEX: ...; nome como telex`.
+> `[OK] ativação TELEX: ...; nome como telex`.
 
 | # | Ação | Esperado |
 |---|------|----------|
 | 4F.1 | Abrir o TELEX | Logo **TELEX** no canto superior esquerdo, meio apagado; nas respostas, o nome é TELEX |
-| 4F.2 | Diga `Bom dia, TELEX` (ou `Boa tarde`/`Boa noite`) | Logo acende; ele responde com uma saudação curta; no log: `[WAKE] ouvi "bom dia telex" -> wake` |
+| 4F.2 | Diga `TELEX` | Logo acende e fica ouvindo; no log: `[WAKE] ouvi "telex" -> call` |
 | 4F.3 | Logo depois, sem dizer o nome: `abre o bloco de notas` | Abre (o primeiro pedido vale sem o nome) |
 | 4F.4 | `Telex, que horas são?` / `Telex, stop` no meio de uma fala | Responde / para na hora |
 | 4F.5 | Diga `Repousar, Telex` | Volta ao standby **na hora**, sem despedida; logo apaga |
@@ -149,7 +149,7 @@ Ajustes opcionais (PowerShell, depois reinicie o Duque):
 | 4F.8 | Mande algo demorado (ex.: um pedido à Forja) e olhe o painel **Tarefas** (canto inferior direito) | Mostra o objetivo, a etapa atual, o tempo correndo e a barrinha de etapas, sem abrir janela de CMD |
 | 4F.9 | Com a Forja trabalhando, clique **Pausa de emergência** (ou F9) | Tudo para; aparece o quadro vermelho com o que estava rodando e a etapa onde parou; a voz fecha |
 | 4F.10 | Em pausa, digite `que horas são?` | Ele avisa que está em pausa e não executa nada |
-| 4F.11 | Em pausa, diga `Bom dia, TELEX` | Não acorda; só `Retomar, TELEX` funciona |
+| 4F.11 | Em pausa, diga `TELEX` | Não acorda; só `Retomar, TELEX` funciona |
 | 4F.12 | Clique **Retomar** (ou diga `Retomar, TELEX`, ou digite `retomar`) | Fala "Retomando. Estava parado: ..." e a Forja continua **da mesma etapa** |
 | 4F.13 | Pause, feche o TELEX e abra de novo | Volta em pausa e conta o que foi interrompido pelo reinício |
 | 4F.14 | Digite `Telex, pausa tudo` | Mesmo efeito do botão |
@@ -158,8 +158,8 @@ Ajustes opcionais (PowerShell, depois reinicie o Duque):
 
 | # | Ação | Esperado |
 |---|------|----------|
-| 4G.1 | `.\preparar_duque.bat` | Linha `[OK] ativação Bom dia, TELEX: ...` (pode dizer "modo livre" se o modelo não conhecer a palavra telex) |
-| 4G.2 | Diga `Bom dia, TELEX` | Acorda e responde |
+| 4G.1 | `.\preparar_duque.bat` | Linha `[OK] ativação TELEX: ...` (pode dizer "modo livre" se o modelo não conhecer a palavra telex) |
+| 4G.2 | Diga `TELEX, que horas são?` | Acorda e responde |
 | 4G.3 | `abra o youtube e reproduza Numb do Linkin Park` | Abre o **vídeo** e começa a tocar (não fica só na lista de resultados) |
 | 4G.4 | `toque lofi no youtube` | Mesmo comportamento |
 | 4G.5 | `abra o bloco de notas e escreva um poema sobre o mar` | Bloco de Notas abre **com o poema escrito**; arquivo em Documentos\TELEX |
@@ -183,7 +183,7 @@ Ajustes opcionais (PowerShell, depois reinicie o Duque):
 | # | Ação | Esperado |
 |---|------|----------|
 | 4I.1 | Diga `Duque, que horas são?` ou `Hey Jarvis` | **Não** responde (só TELEX chama) |
-| 4I.2 | Diga `Boa tarde, TELEX` e, logo depois, **sem o nome**: `abre o youtube` | Responde a saudação e abre o YouTube; no log: `[GATE] saudação respondida; ouvindo sem precisar do nome` |
+| 4I.2 | Diga `TELEX` e, logo depois, **sem o nome**: `abre o youtube` | Abre o YouTube (a escuta fica aberta depois do chamado) |
 | 4I.3 | Durante a saudação, olhe o log | A própria voz do TELEX aparece como `ignore (eco...)` e o ouvido continua aberto |
 | 4I.4 | `abre o youtube` (com o Chrome já aberto) | Abre como **aba** no Chrome aberto e diz "Abri youtube"; se não aparecer, ele avisa |
 | 4I.5 | `abra o whatsapp, procure pelo Otávio que trabalha comigo na Embralan, e encaminhe a mensagem Teste do TELEX` | Abre o WhatsApp, busca Otávio, escolhe o certo, **confere o nome no topo da conversa**, cola o texto, envia e diz "Mensagem enviada para ..." |
@@ -197,7 +197,7 @@ Ajustes opcionais (PowerShell, depois reinicie o Duque):
 | 4J.1 | Peça algo à Forja | **Nenhuma** janela de CMD piscando; no painel Tarefas aparece o que ela está fazendo ("editando computer/apps.py") |
 | 4J.2 | Durante a Forja: `o que você está fazendo?` / `está esperando o quê?` | Diz a tarefa, a etapa, o que está fazendo agora, o que fez antes e o que está esperando |
 | 4J.3 | `abre o youtube` e depois `toca charlie brown jr no youtube` | Uma página só: a música troca na mesma aba |
-| 4J.4 | Diga `Boa tarde, TELEX` | Saudação curta e volta ao standby (logo apagado) |
+| 4J.4 | Diga `Boa tarde, TELEX` | Não há mais saudação fixa: conta como chamado pelo nome e ele responde normalmente |
 | 4J.5 | Diga só `Telex` e depois, sem o nome, `que horas são?` | Fica ouvindo uns 8 s e responde; depois volta ao standby |
 | 4J.6 | Diga de uma vez `Telex, que horas são?` (com ele em standby) | Responde direto (o começo da frase não se perde) |
 | 4J.7 | Durante uma resposta longa, diga `Telex` | Para de falar e fica ouvindo |
@@ -218,7 +218,7 @@ Ajustes opcionais (PowerShell, depois reinicie o Duque):
 
 | # | Ação | Esperado |
 |---|------|----------|
-| 4L.1 | Diga `TELEX, boa tarde` | "Boa tarde, Du. À sua disposição." e fica 5 s esperando |
+| 4L.1 | Diga `TELEX` sem pedido | Responde curto ("Sim, Du?") e espera |
 | 4L.2 | Logo depois, faça uma pergunta longa, com pausas | Ele espera você terminar e responde tudo junto |
 | 4L.3 | Depois da saudação, fique em silêncio | "Quer que eu continue de onde parei?" (se havia conversa antes); "sim" continua, "não" ou silêncio → standby |
 | 4L.4 | Diga só `Telex` | Bipe curto (sem falar) e escuta por 8 s |
@@ -236,7 +236,7 @@ Ajustes opcionais (PowerShell, depois reinicie o Duque):
 | 4M.1 | Diga "Telex" e repare no som | Um bipe curto (subindo) ao começar a ouvir |
 | 4M.2 | Termine o pedido | Um segundo bipe (descendo) ao parar de ouvir e começar a executar |
 | 4M.3 | `.\.venv\Scripts\python.exe -m voice.selftest` (TELEX fechado) | Mostra o nível do microfone e o que entendeu; grava em duque.log |
-| 4M.4 | Dois cliques em `iniciar_com_windows.bat`, reinicie o PC | TELEX liga sem interface; ao dizer "Bom dia, TELEX", a interface abre sozinha |
+| 4M.4 | Dois cliques em `iniciar_com_windows.bat`, reinicie o PC | TELEX liga sem interface; ao dizer "TELEX", a interface abre sozinha |
 
 ## 5. Forja
 

@@ -289,6 +289,12 @@ class Planner:
 
     @staticmethod
     def _shortcut_plan(goal: str, lowered: str, single) -> Plan | None:
+        from .pc_shortcuts import match as pc_shortcut
+
+        direct = pc_shortcut(goal)
+        if direct is not None:
+            tool, arguments = direct
+            return single(f"Atalho: {tool}", tool, arguments)
         social = Planner._social_plan(goal, lowered, single)
         if social is not None:
             return social

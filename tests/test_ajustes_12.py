@@ -114,8 +114,8 @@ class VoiceFlowTests(unittest.TestCase):
 
 class WakeWordTests(unittest.TestCase):
     def test_name_first_greeting(self) -> None:
-        self.assertEqual(decide(classify("telex boa tarde"), False, False), ("wake", "Boa tarde, TELEX."))
-        self.assertEqual(decide(classify("boa noite telex"), False, False), ("wake", "Boa noite, TELEX."))
+        self.assertEqual(decide(classify("telex boa tarde"), False, False), ("call", None))
+        self.assertEqual(decide(classify("boa noite telex"), False, False), ("call", None))
         self.assertEqual(decide(classify("telex"), False, False), ("call", None))
 
 

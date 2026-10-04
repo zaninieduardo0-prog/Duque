@@ -1,7 +1,7 @@
 """Portão de audição: o TELEX só responde quando é chamado.
 
 Regras (pedido do Du):
-- "Bom dia, TELEX" → saudação curta e volta ao standby.
+- (sem saudação: o nome "TELEX" é a única ativação)
 - "Telex" sozinho → fica ouvindo por alguns segundos o pedido.
 - "Telex, <pedido>" → responde direto. Depois de responder, standby de novo.
 - Depois de cada pedido a audição "trava": falas de fundo são ignoradas até

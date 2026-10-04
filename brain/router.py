@@ -7,6 +7,8 @@ from enum import Enum
 from computer.apps import find_app_in_text
 from computer.whatsapp_flow import MESSAGE_REQUEST
 
+from .pc_shortcuts import match as pc_shortcut
+
 _PREFIX = r"^(?:(?:duque|telex)[,!]?\s+)?(?:por favor[,]?\s+)?"
 # "Telex, você pode abrir o Spotify?" é um pedido: tira a cortesia antes de rotear.
 _POLITE = re.compile(
@@ -138,7 +140,7 @@ class IntentRouter:
         if _HOWTO.search(value):
             return self._informational(value)
 
-        if any(pattern.search(value) for pattern in SHORTCUT_PATTERNS):
+        if pc_shortcut(value) is not None or any(pattern.search(value) for pattern in SHORTCUT_PATTERNS):
             return Route(Intent.SHORTCUT, 0.92, "atalho do dia a dia")
 
         if any(phrase in value for phrase in self.OPEN_APP_PHRASES):

@@ -29,7 +29,7 @@ from voice.gate import addressed, is_echo
 from voice.session import PlaybackFence
 from voice.transcripts import speech_from_event
 
-# Runtime de voz ÚNICO do TELEX: ativação ("Bom dia, TELEX" / "Telex" / "Hey Jarvis"),
+# Runtime de voz ÚNICO do TELEX: ativação (nome "TELEX"; "Hey Jarvis" só de reserva),
 # conversa Realtime (OpenAI) e conversa local (voice/local_runtime.py). Antes as
 # regras da conversa ficavam num segundo arquivo (duque_wake_v3.py) que trocava
 # funções deste aqui em tempo de execução; agora tudo mora neste módulo.
@@ -84,7 +84,7 @@ FAREWELLS = (
     "até mais, telex", "até logo, telex", "tchau, telex", "pode dormir, telex",
 )
 # Um nome só: "Hey Jarvis" fica desligado. Ele só volta sozinho, como reserva,
-# se a ativação "Bom dia, TELEX" não puder ser carregada (DUQUE_HEY_JARVIS=1 força).
+# se a ativação pelo nome "TELEX" não puder ser carregada (DUQUE_HEY_JARVIS=1 força).
 HEY_JARVIS = os.getenv("DUQUE_HEY_JARVIS", "0").casefold() not in {"0", "false", "off", "no", "nao", "não"}
 
 voice_board = Pedalboard([
@@ -191,7 +191,7 @@ SPEECH_STARTED_AT: float | None = None
 FLOW = VoiceFlow()
 LAST_ACTIVITY = time.monotonic()
 LAST_ASSISTANT_TEXT = ""
-# A resposta ao "Bom dia, TELEX" deixa a audição aberta para o primeiro pedido.
+# Saudação (legado): a ativação agora é só pelo nome, então ela não é mais disparada.
 GREETING_TURN = False
 # Uma resposta do modelo em andamento (entre agent_start e agent_end).
 RESPONDING = False
@@ -974,7 +974,7 @@ def abrir_interface_na_ativacao() -> None:
     """Quando o TELEX roda oculto (iniciou com o Windows), mostra a interface ao ser ativado.
 
     core/hud.py só abre uma aba se nenhum HUD estiver conectado (e recusa uma
-    segunda abertura em seguida): nada de uma aba nova a cada "Bom dia, TELEX".
+    segunda abertura em seguida): nada de uma aba nova a cada "TELEX".
     """
     if os.getenv("DUQUE_START_HIDDEN", "0").casefold() not in {"1", "true", "yes", "on", "sim"}:
         return
@@ -1281,11 +1281,11 @@ def wake_loop() -> None:
             hud("erro", "Ativação por voz indisponível — veja o duque.log")
             time.sleep(15.0)
     log(f"[WAKE] modelo carregado | threshold={WAKE_THRESHOLD} | frame={FRAME_LENGTH}")
-    # "Bom dia / Boa tarde / Boa noite, TELEX" (local, sem internet).
+    # Ativação pelo nome "TELEX" (local, sem internet).
     local = local_wake.load(log)
     if local is None and not HEY_JARVIS:
-        log('[WAKE] AVISO: ativação "Bom dia, TELEX" indisponível; usando "Hey Jarvis" só como reserva até o modelo instalar.')
-        hud("erro", 'Ativação "Bom dia, TELEX" indisponível — rode o preparar_duque.bat')
+        log('[WAKE] AVISO: ativação "TELEX" indisponível; usando "Hey Jarvis" só como reserva até o modelo instalar.')
+        hud("erro", 'Ativação "TELEX" indisponível — rode o preparar_duque.bat')
     jarvis_on = HEY_JARVIS or local is None
     hud("standby", "Pausa de emergência" if emergency.paused else "Sistema online")
 
@@ -1306,7 +1306,7 @@ def wake_loop() -> None:
         try:
             recorder = PvRecorder(frame_length=FRAME_LENGTH, device_index=WAKE_MICROFONE)
             recorder.start()
-            phrases = '"Bom dia, TELEX" e "Telex"' if local else ""
+            phrases = '"TELEX"' if local else ""
             if jarvis_on:
                 phrases = (phrases + " e " if phrases else "") + '"Hey Jarvis"'
             log(

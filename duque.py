@@ -198,7 +198,7 @@ def main() -> None:
     print("=" * 64, flush=True)
     print(f"Workspace: {ROOT}", flush=True)
     print("Texto: interface + /api/comando", flush=True)
-    print('Voz: "Bom dia, TELEX" / "Telex" + conversa Realtime', flush=True)
+    print('Voz: "TELEX" + conversa Realtime', flush=True)
     print("Autonomia: habilitada", flush=True)
 
     print("[DUQUE] Servidor ainda não estava ativo; iniciando agora.", flush=True)

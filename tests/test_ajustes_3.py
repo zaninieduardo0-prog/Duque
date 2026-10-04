@@ -65,7 +65,8 @@ class VoiceStyleTests(TempDirTestCase):
     def test_voice_delivery_in_instructions(self) -> None:
         text = voice_instructions()
         self.assertIn("COMO FALAR", text)
-        self.assertIn("Bom dia, TELEX", text)
+        self.assertIn('dizendo "TELEX"', text)
+        self.assertNotIn("Bom dia, TELEX", text)
         self.assertTrue(set(VOICES) >= {"ballad", "cedar", "ash"})
 
 

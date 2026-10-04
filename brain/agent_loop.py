@@ -40,6 +40,7 @@ from memory.memory import Memory, MemoryLayer
 from .agent_state import AgentContext
 from .compound import collapse_browser, plan_steps, strip_name
 from .operator import OPERATOR_SYSTEM, looks_like_action
+from .pc_shortcuts import match as pc_shortcut
 from .planner import WHATSAPP_ACTION
 from .autonomous_loop import AutonomousLoop
 from .model import ModelAdapter, NullModel, OllamaModel, default_model
@@ -1388,7 +1389,9 @@ class AgentLoop:
         # Pedidos em várias etapas ("abra o YouTube e toque X", "abra o Spotify e
         # aumente o volume"): cada etapa passa pelo fluxo completo, em ordem.
         small_talk = self._is_small_talk(text)
-        steps = collapse_browser(plan_steps(text)) if not small_talk else [text]
+        # Frase que já é um atalho inteiro ("tira um print e salva") não é dividida no "e".
+        whole_command = pc_shortcut(text) is not None
+        steps = collapse_browser(plan_steps(text)) if not (small_talk or whole_command) else [text]
         if len(steps) > 1:
             return self._handle_sequence(steps, confirmed=confirmed, max_attempts=max_attempts)
         if steps and steps[0] and steps[0] != strip_name(text).strip(" ,.;"):

@@ -90,7 +90,7 @@ def check_keys(env: dict[str, str] | None = None) -> list[Check]:
 
 def check_wakeword(env: dict[str, str] | None = None) -> Check:
     env = dict(os.environ if env is None else env)
-    # Desde o ajuste 9 o "Hey Jarvis" vem desligado (só reserva do "Bom dia, TELEX"):
+    # Desde o ajuste 9 o "Hey Jarvis" vem desligado (só reserva do "TELEX"):
     # sem o modelo é aviso, a não ser que o Du tenha ligado DUQUE_HEY_JARVIS.
     wanted = env.get("DUQUE_HEY_JARVIS", "0").casefold() not in {"0", "false", "off", "no", "nao", "não"}
     try:
@@ -186,20 +186,20 @@ def run_tests() -> Check:
 
 
 def check_local_wake() -> Check:
-    """Ativação "Bom dia, TELEX" (Vosk, local). Sem ela o TELEX acorda com "Hey Jarvis"."""
+    """Ativação "TELEX" (Vosk, local). Sem ela o TELEX acorda com "Hey Jarvis"."""
     from voice import local_wake
 
     model_dir = local_wake.find_model()
     if model_dir is None:
-        return Check(WARN, "ativação Bom dia, TELEX", "modelo não baixado: rode  python -m voice.local_wake --baixar  (por ora só \"Hey Jarvis\")")
+        return Check(WARN, "ativação TELEX", "modelo não baixado: rode  python -m voice.local_wake --baixar  (por ora só \"Hey Jarvis\")")
     try:
         import vosk  # type: ignore[import-not-found]
 
         vosk.SetLogLevel(-1)
         listener = local_wake.LocalWake(vosk.Model(str(model_dir)), vosk.KaldiRecognizer)
     except Exception as exc:
-        return Check(WARN, "ativação Bom dia, TELEX", f"{type(exc).__name__}: {exc} (por ora só \"Hey Jarvis\")")
-    return Check(OK, "ativação Bom dia, TELEX", f"{model_dir.name}; nome como {', '.join(listener.names)}")
+        return Check(WARN, "ativação TELEX", f"{type(exc).__name__}: {exc} (por ora só \"Hey Jarvis\")")
+    return Check(OK, "ativação TELEX", f"{model_dir.name}; nome como {', '.join(listener.names)}")
 
 
 def _safe(name: str, check: Callable[[], Check | list[Check]]) -> list[Check]:
@@ -214,7 +214,7 @@ def _safe(name: str, check: Callable[[], Check | list[Check]]) -> list[Check]:
 def collect(with_tests: bool = False) -> list[Check]:
     steps: list[tuple[str, Callable[[], Check | list[Check]]]] = [
         ("Python", check_python), ("pacotes", check_packages), ("chaves", check_keys),
-        ("modelo Hey Jarvis", check_wakeword), ("ativação Bom dia, TELEX", check_local_wake),
+        ("modelo Hey Jarvis", check_wakeword), ("ativação TELEX", check_local_wake),
         ("microfones", check_microphones), ("Chrome", check_chrome), ("git", check_git), ("porta 5000", check_port),
     ]
     if with_tests:

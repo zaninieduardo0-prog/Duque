@@ -50,24 +50,15 @@ git stash push -m "minhas alteracoes antes da atualizacao"
 
 ## Passo 5A — Atualizar (pasta já é Git)
 
-Se você **já fez o merge do PR #8 no site do GitHub**:
+Depois de fazer o merge do PR no site do GitHub (botão **Merge pull request**):
 
 ```powershell
 git checkout main
 git pull origin main
 ```
 
-Se **ainda não fez o merge** (faz o merge daqui mesmo, sem abrir o site):
-
-```powershell
-git checkout main
-git pull origin main
-git fetch origin duque/proxima-versao
-git merge --no-ff origin/duque/proxima-versao -m "Merge da próxima versão do Duque (PR #8)"
-git push origin main
-```
-
-> O PR #8 (e o #7) fecham sozinhos no GitHub depois do `git push`.
+Se preferir fazer o merge daqui, sem abrir o site, veja
+**"Aplicar uma atualização nova do Claude"** mais abaixo.
 >
 > Se o `git push` abrir uma janela de login do GitHub, entre com a conta
 > **zaninieduardo0-prog**. O Windows guarda a credencial, e é ela que a Forja
@@ -185,7 +176,7 @@ Get-Process pythonw -ErrorAction SilentlyContinue | Stop-Process
 .\.venv\Scripts\python.exe -m voice.selftest
 ```
 
-Fale "Bom dia, TELEX" enquanto a barra aparece. Ele mostra o nível do microfone
+Fale "TELEX" enquanto a barra aparece. Ele mostra o nível do microfone
 e o que entendeu, e grava em `duque.log`. Me mande esse resultado: com ele eu
 descubro se é microfone mudo, microfone errado, volume baixo ou reconhecimento.
 
@@ -199,7 +190,7 @@ setx DUQUE_WAKE_MIC "<número>"
 
 Dê dois cliques **uma vez** em `iniciar_com_windows.bat`. A partir daí o TELEX
 liga junto com o Windows só com a voz; a interface abre sozinha quando você
-disser "Bom dia, TELEX". Para desfazer: `parar_inicio_windows.bat`.
+disser "TELEX". Para desfazer: `parar_inicio_windows.bat`.
 
 ## Desligar o TELEX
 
@@ -229,25 +220,31 @@ git reset --hard <código>
 
 ---
 
-## Aplicar uma atualização nova do Claude (branch `duque/ajustes-N`)
+## Aplicar uma atualização nova do Claude
 
 > Sempre comece pelo `cd C:\Users\zanin\Duque`. Se aparecer
 > `fatal: not a git repository`, o PowerShell está fora da pasta do TELEX.
 
-Troque `N` pelo número que o Claude informar (a última foi **13**). Um bloco por vez:
+O jeito mais simples: faça o merge do PR no site do GitHub e rode o bloco abaixo
+(só o `git pull`). Para fazer o merge daqui, troque `<BRANCH>` pelo nome do branch
+que o Claude informar (o do PR #10 é `ccr-1c329564-nrs835`):
 
 ```powershell
 cd C:\Users\zanin\Duque
-Get-Process pythonw -ErrorAction SilentlyContinue | Stop-Process
-git fetch origin
-git merge origin/duque/ajustes-13 -m "Ajustes 13"
+.\parar_duque.bat
+git checkout main
+git pull origin main
+git fetch origin <BRANCH>
+git merge origin/<BRANCH> -m "Atualização do Claude"
 git push origin main
 .\preparar_duque.bat
 wscript .\Duque.vbs
 ```
 
+(Se o merge já foi feito no site, pule as linhas `git fetch`, `git merge` e `git push`.)
+
 > O `preparar_duque.bat` só é obrigatório quando a atualização traz pacote novo
-> (a 13 inclui da 7 em diante; a 7 baixa de novo o modelo do "Bom dia, TELEX"). Ele termina com o
+> (a 13 inclui da 7 em diante; a 7 baixa de novo o modelo da ativação "TELEX"). Ele termina com o
 > diagnóstico; aperte uma tecla para fechar.
 
 Opcionais do TELEX (depois feche e abra):
@@ -260,14 +257,14 @@ setx DUQUE_OPERATOR "1"
 ```
 
 `DUQUE_LISTEN_SECONDS`: quanto tempo ele fica ouvindo depois de "Telex".
-`DUQUE_AFTER_GREETING` (5): espera depois da saudação. `DUQUE_MEDIA_VOLUME` (30): volume ao tocar
+`DUQUE_MEDIA_VOLUME` (30): volume ao tocar
 música/vídeo (`"0"` não mexe).
 `DUQUE_OPERATOR`: `"0"` desliga o operador autônomo (pedidos sem ferramenta pronta).
 
 `DUQUE_TTS_SPEED` é a velocidade da fala do HUD (1.0 normal, 1.2 mais rápida).
 
 Desde a 9 o "Hey Jarvis" já vem desligado (um nome só: TELEX). Ele só volta
-sozinho como reserva se o modelo do "Bom dia, TELEX" não carregar. Os textos que o TELEX escreve no
+sozinho como reserva se o modelo da ativação "TELEX" não carregar. Os textos que o TELEX escreve no
 Bloco de Notas ficam em `Documentos\TELEX` (mude com `setx DUQUE_NOTES_DIR "<pasta>"`).
 
 Opcionais da audição e do Chrome (depois feche e abra o Duque):
