@@ -282,6 +282,8 @@ class FileTools:
             text = raw.decode("utf-8-sig")
         except UnicodeDecodeError:
             text = raw.decode("cp1252", errors="replace")
+        # No Windows o arquivo é gravado com \r\n (padrão do Bloco de Notas); quem lê recebe \n.
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
         limit = max(1, int(max_chars or 20000))
         truncated = len(text) > limit
         return {
