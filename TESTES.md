@@ -229,6 +229,15 @@ Ajustes opcionais (PowerShell, depois reinicie o Duque):
 | 4L.9 | `fecha o youtube` | Fecha **só a aba** do YouTube; o Chrome e a interface do TELEX continuam |
 | 4L.10 | `Telex, desligar` (ou o botão **Desligar** do HUD, dois cliques) | "Desligando. Até logo, Du." e o TELEX encerra de vez |
 
+## 4M. Bipes, início com o Windows e autoteste da voz
+
+| # | Ação | Esperado |
+|---|------|----------|
+| 4M.1 | Diga "Telex" e repare no som | Um bipe curto (subindo) ao começar a ouvir |
+| 4M.2 | Termine o pedido | Um segundo bipe (descendo) ao parar de ouvir e começar a executar |
+| 4M.3 | `.\.venv\Scripts\python.exe -m voice.selftest` (TELEX fechado) | Mostra o nível do microfone e o que entendeu; grava em duque.log |
+| 4M.4 | Dois cliques em `iniciar_com_windows.bat`, reinicie o PC | TELEX liga sem interface; ao dizer "Bom dia, TELEX", a interface abre sozinha |
+
 ## 5. Forja
 
 | # | Ação | Esperado |

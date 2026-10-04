@@ -179,6 +179,7 @@ async def flow_ticker(session) -> None:
         if action == "respond":
             text = flow.take_collected()
             runtime.log(f"[VOZ] pedido completo: {text[:80]!r}")
+            runtime.play_done()  # "parei de ouvir, estou executando"
             if runtime.is_farewell(text):
                 request_shutdown()
             runtime.hud("processando", "Processando comando...")

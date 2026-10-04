@@ -175,6 +175,33 @@ git pull origin main
 
 Andamento da Forja no navegador: <http://127.0.0.1:5000/api/forja>
 
+## Autoteste da voz (quando ele "às vezes não ouve")
+
+Feche o TELEX antes (o microfone não pode estar em uso) e rode:
+
+```powershell
+cd C:\Users\zanin\Duque
+Get-Process pythonw -ErrorAction SilentlyContinue | Stop-Process
+.\.venv\Scripts\python.exe -m voice.selftest
+```
+
+Fale "Bom dia, TELEX" enquanto a barra aparece. Ele mostra o nível do microfone
+e o que entendeu, e grava em `duque.log`. Me mande esse resultado: com ele eu
+descubro se é microfone mudo, microfone errado, volume baixo ou reconhecimento.
+
+Trocar o microfone, se o diagnóstico apontar outro número:
+
+```powershell
+setx DUQUE_WAKE_MIC "<número>"
+setx DUQUE_MIC "<número>"
+```
+
+## Iniciar junto com o Windows (sem interface, só voz)
+
+Dê dois cliques **uma vez** em `iniciar_com_windows.bat`. A partir daí o TELEX
+liga junto com o Windows só com a voz; a interface abre sozinha quando você
+disser "Bom dia, TELEX". Para desfazer: `parar_inicio_windows.bat`.
+
 ## Desligar o TELEX
 
 Pela voz: "Telex, desligar". Pelo HUD: botão **Desligar** (dois cliques).
@@ -208,20 +235,20 @@ git reset --hard <código>
 > Sempre comece pelo `cd C:\Users\zanin\Duque`. Se aparecer
 > `fatal: not a git repository`, o PowerShell está fora da pasta do TELEX.
 
-Troque `N` pelo número que o Claude informar (a última foi **12**). Um bloco por vez:
+Troque `N` pelo número que o Claude informar (a última foi **13**). Um bloco por vez:
 
 ```powershell
 cd C:\Users\zanin\Duque
 Get-Process pythonw -ErrorAction SilentlyContinue | Stop-Process
 git fetch origin
-git merge origin/duque/ajustes-12 -m "Ajustes 12"
+git merge origin/duque/ajustes-13 -m "Ajustes 13"
 git push origin main
 .\preparar_duque.bat
 wscript .\Duque.vbs
 ```
 
 > O `preparar_duque.bat` só é obrigatório quando a atualização traz pacote novo
-> (a 12 inclui da 7 em diante; a 7 baixa de novo o modelo do "Bom dia, TELEX"). Ele termina com o
+> (a 13 inclui da 7 em diante; a 7 baixa de novo o modelo do "Bom dia, TELEX"). Ele termina com o
 > diagnóstico; aperte uma tecla para fechar.
 
 Opcionais do TELEX (depois feche e abra):

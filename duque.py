@@ -77,7 +77,16 @@ def mark(step: str) -> None:
     print(f"[INÍCIO] {step} em {time.monotonic() - STARTED:.1f}s", flush=True)
 
 
+def start_hidden() -> bool:
+    return os.getenv("DUQUE_START_HIDDEN", "0").casefold() in {"1", "true", "yes", "on", "sim"}
+
+
 def open_interface(wait_server: bool = True) -> None:
+    # Iniciou com o Windows em modo oculto: não abre o HUD agora; ele abre
+    # sozinho quando o Du ativar a voz (ver duque_wake_v2.abrir_interface_na_ativacao).
+    if start_hidden():
+        mark("modo oculto: HUD abre só na ativação por voz")
+        return
     # Abre o HUD assim que o servidor responder (antes: espera fixa + voz carregada).
     deadline = time.monotonic() + 30
     while wait_server and not server_online() and time.monotonic() < deadline:

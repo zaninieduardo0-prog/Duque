@@ -48,6 +48,7 @@ SAMPLE_RATE = 24000
 CANAIS = 1
 BLOCKSIZE = 480
 SERVIDOR = "http://127.0.0.1:5000"
+_INTERFACE_ABERTA = False
 WAKEWORD = "hey_jarvis"
 WAKEWORD_MODEL_NAME = "hey_jarvis_v0.1"
 FRAME_LENGTH = 1280
@@ -476,10 +477,15 @@ def stop_speech_from_core() -> None:
         loop.call_soon_threadsafe(lambda: asyncio.create_task(interrupt_session()))
 
 
-def chime_audio() -> bytes:
-    """Bipe curto e suave (dois tons) para "estou ouvindo" — sem falar nada."""
+# Dois tons subindo = "estou ouvindo"; dois tons descendo = "parei, estou executando".
+CHIME_LISTEN = ((880.0, 0.07), (1320.0, 0.09))
+CHIME_DONE = ((1320.0, 0.07), (660.0, 0.11))
+
+
+def chime_audio(tones: tuple = CHIME_LISTEN) -> bytes:
+    """Bipe curto e suave, sem falar nada."""
     pieces = []
-    for freq, length in ((880.0, 0.07), (1320.0, 0.09)):
+    for freq, length in tones:
         t = np.arange(int(SAMPLE_RATE * length)) / SAMPLE_RATE
         envelope = np.minimum(1.0, np.minimum(t, t[::-1]) / 0.01)
         pieces.append(0.18 * envelope * np.sin(2 * np.pi * freq * t))
@@ -487,11 +493,20 @@ def chime_audio() -> bytes:
     return (np.concatenate(pieces) * 32767).astype(np.int16).tobytes()
 
 
-def play_chime() -> None:
+def _play_tone(tones: tuple, label: str) -> None:
     try:
-        enqueue_audio(chime_audio(), "telex-chime", 0)
+        enqueue_audio(chime_audio(tones), f"telex-{label}", 0)
     except Exception as exc:
         log(f"[VOZ] bipe falhou: {exc}")
+
+
+def play_chime() -> None:
+    _play_tone(CHIME_LISTEN, "chime")
+
+
+def play_done() -> None:
+    """Som de "parei de ouvir, estou executando"."""
+    _play_tone(CHIME_DONE, "done")
 
 
 def end_session_now(reason: str = "standby") -> None:
@@ -635,6 +650,27 @@ def resample_16k_to_24k(pcm: bytes) -> bytes:
     return np.interp(target, np.arange(len(samples)), samples).astype(np.int16).tobytes()
 
 
+def abrir_interface_na_ativacao() -> None:
+    """Quando o TELEX roda oculto (iniciou com o Windows), mostra a interface ao ser ativado."""
+    global _INTERFACE_ABERTA
+    if _INTERFACE_ABERTA or os.getenv("DUQUE_START_HIDDEN", "0").casefold() not in {"1", "true", "yes", "on", "sim"}:
+        return
+    _INTERFACE_ABERTA = True
+
+    def abrir() -> None:
+        try:
+            from computer.chrome import open_in_chrome
+
+            if not open_in_chrome(SERVIDOR):
+                import webbrowser
+
+                webbrowser.open_new_tab(SERVIDOR)
+        except Exception as exc:
+            log(f"[VOZ] não consegui abrir a interface: {exc}")
+
+    threading.Thread(target=abrir, name="telex-interface-ativacao", daemon=True).start()
+
+
 async def realtime_session(greeting: str | None = None, *, call: bool = False, preroll: bytes = b"") -> None:
     global LOOP, MIC_QUEUE, SHUTDOWN_EVENT, REALTIME, MIC_ACTIVE, SESSION, TRACKER
     global DUQUE_SPEAKING, SHUTTING_DOWN, SPEECH_STARTED_AT, CURRENT_ITEM, GREETING_TURN
@@ -662,6 +698,7 @@ async def realtime_session(greeting: str | None = None, *, call: bool = False, p
         FLOW.on_call()
     touch()
     hud("ouvindo", "Escutando você...")
+    abrir_interface_na_ativacao()  # TELEX iniciou oculto: ao ser ativado, mostra o HUD
     player = None
     input_stream = None
     try:
@@ -729,6 +766,9 @@ async def realtime_session(greeting: str | None = None, *, call: bool = False, p
     except Exception as exc:
         log(f"[REALTIME] sessão falhou: {exc!r}")
     finally:
+        duracao = time.perf_counter() - started if "started" in dir() else 0.0
+        motivo = "você encerrou" if SHUTTING_DOWN else "a conexão caiu (voltando ao standby)"
+        log(f"[VOZ] conversa de voz encerrada após {duracao:.0f}s — {motivo}.")
         bridge.detach_session()
         MIC_ACTIVE = False
         if input_stream:
