@@ -40,7 +40,7 @@ from .compound import plan_steps, strip_name
 from .operator import OPERATOR_SYSTEM, looks_like_action
 from .planner import WHATSAPP_ACTION
 from .autonomous_loop import AutonomousLoop
-from .model import ModelAdapter, NullModel, OpenAIResponsesModel
+from .model import ModelAdapter, NullModel, OpenAIResponsesModel, default_model
 from .persona import text_system_prompt
 from .routines import Routines
 from .voice_style import list_voices, set_voice
@@ -395,13 +395,8 @@ class AgentLoop:
 
     @staticmethod
     def _create_default_model() -> ModelAdapter:
-        """Usa o modelo da API quando a chave estiver configurada; caso contrário, permanece offline."""
-        if os.getenv("OPENAI_API_KEY"):
-            try:
-                return OpenAIResponsesModel()
-            except RuntimeError:
-                pass
-        return NullModel()
+        """Modelo local (Ollama) se estiver no ar, OpenAI de reserva; senão só as regras locais."""
+        return default_model()
 
     def announce(self, text: str, *, urgent: bool = False) -> None:
         """Aviso espontâneo do Duque (timer, Forja...): entra na conversa e o HUD fala.

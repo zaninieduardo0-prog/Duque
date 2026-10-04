@@ -17,6 +17,7 @@ from core.emergency import is_pause_command, is_resume_command, is_shutdown_comm
 from core.voice_bridge import bridge
 from core.state import DuqueState
 from core.tasks import TaskStatus
+from voice import local_tts
 from voice.gate import addressed, is_sleep
 
 app = Flask(__name__)
@@ -207,6 +208,26 @@ def inicio():
     return Response(html, mimetype="text/html")
 
 
+_local_speaker: Any = None
+
+
+def _falar_local(texto: str) -> Response | None:
+    """Fala do HUD com a voz local (Piper ou Windows), em WAV; None se não houver voz local."""
+    global _local_speaker
+    if _local_speaker is None:
+        _local_speaker = local_tts.load(print) or False
+    if not _local_speaker:
+        return None
+    try:
+        audio = _local_speaker.synthesize(texto[:4000])
+    except Exception as exc:
+        print(f"[TTS] voz local falhou: {type(exc).__name__}: {exc}")
+        return None
+    if not audio.pcm:
+        return None
+    return Response(audio.to_wav(), mimetype="audio/wav", headers={"Cache-Control": "no-store"})
+
+
 @app.route("/api/fala", methods=["GET"])
 def falar_em_streaming():
     """Fala do HUD em streaming: o navegador começa a tocar enquanto o áudio chega.
@@ -216,8 +237,12 @@ def falar_em_streaming():
     texto = (request.args.get("text") or "").strip()
     if not texto:
         return jsonify({"erro": "O texto para fala não pode ser vazio."}), 400
-    if openai_client is None:
-        return jsonify({"erro": "OPENAI_API_KEY não configurada."}), 503
+    use_local = __import__("os").getenv("DUQUE_VOICE", "auto").strip().casefold() == "local"
+    if openai_client is None or use_local:
+        local = _falar_local(texto)
+        if local is not None:
+            return local
+        return jsonify({"erro": "Sem voz: configure OPENAI_API_KEY ou instale a voz local (preparar_local.bat)."}), 503
     pedida = request.args.get("voz")
     voz: Any = pedida if pedida in VOICES else current_voice(agent.memory)
     client = openai_client
@@ -233,7 +258,23 @@ def falar_em_streaming():
         ) as resposta:
             yield from resposta.iter_bytes(4096)
 
-    return Response(gerar(), mimetype="audio/mpeg", headers={"Cache-Control": "no-store"})
+    stream = gerar()
+    try:
+        first = next(stream)  # a OpenAI recusa (sem créditos, sem rede) já no primeiro pedaço
+    except StopIteration:
+        first = b""
+    except Exception as exc:
+        local = _falar_local(texto)
+        if local is not None:
+            print(f"[TTS] OpenAI falhou ({type(exc).__name__}); falando com a voz local.")
+            return local
+        raise
+
+    def chunks():
+        yield first
+        yield from stream
+
+    return Response(chunks(), mimetype="audio/mpeg", headers={"Cache-Control": "no-store"})
 
 
 @app.route("/api/fala", methods=["POST"])

@@ -21,7 +21,7 @@ from agents.realtime.model_inputs import RealtimeModelSendRawMessage
 from agent.duque_realtime import duque_realtime, refresh_instructions
 from core.emergency import emergency
 from core.voice_bridge import bridge
-from voice import local_wake
+from voice import local_wake, local_runtime
 from voice.devices import match_input_device, pick_wake_device
 from voice.conversation_flow import VoiceFlow, greeting_reply
 from voice.gate import ListenGate
@@ -504,6 +504,16 @@ def play_chime() -> None:
     _play_tone(CHIME_LISTEN, "chime")
 
 
+def play_chime_blocking() -> None:
+    """Bipe "estou ouvindo" da conversa local: toca direto e só volta quando acabou
+    (o microfone não pode ouvir o próprio bipe)."""
+    try:
+        sd.play(np.frombuffer(chime_audio(CHIME_LISTEN), dtype=np.int16), SAMPLE_RATE)
+        sd.wait()
+    except Exception as exc:
+        log(f"[VOZ] bipe falhou: {exc}")
+
+
 def play_done() -> None:
     """Som de "parei de ouvir, estou executando"."""
     _play_tone(CHIME_DONE, "done")
@@ -765,6 +775,11 @@ async def realtime_session(greeting: str | None = None, *, call: bool = False, p
                     log(f"[REALTIME] tarefa terminou com erro: {exc}")
     except Exception as exc:
         log(f"[REALTIME] sessão falhou: {exc!r}")
+        if "insufficient_quota" in repr(exc) or "credit_balance" in repr(exc):
+            # Sem créditos na OpenAI: as próximas conversas passam a ser locais.
+            global OPENAI_BLOCKED
+            OPENAI_BLOCKED = True
+            log("[VOZ] OpenAI sem créditos; a partir de agora a conversa de voz é local.")
     finally:
         duracao = time.perf_counter() - started if "started" in dir() else 0.0
         motivo = "você encerrou" if SHUTTING_DOWN else "a conexão caiu (voltando ao standby)"
@@ -806,11 +821,14 @@ async def realtime_session(greeting: str | None = None, *, call: bool = False, p
             hud("standby", "Sistema online")
 
 
+OPENAI_BLOCKED = False
+
+
 def wake_loop() -> None:
     global WAKE_MICROFONE, WAKE_DEVICE_NAME
     log("[WAKE] verificando chave, modelo e microfone...")
     if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY não encontrada no ambiente do Duque")
+        log("[WAKE] sem OPENAI_API_KEY: a conversa de voz será 100% local (Ollama + Piper/Windows).")
 
     openwakeword_file = openwakeword.__file__
     if not openwakeword_file:
@@ -871,6 +889,15 @@ def wake_loop() -> None:
     jarvis_on = HEY_JARVIS or local is None
     hud("standby", "Pausa de emergência" if emergency.paused else "Sistema online")
 
+    local_voice = local_runtime.LocalVoice(
+        think=bridge.execute,
+        record=lambda role, text: bridge.record(role, text, "voz"),
+        log=log,
+        hud=hud,
+        chime=play_chime_blocking,
+        device_index=lambda: WAKE_MICROFONE,
+        vosk_model=getattr(local, "model", None),
+    )
     last_wake = 0.0
     while True:
         recorder = None
@@ -933,7 +960,10 @@ def wake_loop() -> None:
                 recorder.stop()
                 recorder.delete()
                 recorder = None
-                asyncio.run(realtime_session(greeting, call=action == "call", preroll=preroll))
+                if local_runtime.voice_mode(bool(os.getenv("OPENAI_API_KEY")), OPENAI_BLOCKED) == "local":
+                    local_voice.run(greeting, call=action == "call", preroll=preroll)
+                else:
+                    asyncio.run(realtime_session(greeting, call=action == "call", preroll=preroll))
                 break
 
         except KeyboardInterrupt:

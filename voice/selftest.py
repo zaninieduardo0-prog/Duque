@@ -46,7 +46,7 @@ def run(seconds: float = 8.0, log: Callable[[str], Any] = lambda _m: None) -> di
 
     # 1) Chaves
     tem_openai = bool(os.getenv("OPENAI_API_KEY"))
-    _say(f"OPENAI_API_KEY: {'OK' if tem_openai else 'AUSENTE (sem voz nem conversa)'}", log)
+    _say(f"OPENAI_API_KEY: {'OK' if tem_openai else 'ausente (tudo bem: a conversa usa o modo local)'}", log)
     report["openai_key"] = tem_openai
 
     # 2) Dispositivos
