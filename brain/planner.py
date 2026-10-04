@@ -98,7 +98,10 @@ class Planner:
             )
             app_name = next((name for marker_text, name in names if marker_text in lowered), "")
             if not app_name:
-                app_name = find_app_in_text(goal) or self._app_name(goal)
+                app_name = find_app_in_text(goal) or ""
+            if not app_name and context_app and re.search(r"\b(?:ele|ela|isso|o mesmo)\b", lowered):
+                app_name = context_app  # "fecha ele" depois de "abre o Spotify"
+            app_name = app_name or self._app_name(goal)
             if not tool_available("close_app"):
                 return Plan(goal)
             return Plan(goal, [PlanStep(
@@ -150,6 +153,10 @@ class Planner:
         if intent == "search":
             query = self.search_query(goal)
             lowered = goal.casefold()
+            if re.fullmatch(r"(?:(?:telex|duque)[\s,!.:-]+)?(?:por favor[,]?\s+)?(?:abr[ae]|abrir|abre)\s+(?:o\s+)?google[\s.!?]*", lowered.strip()):
+                # "abra o Google": só a página do Google, não uma pesquisa por "abra o google".
+                if tool_available("open_url"):
+                    return Plan(goal, [PlanStep("Abrir o Google", StepKind.TOOL, "open_url", {"url": "https://www.google.com"})])
             wants_browser = any(word in lowered for word in ("google", "navegador", "página", "pagina", "chrome", "abra", "abre", "abrir"))
             tool = "google_search" if wants_browser and tool_available("google_search") else "web_search"
             if not tool_available(tool):
@@ -461,11 +468,11 @@ class Planner:
                 return single("Agendar lembrete", "reminder_at", {"when": goal, "text": when.rest})
             return None
         if intent == "system":
-            if any(word in lowered for word in ("aumente o volume", "aumentar o volume", "aumenta o volume", "sobe o volume")):
+            if re.search(r"\b(?:aument\w*|sob[ea]|subir)\s+(?:o\s+|um pouco o\s+)?(?:volume|som)\b|\bvolume\s+(?:mais\s+)?alto\b", lowered):
                 return single("Aumentar volume", "volume", {"direction": "up"})
-            if any(word in lowered for word in ("diminua o volume", "diminuir o volume", "diminui o volume", "abaixa o volume", "abaixe o volume")):
+            if re.search(r"\b(?:diminu\w*|abaix\w*|baix[ae]|baixar)\s+(?:o\s+|um pouco o\s+)?(?:volume|som)\b|\bvolume\s+(?:mais\s+)?baixo\b", lowered):
                 return single("Diminuir volume", "volume", {"direction": "down"})
-            if any(word in lowered for word in ("mute", "mutar", "desative o som", "ative o som", "silencie")):
+            if re.search(r"\b(?:mute|mut[ae]|mutar|silenci\w*)\b|\b(?:desativ[ae]|ativ[ae]|tir[ae]|desliga|deslig[ue]|lig[ue]|liga)\s+o\s+(?:som|mudo)\b", lowered):
                 return single("Alternar mudo", "volume", {"direction": "mute"})
             if any(word in lowered for word in ("bloqueie", "bloquear", "bloqueia")) and "tela" in lowered:
                 return single("Bloquear a tela", "lock_screen", {})

@@ -55,9 +55,37 @@ _DAY_PATTERNS = (
 )
 
 
+_RELATIVE = re.compile(
+    r"\b(?:daqui a|daqui|em|dentro de)\s+(\d+(?:[.,]\d+)?|uma?|meia)\s*(minutos?|mins?|horas?|hrs?|h)\b"
+    r"(?:\s+e\s+(\d+)\s*(?:minutos?|mins?))?"
+)
+
+
+def _relative(folded: str, text: str, now: datetime) -> When | None:
+    """ "daqui a 2 horas", "em 30 minutos": antes virava 02:00 / ignorado."""
+    match = _RELATIVE.search(folded)
+    if not match:
+        return None
+    amount_text, unit = match.group(1), match.group(2)
+    amount = {"um": 1.0, "uma": 1.0, "meia": 0.5}.get(amount_text)
+    if amount is None:
+        amount = float(amount_text.replace(",", "."))
+    minutes = amount * (60 if unit.startswith("h") else 1)
+    if match.group(3):
+        minutes += int(match.group(3))
+    if minutes <= 0:
+        return None
+    start, end = match.span()
+    rest = re.sub(r"\s+", " ", text[:start] + " " + text[end:]).strip(" ,.!?")
+    return When(now + timedelta(minutes=minutes), rest)
+
+
 def parse_when(text: str, now: datetime | None = None) -> When | None:
     now = (now or datetime.now()).replace(second=0, microsecond=0)
     folded = _fold(text)
+    relative = _relative(folded, text, now)
+    if relative is not None:
+        return relative
     spans: list[tuple[int, int]] = []
 
     # horário ---------------------------------------------------------------
@@ -109,8 +137,9 @@ def parse_when(text: str, now: datetime | None = None) -> When | None:
             target = WEEKDAYS[match.group(1) or match.group(2)]
             ahead = (target - now.weekday()) % 7
             day = today + timedelta(days=ahead)
-            if ahead == 0 and hour is not None and (hour, minute) <= (now.hour, now.minute):
-                day += timedelta(days=7)
+            effective = (hour, minute) if hour is not None else (DEFAULT_HOUR, 0)
+            if ahead == 0 and effective <= (now.hour, now.minute):
+                day += timedelta(days=7)  # "sexta" dita numa sexta à tarde é a próxima sexta
         elif index == 4:
             day_number, month = int(match.group(1)), int(match.group(2))
             year = int(match.group(3)) if match.group(3) else now.year

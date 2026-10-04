@@ -57,9 +57,20 @@ class ToolSchemaRegistry:
         if unexpected:
             return ValidationResult(False, f"Argumentos não suportados: {', '.join(unexpected)}")
         for key, expected in spec.argument_types.items():
-            if key in args and not isinstance(args[key], expected):
-                label = self._type_label(expected)
-                return ValidationResult(False, f"Argumento '{key}' deve ser {label}")
+            if key not in args:
+                continue
+            value = args[key]
+            expected_types = expected if isinstance(expected, tuple) else (expected,)
+            numeric = int in expected_types or float in expected_types
+            if numeric and bool not in expected_types and isinstance(value, bool):
+                # bool é subclasse de int, mas "pid=True" ou "delay_seconds=False" não são números.
+                return ValidationResult(False, f"Argumento '{key}' deve ser {self._type_label(expected)}")
+            if int in expected_types and float not in expected_types and isinstance(value, float) and value.is_integer():
+                # Modelos costumam mandar 3.0 em vez de 3.
+                args[key] = int(value)
+                continue
+            if not isinstance(value, expected):
+                return ValidationResult(False, f"Argumento '{key}' deve ser {self._type_label(expected)}")
         return ValidationResult(True)
 
     @staticmethod

@@ -45,6 +45,19 @@ ACTION_REQUEST = re.compile(
 )
 
 
+# Relatos no passado ("abri o Chrome e travou", "mandei mensagem ontem") e expressões
+# ("faz sentido", "salve!") começam com o mesmo radical, mas não pedem ação nenhuma.
+_NOT_A_REQUEST = re.compile(
+    r"^(?:telex[\s,!.:-]+)?(?:"
+    r"abri|fiz|fez|pus|p[oô]s|\w+(?:ei|ou|amos|aram|eram|iram|emos|imos)"
+    r"|faz (?:sentido|tempo|frio|calor|diferen[cç]a|parte)|salve|fala|falou|beleza|certo"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
 def looks_like_action(text: str) -> bool:
     value = " ".join((text or "").split())
-    return bool(value) and not value.endswith("?") and bool(ACTION_REQUEST.match(value))
+    if not value or value.endswith("?") or not ACTION_REQUEST.match(value):
+        return False
+    return not _NOT_A_REQUEST.match(value)

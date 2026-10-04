@@ -42,15 +42,25 @@ class OpenAIResponsesVisionAdapter(VisionAdapter):
             raise ValueError("DUQUE_VISION_MODEL não configurado")
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY não configurada")
+        try:
+            self.timeout = float(os.getenv("DUQUE_VISION_TIMEOUT", "60"))
+        except ValueError:
+            self.timeout = 60.0
+        self._client: Any = None
+
+    def _get_client(self) -> Any:
+        # Um cliente só, com timeout: antes era um por imagem e sem limite de espera.
+        if self._client is None:
+            try:
+                from openai import OpenAI
+            except ImportError as exc:
+                raise RuntimeError("A visão OpenAI requer o pacote openai") from exc
+            self._client = OpenAI(api_key=self.api_key, timeout=self.timeout, max_retries=1)
+        return self._client
 
     def analyze(self, image: Any, prompt: str, **kwargs: Any) -> VisionResponse:
-        try:
-            from openai import OpenAI
-        except ImportError as exc:
-            raise RuntimeError("A visão OpenAI requer o pacote openai") from exc
-
+        client = self._get_client()
         data_url = _image_data_url(image)
-        client = OpenAI(api_key=self.api_key)
         response = client.responses.create(
             model=self.model,
             input=cast(Any, [
