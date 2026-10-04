@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from time import time
@@ -7,17 +8,11 @@ from typing import Any, Callable
 
 
 class EventType(str, Enum):
-    WAKEWORD_DETECTED = "wakeword_detected"
-    VOICE_STARTED = "voice_started"
-    VOICE_ENDED = "voice_ended"
-    USER_SPEECH_DETECTED = "user_speech_detected"
-    USER_INTERRUPTED = "user_interrupted"
     RESPONSE_STARTED = "response_started"
     RESPONSE_FINISHED = "response_finished"
     TASK_STARTED = "task_started"
     TASK_FINISHED = "task_finished"
     TASK_FAILED = "task_failed"
-    GOODBYE_DETECTED = "goodbye_detected"
     DUQUE_WAKE = "duque_wake"
     DUQUE_SLEEP = "duque_sleep"
     STATE_CHANGED = "state_changed"
@@ -38,6 +33,8 @@ class Event:
 
 Subscriber = Callable[[Event], Any]
 
+LOGGER = logging.getLogger(__name__)
+
 
 class EventBus:
     def __init__(self) -> None:
@@ -56,4 +53,12 @@ class EventBus:
 
     def emit(self, event: Event) -> list[Any]:
         callbacks = [*self._subscribers.get(event.type, []), *self._wildcard]
-        return [callback(event) for callback in callbacks]
+        results: list[Any] = []
+        # Um assinante com defeito (ex.: o HUD) não pode derrubar quem emitiu o
+        # evento, senão uma falha de exibição interrompe a tarefa no meio.
+        for callback in callbacks:
+            try:
+                results.append(callback(event))
+            except Exception:
+                LOGGER.exception("Assinante falhou ao tratar %s", event.type.value)
+        return results

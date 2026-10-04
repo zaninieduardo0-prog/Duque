@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+from computer.apps import PROCESS_NAMES
+
+from .router import _CLOSE, _OPEN, _SEARCH, normalize
 
 
 class StepKind(str, Enum):
@@ -23,38 +28,56 @@ class PlanStep:
 class Plan:
     goal: str
     steps: list[PlanStep] = field(default_factory=list)
+    # Resposta direta quando o pedido é só conversa (preenchida pelo modelo).
+    answer: str | None = None
+
+
+_ORDINALS = {
+    "primeiro": 1, "segundo": 2, "terceiro": 3, "quarto": 4,
+    "quinto": 5, "sexto": 6, "sétimo": 7, "setimo": 7, "oitavo": 8,
+}
+
+
+def _clean(value: str) -> str:
+    return value.strip().strip(" .,!?\"'")
 
 
 class Planner:
-    """Planejador heurístico determinístico para ações operacionais comuns."""
+    """Planejador heurístico determinístico para os comandos que o roteador reconhece."""
 
     @staticmethod
     def _app_name(goal: str) -> str:
-        value = goal.strip()
-        lowered = value.casefold()
-        if lowered.startswith("duque,"):
-            value = value[len("duque,"):].strip()
-            lowered = value.casefold()
-        prefixes = (
-            "abrir o aplicativo ", "abrir aplicativo ", "abrir a aplicação ",
-            "abrir aplicação ", "abrir o ", "abrir a ", "abrir ",
-            "abra o aplicativo ", "abra aplicativo ", "abra o ", "abra a ",
-            "abra ", "abre o aplicativo ", "abre aplicativo ", "abre o ", "abre a ",
-            "abre ", "inicie o ", "inicie a ", "inicie ",
-        )
-        for prefix in prefixes:
-            if lowered.startswith(prefix):
-                return value[len(prefix):].strip().rstrip(".,!?")
-        return value.rstrip(".,!?")
+        command = normalize(goal)
+        for pattern in (_OPEN, _CLOSE):
+            match = pattern.match(command)
+            if match:
+                return _clean(match.group("app"))
+        return _clean(command)
 
     @staticmethod
-    def _extract_path(goal: str, markers: tuple[str, ...]) -> str:
-        lowered = goal.casefold()
-        for marker in markers:
-            index = lowered.find(marker)
-            if index >= 0:
-                return goal[index + len(marker):].strip().rstrip(".,!?")
+    def _mentioned_app(goal: str) -> str:
+        value = normalize(goal)
+        # O nome mais longo primeiro: "google chrome" antes de "chrome".
+        for app in sorted(PROCESS_NAMES, key=len, reverse=True):
+            if re.search(rf"\b{re.escape(app)}\b", value):
+                return app
         return ""
+
+    @staticmethod
+    def _result_index(goal: str) -> int:
+        value = normalize(goal)
+        match = re.search(r"resultado\s+(?:n[úu]mero\s+)?(\d+)", value) or re.search(r"(\d+)º?\s+resultado", value)
+        if match:
+            return int(match.group(1))
+        for word, index in _ORDINALS.items():
+            if re.search(rf"\b{word}\b", value):
+                return index
+        return 1
+
+    @staticmethod
+    def _after(goal: str, pattern: str) -> str:
+        match = re.search(pattern, goal, flags=re.IGNORECASE)
+        return _clean(goal[match.end():]) if match else ""
 
     def build(
         self,
@@ -66,158 +89,60 @@ class Planner:
         def tool_available(name: str) -> bool:
             return available_tools is None or name in available_tools
 
+        def single(description: str, tool: str, arguments: dict[str, Any]) -> Plan:
+            if not tool_available(tool):
+                return Plan(goal)
+            return Plan(goal, [PlanStep(description, StepKind.TOOL, tool, arguments)])
+
         if intent == "open_app":
             app_name = self._app_name(goal)
-            if not tool_available("open_app"):
-                return Plan(goal)
-            return Plan(goal, [PlanStep(
-                f"Abrir o aplicativo solicitado: {app_name}",
-                StepKind.TOOL, "open_app", {"name": app_name},
-            )])
+            return single(f"Abrir o aplicativo solicitado: {app_name}", "open_app", {"name": app_name})
 
         if intent == "close_app":
-            lowered = goal.casefold()
-            names = (
-                ("chrome", "chrome"), ("navegador", "chrome"), ("browser", "chrome"),
-                ("edge", "edge"), ("whatsapp", "whatsapp"),
-                ("bloco de notas", "bloco de notas"), ("notepad", "notepad"),
-                ("calculadora", "calculadora"), ("paint", "paint"),
-            )
-            app_name = next((name for marker_text, name in names if marker_text in lowered), "")
-            if not app_name:
-                app_name = self._app_name(goal)
-            if not tool_available("close_app"):
-                return Plan(goal)
-            return Plan(goal, [PlanStep(
-                f"Fechar o aplicativo solicitado: {app_name}",
-                StepKind.TOOL, "close_app", {"name": app_name},
-            )])
+            app_name = self._mentioned_app(goal) or self._app_name(goal)
+            return single(f"Fechar o aplicativo solicitado: {app_name}", "close_app", {"name": app_name})
 
         if intent == "check_app":
-            lowered = goal.casefold()
-            names = (
-                ("chrome", "chrome"), ("navegador", "chrome"),
-                ("edge", "edge"), ("whatsapp", "whatsapp"),
-                ("bloco de notas", "bloco de notas"), ("notepad", "notepad"),
-                ("calculadora", "calculadora"), ("paint", "paint"),
-            )
-            app_name = next((name for marker_text, name in names if marker_text in lowered), "")
+            app_name = self._mentioned_app(goal) or context_app or ""
             if not app_name:
-                app_name = context_app or self._app_name(goal)
-            if not tool_available("is_app_running"):
                 return Plan(goal)
-            return Plan(goal, [PlanStep(
-                f"Verificar se o aplicativo está em execução: {app_name}",
-                StepKind.TOOL, "is_app_running", {"name": app_name},
-            )])
+            return single(f"Verificar se o aplicativo está em execução: {app_name}", "is_app_running", {"name": app_name})
 
         if intent == "open_search_result":
-            if not tool_available("open_search_result"):
-                return Plan(goal)
-            lowered = goal.casefold()
-            index = 1
-            for marker in ("resultado ", "resultado número ", "resultado numero "):
-                position = lowered.find(marker)
-                if position >= 0:
-                    remainder = goal[position + len(marker):].strip()
-                    digits = ""
-                    for char in remainder:
-                        if char.isdigit():
-                            digits += char
-                        else:
-                            break
-                    if digits:
-                        index = int(digits)
-                    break
-            return Plan(goal, [PlanStep(
-                f"Abrir o resultado de pesquisa {index}",
-                StepKind.TOOL, "open_search_result", {"index": index},
-            )])
+            index = self._result_index(goal)
+            return single(f"Abrir o resultado de pesquisa {index}", "open_search_result", {"index": index})
 
         if intent == "search":
-            if not tool_available("web_search"):
-                return Plan(goal)
-            return Plan(goal, [PlanStep(
-                f"Pesquisar: {goal}", StepKind.TOOL, "web_search", {"query": goal},
-            )])
+            match = _SEARCH.match(normalize(goal))
+            query = _clean(match.group("query")) if match else _clean(goal)
+            return single(f"Pesquisar: {query}", "web_search", {"query": query})
 
         if intent == "file_operation":
-            lowered = goal.casefold()
-            if any(marker in lowered for marker in (
-                "liste os arquivos", "listar os arquivos", "liste os ficheiros",
-                "listar arquivos", "mostre os arquivos", "mostra os arquivos",
-                "mostre os ficheiros", "listar a pasta", "mostre a pasta",
-            )):
-                if tool_available("list_files"):
-                    return Plan(goal, [PlanStep(
-                        "Listar os arquivos do workspace", StepKind.TOOL, "list_files", {}
-                    )])
-                if tool_available("inspect_workspace"):
-                    return Plan(goal, [PlanStep(
-                        "Inspecionar o workspace", StepKind.TOOL, "inspect_workspace", {}
-                    )])
-
-            path = self._extract_path(goal, (
-                "leia o arquivo ", "ler o arquivo ", "abra o arquivo ",
-                "leia arquivo ", "ler arquivo ", "abra arquivo ",
-                "analise o arquivo ", "analisa o arquivo ",
-                "analise arquivo ", "analisa arquivo ",
-                "mostre o conteúdo de ", "mostre o conteudo de ",
-            ))
-            if path and tool_available("read_file"):
-                return Plan(goal, [PlanStep(
-                    f"Ler o arquivo solicitado: {path}",
-                    StepKind.TOOL, "read_file", {"path": path},
-                )])
-
-            if any(marker in lowered for marker in (
-                "analise o projeto", "analisa o projeto", "verifique o projeto",
-                "verifica o projeto", "inspecione o projeto", "inspeciona o projeto",
-                "estrutura do projeto", "estrutura do repositório",
-            )):
-                if tool_available("inspect_workspace"):
-                    return Plan(goal, [PlanStep(
-                        "Inspecionar o workspace", StepKind.TOOL, "inspect_workspace", {}
-                    )])
-
-            path = self._extract_path(goal, (
-                "apague o arquivo ", "delete o arquivo ", "exclua o arquivo ",
-                "apague arquivo ", "delete arquivo ", "exclua arquivo ",
-            ))
-            if path and tool_available("delete_file"):
-                return Plan(goal, [PlanStep(
-                    f"Excluir o arquivo solicitado: {path}",
-                    StepKind.TOOL, "delete_file", {"path": path},
-                )])
-
-            for marker_text in ("crie o arquivo ", "criar o arquivo ", "escreva o arquivo ", "salve o arquivo "):
-                if marker_text in lowered and tool_available("write_file"):
-                    remainder = goal[lowered.index(marker_text) + len(marker_text):].strip()
-                    separator = " com conteúdo "
-                    if separator in remainder.casefold():
-                        split_at = remainder.casefold().index(separator)
-                        path = remainder[:split_at].strip()
-                        content = remainder[split_at + len(separator):]
-                        if path and content:
-                            return Plan(goal, [PlanStep(
-                                f"Criar o arquivo solicitado: {path}",
-                                StepKind.TOOL, "write_file",
-                                {"path": path, "content": content},
-                            )])
-            return Plan(goal)
-
-        if intent == "code":
-            steps = [PlanStep("Entender o objetivo e os requisitos", StepKind.THINK)]
-            if tool_available("list_files"):
-                steps.append(PlanStep("Listar o workspace antes da alteração", StepKind.TOOL, "list_files"))
-            steps.extend([
-                PlanStep("Escrever ou modificar o código", StepKind.THINK),
-                PlanStep("Executar a verificação disponível", StepKind.THINK),
-                PlanStep("Relatar o resultado", StepKind.RESPOND),
-            ])
-            return Plan(goal, steps)
-
-        if intent in {"reminder", "system"}:
-            return Plan(goal)
+            return self._file_plan(goal, single)
 
         return Plan(goal, [PlanStep("Responder à solicitação", StepKind.RESPOND)])
+
+    def _file_plan(self, goal: str, single) -> Plan:
+        lowered = normalize(goal)
+        if re.match(r"^(?:liste|listar|lista|mostre|mostra)\s+(?:os\s+)?arquivos", lowered):
+            return single("Listar os arquivos do workspace", "list_files", {})
+
+        path = self._after(goal, r"\b(?:leia|ler|l[êe])\s+o\s+arquivo\s+") or self._after(
+            goal, r"\bmostr[ae]\s+o\s+conte[úu]do\s+(?:do\s+arquivo\s+|de\s+)"
+        )
+        if path:
+            return single(f"Ler o arquivo solicitado: {path}", "read_file", {"path": path})
+
+        path = self._after(goal, r"\b(?:apague|delete|exclua)\s+o\s+arquivo\s+")
+        if path:
+            return single(f"Excluir o arquivo solicitado: {path}", "delete_file", {"path": path})
+
+        match = re.search(
+            r"\b(?:crie|criar|escreva|salve)\s+o\s+arquivo\s+(?P<path>\S+)\s+com\s+conte[úu]do\s+(?P<content>.+)$",
+            goal.strip(),
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if match:
+            path = _clean(match.group("path"))
+            return single(f"Criar o arquivo solicitado: {path}", "write_file", {"path": path, "content": match.group("content")})
+        return Plan(goal)

@@ -31,7 +31,8 @@ class Memory:
 
     def remember(self, layer: str, key: str, value: Any) -> MemoryItem:
         timestamp = time()
-        encoded = json.dumps(value, ensure_ascii=False) if not isinstance(value, str) else value
+        # Sempre JSON: assim "123" volta como texto, não como número.
+        encoded = json.dumps(value, ensure_ascii=False, default=str)
         self.database.set(layer, key, encoded, timestamp)
         return MemoryItem(layer, key, value, timestamp)
 
@@ -39,10 +40,7 @@ class Memory:
         value = self.database.get(layer, key)
         if value is None:
             return default
-        try:
-            return json.loads(value)
-        except (json.JSONDecodeError, TypeError):
-            return value
+        return self._decode(value)
 
     def search(self, layer: str | None = None, query: str | None = None, limit: int = 20) -> list[MemoryItem]:
         return [MemoryItem(item["layer"], item["key"], self._decode(item["value"]), item["updated_at"]) for item in self.database.search(layer, query, limit)]

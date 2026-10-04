@@ -39,7 +39,11 @@ class TaskEngine:
 
         for index, (tool, arguments) in enumerate(steps, start=1):
             self._emit(EventType.TASK_STARTED, task_id=task.id, step=index, tool=tool)
-            result = self.executor.execute_step(task, tool, arguments, confirmed=confirmed, manage_task=False)
+            try:
+                result = self.executor.execute_step(task, tool, arguments, confirmed=confirmed, manage_task=False)
+            except Exception as exc:
+                # Nunca deixar a tarefa presa em RUNNING por uma exceção inesperada.
+                result = ExecutionResult(False, error=f"{type(exc).__name__}: {exc}")
             results.append(StepResult(index, tool, result))
 
             if not result.success:

@@ -42,17 +42,20 @@ class OpenAIResponsesVisionAdapter(VisionAdapter):
             raise ValueError("DUQUE_VISION_MODEL não configurado")
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY não configurada")
+        self._client: Any = None
 
     def analyze(self, image: Any, prompt: str, **kwargs: Any) -> VisionResponse:
-        try:
-            from openai import OpenAI
-        except ImportError as exc:
-            raise RuntimeError("A visão OpenAI requer o pacote openai") from exc
+        if self._client is None:
+            try:
+                from openai import OpenAI
+            except ImportError as exc:
+                raise RuntimeError("A visão OpenAI requer o pacote openai") from exc
+            self._client = OpenAI(api_key=self.api_key, timeout=30.0, max_retries=1)
 
         data_url = _image_data_url(image)
-        client = OpenAI(api_key=self.api_key)
-        response = client.responses.create(
+        response = self._client.responses.create(
             model=self.model,
+            store=False,
             input=cast(Any, [
                 {
                     "role": "user",

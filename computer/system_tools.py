@@ -7,6 +7,27 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from ._proc import CONSOLE_ENCODING, IS_WINDOWS, NO_WINDOW, kill_tree, run_quiet
+from .workspace import encode_text
+
+# Variáveis cujo nome indica credencial nunca são devolvidas ao agente.
+SENSITIVE_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "PASS", "PWD", "AUTH", "CREDENTIAL", "COOKIE", "SESSION", "PRIVATE")
+
+
+def _is_sensitive(name: str) -> bool:
+    upper = name.upper()
+    if upper in {"PWD", "OLDPWD"}:  # diretório atual em shells POSIX
+        return False
+    return any(marker in upper for marker in SENSITIVE_MARKERS)
+
+
+def _decode(data: bytes | str | None) -> str:
+    if data is None:
+        return ""
+    if isinstance(data, str):
+        return data
+    return data.decode(CONSOLE_ENCODING or "utf-8", errors="replace")
+
 
 class SystemTools:
     """Acesso amplo ao Windows e ao sistema local.
@@ -30,15 +51,16 @@ class SystemTools:
         }
 
     def environment(self, name: str | None = None) -> dict[str, Any]:
+        # Não despejar chaves, tokens ou credenciais do ambiente no contexto do
+        # agente, nem quando a variável é pedida pelo nome.
         if name:
+            if _is_sensitive(name):
+                return {"name": name, "value": None, "redacted": True, "exists": name in os.environ}
             return {"name": name, "value": os.getenv(name)}
-        # Não despejar chaves, tokens ou credenciais do ambiente no contexto do agente.
-        # Variáveis individuais continuam consultáveis quando explicitamente pedidas.
-        sensitive_markers = ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASS", "AUTH", "CREDENTIAL")
         variables = {
             key: value
             for key, value in os.environ.items()
-            if not any(marker in key.upper() for marker in sensitive_markers)
+            if not _is_sensitive(key)
         }
         return {"variables": variables, "redacted": True}
 
@@ -61,7 +83,8 @@ class SystemTools:
         if not target.is_file():
             raise FileNotFoundError(str(target))
         limit = max(1, min(int(max_bytes), 10_000_000))
-        data = target.read_bytes()
+        with target.open("rb") as handle:
+            data = handle.read(limit + 1)
         truncated = len(data) > limit
         data = data[:limit]
         try:
@@ -82,13 +105,15 @@ class SystemTools:
         target = Path(path).expanduser().resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
         existed = target.exists()
-        old = target.read_text(encoding="utf-8") if existed and target.is_file() else None
-        target.write_text(content, encoding="utf-8")
+        new = encode_text(content)
+        # Compara bytes: um arquivo existente em outra codificação não pode quebrar a escrita.
+        old = target.read_bytes() if existed and target.is_file() else None
+        target.write_bytes(new)
         return {
             "path": str(target),
             "created": not existed,
-            "changed": old != content,
-            "bytes": len(content.encode("utf-8")),
+            "changed": old != new,
+            "bytes": len(new),
         }
 
     def delete_any_file(self, path: str) -> dict[str, Any]:
@@ -106,6 +131,8 @@ class SystemTools:
         dst = Path(destination).expanduser().resolve()
         if not src.exists():
             raise FileNotFoundError(str(src))
+        if src.is_dir() and (dst == src or dst.is_relative_to(src)):
+            raise ValueError("O destino não pode ficar dentro da pasta de origem")
         dst.parent.mkdir(parents=True, exist_ok=True)
         if src.is_dir():
             shutil.copytree(src, dst, dirs_exist_ok=True)
@@ -127,35 +154,67 @@ class SystemTools:
         if not command:
             raise ValueError("command não pode ser vazio")
         limit = max(1, min(int(timeout), 600))
-        if platform.system() == "Windows":
-            args = ["cmd.exe", "/d", "/s", "/c", command]
+        cwd = str(Path.cwd())
+        if IS_WINDOWS:
+            # String única: com lista, o subprocess cita o comando de novo e o
+            # /s do cmd.exe passa a remover as aspas erradas.
+            args: str | list[str] = f'cmd.exe /d /s /c "{command}"'
         else:
             args = ["/bin/sh", "-lc", command]
-        completed = subprocess.run(
+
+        if command.casefold().startswith("start "):
+            # Programas abertos com start ficam rodando: não espera nem captura saída.
+            subprocess.Popen(
+                args,
+                cwd=cwd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                shell=False,
+                creationflags=NO_WINDOW,
+                start_new_session=not IS_WINDOWS,
+            )
+            return {"command": command, "detached": True, "return_code": None, "stdout": "", "stderr": "", "success": True}
+
+        process = subprocess.Popen(
             args,
-            cwd=str(Path.cwd()),
-            capture_output=True,
-            text=True,
-            timeout=limit,
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             shell=False,
+            creationflags=NO_WINDOW,
+            start_new_session=not IS_WINDOWS,
         )
+        try:
+            stdout, stderr = process.communicate(timeout=limit)
+        except subprocess.TimeoutExpired:
+            kill_tree(process.pid)
+            try:
+                stdout, stderr = process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                # Um neto pode manter os pipes abertos; não travar o agente por isso.
+                stdout, stderr = b"", b""
+            return {
+                "command": command,
+                "return_code": None,
+                "stdout": _decode(stdout),
+                "stderr": _decode(stderr),
+                "timed_out": True,
+                "success": False,
+                "error": f"Comando excedeu {limit}s e foi encerrado",
+            }
         return {
             "command": command,
-            "return_code": completed.returncode,
-            "stdout": completed.stdout,
-            "stderr": completed.stderr,
-            "success": completed.returncode == 0,
+            "return_code": process.returncode,
+            "stdout": _decode(stdout),
+            "stderr": _decode(stderr),
+            "success": process.returncode == 0,
         }
 
     def list_processes(self) -> dict[str, Any]:
         if platform.system() == "Windows":
-            completed = subprocess.run(
-                ["tasklist", "/FO", "CSV", "/NH"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                shell=False,
-            )
+            completed = run_quiet(["tasklist", "/FO", "CSV", "/NH"], timeout=30, encoding=CONSOLE_ENCODING)
             rows = []
             for line in completed.stdout.splitlines():
                 parts = [part.strip('"') for part in line.split('","')]
@@ -168,13 +227,7 @@ class SystemTools:
                         "memory": parts[4],
                     })
             return {"processes": rows, "count": len(rows)}
-        completed = subprocess.run(
-            ["ps", "-eo", "pid=,comm=,args="],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            shell=False,
-        )
+        completed = run_quiet(["ps", "-eo", "pid=,comm=,args="], timeout=30)
         rows = []
         for line in completed.stdout.splitlines():
             parts = line.strip().split(None, 2)
@@ -186,13 +239,15 @@ class SystemTools:
         pid = int(pid)
         if pid <= 0:
             raise ValueError("pid inválido")
+        if pid in {os.getpid(), os.getppid()}:
+            raise PermissionError("Não posso encerrar o próprio processo do Duque")
         if platform.system() == "Windows":
             args = ["taskkill", "/PID", str(pid)]
             if force:
                 args.append("/F")
         else:
             args = ["kill", "-9" if force else "-15", str(pid)]
-        completed = subprocess.run(args, capture_output=True, text=True, timeout=30, shell=False)
+        completed = run_quiet(args, timeout=30, encoding=CONSOLE_ENCODING)
         return {
             "pid": pid,
             "force": force,

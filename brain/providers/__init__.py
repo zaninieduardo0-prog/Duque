@@ -1,3 +1,1 @@
-from .openai_provider import OpenAIAdapter
-
-__all__ = ["OpenAIAdapter"]
+"""Provedores de modelo isolados do restante do Duque."""

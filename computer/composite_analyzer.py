@@ -12,7 +12,7 @@ class CompositeScreenAnalyzer(ScreenAnalyzer):
         self.analyzers = tuple(analyzers)
 
     def analyze(self, capture: ScreenCapture) -> dict[str, Any]:
-        result: dict[str, Any] = {"status": "ok", "sources": []}
+        result: dict[str, Any] = {"status": "failed", "sources": []}
         for analyzer in self.analyzers:
             try:
                 data = analyzer.analyze(capture)
@@ -21,4 +21,6 @@ class CompositeScreenAnalyzer(ScreenAnalyzer):
             name = type(analyzer).__name__
             result["sources"].append({"name": name, "data": data})
             result[name] = data
+            if isinstance(data, dict) and data.get("status") == "ok":
+                result["status"] = "ok"
         return result

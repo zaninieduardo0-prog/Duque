@@ -6,11 +6,12 @@ import unittest
 from brain.autonomous_loop import AutonomousLoop
 from brain.agent_state import AgentContext
 from brain.model_planner import ModelPlanner
-from brain.planner import StepKind
+from brain.planner import Planner, StepKind
 from brain.router import Intent, IntentRouter
 from brain.self_correction import SelfCorrection
 from brain.tool_schema import ToolSchemaRegistry, ToolSpec
 from core.executor import Executor
+from core.security import RiskLevel, SecurityPolicy
 from core.task_engine import TaskEngine
 from core.tasks import TaskStatus
 from tests.helpers import ScriptedModel, TempDirTestCase
@@ -55,17 +56,35 @@ class RouterTests(unittest.TestCase):
     def test_routes(self) -> None:
         cases = {
             "abra o chrome": Intent.OPEN_APP,
+            "Duque, por favor abre o WhatsApp.": Intent.OPEN_APP,
             "feche o chrome": Intent.CLOSE_APP,
             "pesquise o clima de amanhã": Intent.SEARCH,
             "leia o arquivo notas.txt": Intent.FILE_OPERATION,
-            "me lembre de beber água": Intent.REMINDER,
-            "aumente o volume": Intent.SYSTEM,
+            "abra o 2º resultado": Intent.OPEN_SEARCH_RESULT,
+            "o chrome está aberto?": Intent.CHECK_APP,
             "como você está?": Intent.CHAT,
             "": Intent.UNKNOWN,
+            # Antes viravam ações erradas:
+            "não abra o chrome": Intent.CHAT,
+            "como faço para abrir o chrome?": Intent.CHAT,
+            "abra o chrome e pesquise gatos": Intent.CHAT,
+            "abra o programa que eu nunca instalei": Intent.CHAT,
+            "qual a melhor pasta de dente?": Intent.CHAT,
+            "o mercado está aberto?": Intent.CHAT,
+            "abra a página do youtube": Intent.CHAT,
+            "me lembre de beber água": Intent.CHAT,
         }
         for text, expected in cases.items():
             with self.subTest(text=text):
-                self.assertEqual(self.router.route(text).intent, expected)
+                self.assertEqual(self.router.route(text, context_app="chrome").intent, expected)
+
+    def test_planner_extracts_clean_arguments(self) -> None:
+        planner = Planner()
+        self.assertEqual(planner.build("Duque, abre o WhatsApp.", "open_app").steps[0].arguments, {"name": "whatsapp"})
+        self.assertEqual(planner.build("pesquise sobre o clima", "search").steps[0].arguments, {"query": "o clima"})
+        self.assertEqual(planner.build("abra o resultado número 3", "open_search_result").steps[0].arguments, {"index": 3})
+        self.assertEqual(planner.build("abra o terceiro resultado", "open_search_result").steps[0].arguments, {"index": 3})
+        self.assertEqual(planner.build("feche o google chrome", "close_app").steps[0].arguments, {"name": "google chrome"})
 
     def test_context_app_enables_status_question(self) -> None:
         self.assertEqual(self.router.route("ele está aberto?", context_app="chrome").intent, Intent.CHECK_APP)
@@ -98,7 +117,7 @@ class ModelPlannerTests(unittest.TestCase):
 class AutonomousLoopTests(TempDirTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.executor = Executor(self.tasks)
+        self.executor = Executor(self.tasks, security=SecurityPolicy(default=RiskLevel.MEDIUM))
         self.schemas = ToolSchemaRegistry()
         self.files: dict[str, str] = {}
 
@@ -175,7 +194,7 @@ class AutonomousLoopTests(TempDirTestCase):
 
 class SelfCorrectionTests(TempDirTestCase):
     def test_retries_with_error_until_success(self) -> None:
-        executor = Executor(self.tasks)
+        executor = Executor(self.tasks, security=SecurityPolicy(default=RiskLevel.MEDIUM))
         executor.register("ok", lambda: "feito")
         executor.register("ruim", lambda: {"success": False, "error": "caminho errado"})
         correction = SelfCorrection(TaskEngine(executor))
@@ -194,7 +213,7 @@ class SelfCorrectionTests(TempDirTestCase):
         self.assertEqual(task.status, TaskStatus.COMPLETED)
 
     def test_gives_up_after_max_attempts(self) -> None:
-        executor = Executor(self.tasks)
+        executor = Executor(self.tasks, security=SecurityPolicy(default=RiskLevel.MEDIUM))
         executor.register("ruim", lambda: {"success": False, "error": "sempre falha"})
         report = SelfCorrection(TaskEngine(executor)).run(self.tasks.create("x"), lambda e, a: [("ruim", {})], max_attempts=2)
         self.assertFalse(report.success)
@@ -202,7 +221,7 @@ class SelfCorrectionTests(TempDirTestCase):
         self.assertEqual(report.last_error, "sempre falha")
 
     def test_retry_does_not_reopen_what_already_opened(self) -> None:
-        executor = Executor(self.tasks)
+        executor = Executor(self.tasks, security=SecurityPolicy(default=RiskLevel.MEDIUM))
         opened: list[str] = []
         executor.register("open_app", lambda name: opened.append(name) or {"opened": True})
         attempts = {"n": 0}

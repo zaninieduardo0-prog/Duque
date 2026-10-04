@@ -30,10 +30,14 @@ class SecurityPolicy:
         "web_search": RiskLevel.LOW,
         "open_search_result": RiskLevel.LOW,
         "read_file": RiskLevel.LOW,
+        "read_many_files": RiskLevel.LOW,
         "list_files": RiskLevel.LOW,
+        "inspect_workspace": RiskLevel.LOW,
         "write_file": RiskLevel.MEDIUM,
         "delete_file": RiskLevel.HIGH,
-        "run_python": RiskLevel.MEDIUM,
+        # Executa código arbitrário do workspace.
+        "run_python": RiskLevel.HIGH,
+        "run_tests": RiskLevel.MEDIUM,
         "ui_click": RiskLevel.MEDIUM,
         "screen_click_text": RiskLevel.MEDIUM,
         "ui_type_text": RiskLevel.MEDIUM,
@@ -43,22 +47,21 @@ class SecurityPolicy:
         "screen_snapshot": RiskLevel.LOW,
         "screen_find": RiskLevel.LOW,
         "screen_contains_text": RiskLevel.LOW,
-        "code_workspace": RiskLevel.MEDIUM,
-        "run_tests": RiskLevel.MEDIUM,
-        "file_manager": RiskLevel.MEDIUM,
-        "scheduler": RiskLevel.MEDIUM,
         "schedule_task": RiskLevel.MEDIUM,
-        "reminder": RiskLevel.MEDIUM,
-        "system_control": RiskLevel.HIGH,
-        "git_push": RiskLevel.HIGH,
-        "git_commit": RiskLevel.MEDIUM,
-        "git_pull": RiskLevel.MEDIUM,
-        "git_fetch": RiskLevel.LOW,
+        "schedule_reminder": RiskLevel.LOW,
+        "list_scheduled_jobs": RiskLevel.LOW,
+        "cancel_scheduled_job": RiskLevel.MEDIUM,
+        "git_status": RiskLevel.LOW,
+        "git_diff": RiskLevel.LOW,
         "git_log": RiskLevel.LOW,
+        "git_fetch": RiskLevel.LOW,
+        "git_pull": RiskLevel.HIGH,
+        "git_commit": RiskLevel.HIGH,
+        "git_push": RiskLevel.HIGH,
         "system_info": RiskLevel.LOW,
         "environment": RiskLevel.LOW,
         "list_directory": RiskLevel.LOW,
-        "read_any_file": RiskLevel.LOW,
+        "read_any_file": RiskLevel.MEDIUM,
         "write_any_file": RiskLevel.HIGH,
         "delete_any_file": RiskLevel.HIGH,
         "copy_path": RiskLevel.HIGH,
@@ -68,11 +71,13 @@ class SecurityPolicy:
         "kill_process": RiskLevel.HIGH,
     }
 
+    def __init__(self, default: RiskLevel = RiskLevel.HIGH) -> None:
+        self.default = default
+
     def assess(self, action: str) -> ActionPolicy:
-        # Ferramentas registradas que ainda não possuem uma classificação
-        # explícita recebem risco médio. A confirmação fica reservada às
-        # ações realmente classificadas como HIGH/CRITICAL.
-        risk = self._DEFAULTS.get(action, RiskLevel.MEDIUM)
+        # Ferramenta sem classificação explícita exige confirmação: uma
+        # ferramenta nova nunca nasce liberada por esquecimento.
+        risk = self._DEFAULTS.get(action, self.default)
         return ActionPolicy(
             action=action,
             risk=risk,

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -8,25 +7,15 @@ from computer.code_tools import CodeTools
 from computer.workspace import Workspace
 
 
-@dataclass(slots=True)
-class DevelopmentReport:
-    goal: str
-    inspected_files: list[str] = field(default_factory=list)
-    tests_run: list[str] = field(default_factory=list)
-    failures: list[str] = field(default_factory=list)
-    changes: list[dict[str, Any]] = field(default_factory=list)
-    success: bool = False
-
-
 class SelfDevelopment:
-    """Ferramentas para o Duque analisar e testar seu workspace.
+    """Ferramentas para o Duque analisar seu workspace.
 
     Alterar o próprio código é papel exclusivo da Forja (veja FORJA.md).
     """
 
-    def __init__(self, workspace: Workspace) -> None:
+    def __init__(self, workspace: Workspace, tools: CodeTools | None = None) -> None:
         self.workspace = workspace
-        self.tools = CodeTools(workspace)
+        self.tools = tools or CodeTools(workspace)
 
     def inspect(self) -> dict[str, Any]:
         files = self.workspace.list_files()
@@ -35,7 +24,6 @@ class SelfDevelopment:
             "workspace": str(self.workspace.root),
             "file_count": len(files),
             "python_files": python_files,
-            "files": files,
         }
 
     def read_many(self, paths: list[str]) -> dict[str, Any]:
@@ -48,25 +36,6 @@ class SelfDevelopment:
             result[path] = self.tools.read_file(path)["content"]
         return result
 
-    def run_tests(self, path: str = "tests") -> dict[str, Any]:
-        target = self.workspace.resolve(path)
-        if target.is_dir():
-            import subprocess
-            import sys
-            completed = subprocess.run(
-                [sys.executable, "-m", "pytest", str(target)],
-                cwd=str(self.workspace.root), capture_output=True, text=True, timeout=120, shell=False,
-            )
-            return {
-                "target": str(target),
-                "return_code": completed.returncode,
-                "stdout": completed.stdout,
-                "stderr": completed.stderr,
-                "success": completed.returncode == 0,
-            }
-        return self.tools.run_python(path)
-
     def register(self, executor: Any) -> None:
         executor.register("inspect_workspace", self.inspect)
         executor.register("read_many_files", self.read_many)
-        executor.register("run_tests", self.run_tests)

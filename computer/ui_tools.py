@@ -39,7 +39,14 @@ class UITools:
         if self.perception is None:
             raise RuntimeError("Percepção visual não configurada")
         capture = self.perception.screenshot()
-        return self.perception.describe(capture) | {"image": capture.image}
+        # Só dados JSON-serializáveis: a imagem PIL não vai para o histórico do agente.
+        description = self.perception.describe(capture)
+        return {
+            "width": description.get("width", capture.width),
+            "height": description.get("height", capture.height),
+            "source": description.get("source", capture.source),
+            "visual_analysis": description.get("visual_analysis"),
+        }
 
     def register(self, executor: Any) -> None:
         executor.register("ui_click", self.click)

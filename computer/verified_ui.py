@@ -1,17 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 from .screen_tools import ScreenTools
 from .ui import UIController
 from .verification import Verification, VerificationStatus
-
-
-@dataclass(slots=True, frozen=True)
-class ScreenActionResult:
-    action: dict[str, Any]
-    verification: dict[str, Any]
 
 
 class VerifiedScreenActions:
@@ -31,19 +24,31 @@ class VerifiedScreenActions:
     ) -> dict[str, Any]:
         target = self.screen.find(text, min_confidence=min_confidence)
         point = target["click_point"]
-        before = self.verification.snapshot()
+        # "Antes" barato e imediatamente anterior ao clique: a captura usada por
+        # find pode ter segundos de idade (visão por modelo) e já estar defasada.
+        before = self.verification.fingerprint()
         self.controller.click(point["x"], point["y"])
-        after = self.verification.snapshot()
+        change = self.verification.verify_change(before)
 
-        changed = before.fingerprint != after.fingerprint
-        if not changed:
-            raise RuntimeError(f"Clique em '{text}' não produziu mudança visual detectável")
+        if not change.changed:
+            # O clique já aconteceu: falhar aqui faria a autocorreção clicar de novo.
+            return {
+                "clicked": True,
+                "target": target,
+                "verification": {
+                    "status": VerificationStatus.NOT_CHANGED.value,
+                    "changed": False,
+                    "verified": False,
+                    "reason": f"Clique em '{text}' não produziu mudança visual detectável.",
+                },
+            }
 
-        if expected_text and not self._contains_text(after.description, expected_text):
-            raise RuntimeError(f"Clique em '{text}' mudou a tela, mas o texto esperado não apareceu: {expected_text}")
-
-        if expected_not_text and self._contains_text(after.description, expected_not_text):
-            raise RuntimeError(f"Clique em '{text}' mudou a tela, mas o texto que deveria desaparecer ainda está presente: {expected_not_text}")
+        if expected_text or expected_not_text:
+            after = self.verification.snapshot()
+            if expected_text and not self._contains_text(after.description, expected_text):
+                raise RuntimeError(f"Clique em '{text}' mudou a tela, mas o texto esperado não apareceu: {expected_text}")
+            if expected_not_text and self._contains_text(after.description, expected_not_text):
+                raise RuntimeError(f"Clique em '{text}' mudou a tela, mas o texto que deveria desaparecer ainda está presente: {expected_not_text}")
 
         verified = bool(expected_text or expected_not_text)
         return {

@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from enum import Enum
 from hashlib import sha256
-from typing import Any, Callable
+from typing import Any
 
 from .perception import ScreenCapture
+
+# A interface costuma levar algumas centenas de ms para reagir (animações,
+# janelas abrindo). Antes de concluir "nada mudou", observa por ~1,5s.
+CHANGE_POLL_ATTEMPTS = 10
+CHANGE_POLL_INTERVAL = 0.15
 
 
 class VerificationStatus(str, Enum):
@@ -56,56 +62,39 @@ def compare(before: Observation, after: Observation) -> VerificationResult:
 
 
 class Verification:
-    """Observa o computador e permite validar resultado por mudança ou condição semântica."""
+    """Observa o computador e permite validar resultado por mudança visual."""
 
-    def __init__(self, perception: Any) -> None:
+    def __init__(
+        self,
+        perception: Any,
+        *,
+        poll_attempts: int = CHANGE_POLL_ATTEMPTS,
+        poll_interval: float = CHANGE_POLL_INTERVAL,
+    ) -> None:
         self.perception = perception
+        self.poll_attempts = max(1, int(poll_attempts))
+        self.poll_interval = max(0.0, float(poll_interval))
 
     def snapshot(self) -> Observation:
+        """Captura completa: impressão digital + descrição (OCR/visão). Cara."""
         capture = self.perception.screenshot()
         description = self.perception.describe(capture)
         return observe(capture, description)
 
-    def verify_change(self, before: Observation) -> VerificationResult:
-        return compare(before, self.snapshot())
+    def fingerprint(self) -> Observation:
+        """Captura barata: só a impressão digital, sem OCR nem visão por modelo."""
+        return observe(self.perception.screenshot())
 
-    def verify(
-        self,
-        before: Observation,
-        *,
-        expected: Callable[[Observation], bool] | None = None,
-        confidence: float = 1.0,
-    ) -> VerificationResult:
-        after = self.snapshot()
-        changed = before.fingerprint != after.fingerprint
-        if expected is None:
-            return compare(before, after)
-        try:
-            matched = bool(expected(after))
-        except Exception as exc:
-            return VerificationResult(
-                VerificationStatus.FAILED,
-                changed,
-                before,
-                after,
-                f"Falha ao avaliar resultado esperado: {type(exc).__name__}: {exc}",
-                0.0,
-            )
-        if matched:
-            return VerificationResult(
-                VerificationStatus.VERIFIED,
-                changed,
-                before,
-                after,
-                "Resultado esperado confirmado",
-                max(0.0, min(1.0, float(confidence))),
-            )
-        status = VerificationStatus.CHANGED_UNCONFIRMED if changed else VerificationStatus.NOT_CHANGED
-        return VerificationResult(
-            status,
-            changed,
-            before,
-            after,
-            "Resultado esperado não confirmado",
-            0.0,
-        )
+    def verify_change(self, before: Observation) -> VerificationResult:
+        """Aguarda a tela mudar em relação a ``before``.
+
+        ``before`` pode vir de ``snapshot()`` ou de ``fingerprint()``: os dois
+        usam a mesma impressão digital. As capturas posteriores são baratas.
+        """
+        after = self.fingerprint()
+        for _ in range(self.poll_attempts - 1):
+            if after.fingerprint != before.fingerprint:
+                break
+            time.sleep(self.poll_interval)
+            after = self.fingerprint()
+        return compare(before, after)

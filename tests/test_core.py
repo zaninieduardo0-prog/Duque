@@ -97,10 +97,10 @@ class SecurityPolicyTests(unittest.TestCase):
         assessed = SecurityPolicy().assess("read_file")
         self.assertFalse(assessed.confirmation_required)
 
-    def test_unknown_tools_default_to_medium(self) -> None:
+    def test_unknown_tools_require_confirmation(self) -> None:
         assessed = SecurityPolicy().assess("ferramenta_nova")
-        self.assertEqual(assessed.risk, RiskLevel.MEDIUM)
-        self.assertFalse(assessed.confirmation_required)
+        self.assertEqual(assessed.risk, RiskLevel.HIGH)
+        self.assertTrue(assessed.confirmation_required)
 
 
 class TaskManagerTests(TempDirTestCase):
@@ -135,7 +135,7 @@ class TaskManagerTests(TempDirTestCase):
 class ExecutorTests(TempDirTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.executor = Executor(self.tasks)
+        self.executor = Executor(self.tasks, security=SecurityPolicy(default=RiskLevel.MEDIUM))
 
     def test_successful_tool_completes_task(self) -> None:
         self.executor.register("somar", lambda a, b: a + b)
@@ -188,7 +188,7 @@ class ExecutorTests(TempDirTestCase):
 class TaskEngineTests(TempDirTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.executor = Executor(self.tasks)
+        self.executor = Executor(self.tasks, security=SecurityPolicy(default=RiskLevel.MEDIUM))
         self.events: list[tuple[EventType, dict]] = []
         self.engine = TaskEngine(self.executor, event_sink=lambda event, **data: self.events.append((event, data)))
 

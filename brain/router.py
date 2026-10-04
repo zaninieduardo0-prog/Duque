@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
+
+from computer.apps import KNOWN_APPS, PROCESS_NAMES, normalize_app_name
 
 
 class Intent(str, Enum):
@@ -11,103 +15,106 @@ class Intent(str, Enum):
     CHECK_APP = "check_app"
     SEARCH = "search"
     OPEN_SEARCH_RESULT = "open_search_result"
-    CODE = "code"
     FILE_OPERATION = "file_operation"
-    SYSTEM = "system"
-    REMINDER = "reminder"
     UNKNOWN = "unknown"
+
+
+# Intenções que o planejador heurístico resolve sozinho, sem o modelo.
+DETERMINISTIC_INTENTS = frozenset({
+    Intent.OPEN_APP.value,
+    Intent.CLOSE_APP.value,
+    Intent.CHECK_APP.value,
+    Intent.SEARCH.value,
+    Intent.OPEN_SEARCH_RESULT.value,
+    Intent.FILE_OPERATION.value,
+})
 
 
 @dataclass(slots=True)
 class Route:
     intent: Intent
     confidence: float
-    reason: str = ""
+
+
+_LEADING = re.compile(r"^(?:(?:ei|ô|oi|olá|ola)\s+)?(?:duque\b[\s,]*)?(?:por\s+favor\b[\s,]*)?")
+_TRAILING = re.compile(r"[\s,]*(?:por\s+favor)?[\s.!]*$")
+_ARTICLE = r"(?:(?:o|a|os|as)\s+)?(?:(?:aplicativo|app|programa)\s+(?:do\s+|da\s+)?)?"
+_OPEN = re.compile(rf"^(?:abr[aei]r?|abre|inicie|iniciar|inicia|execute|executar)\s+{_ARTICLE}(?P<app>.+)$")
+_CLOSE = re.compile(rf"^(?:fech[ae]r?|fecha|encerr[ae]r?|encerra|finalize|finalizar)\s+{_ARTICLE}(?P<app>.+)$")
+_RESULT = re.compile(
+    r"^(?:abr[aei]r?|abre|mostr[ae]r?)\s+(?:o\s+)?"
+    r"(?:(?:\d+|primeiro|segundo|terceiro|quarto|quinto|sexto|s[ée]timo|oitavo)º?\s+)?"
+    r"resultado(?:\s+(?:n[úu]mero\s+)?\d+)?$"
+)
+_SEARCH = re.compile(
+    r"^(?:pesquis[ea]r?|busque|buscar|busca|procure|procurar|procura)\s+"
+    r"(?:(?:na\s+internet|no\s+google|na\s+web)\s+)?(?:(?:sobre|por)\s+)?(?P<query>.+)$"
+)
+_FILE = re.compile(
+    r"^(?:(?:liste|listar|lista|mostre|mostra)\s+(?:os\s+)?arquivos"
+    r"|(?:leia|ler|l[êe])\s+o\s+arquivo\s+\S"
+    r"|mostr[ae]\s+o\s+conte[úu]do\s+(?:do\s+arquivo\s+|de\s+)\S"
+    r"|(?:crie|criar|escreva|salve)\s+o\s+arquivo\s+\S.*\scom\s+conte[úu]do\s"
+    r"|(?:apague|delete|exclua)\s+o\s+arquivo\s+\S)"
+)
+_CHECK = re.compile(r"\b(?:est[áa]|t[áa])\s+(?:aberto|aberta|rodando|funcionando|em\s+execu[çc][ãa]o)\b")
+_PRONOUN = re.compile(r"\b(?:ele|ela|isso)\b")
+_QUESTION_START = re.compile(r"^(?:como|qual|quais|quando|onde|por\s*que|porque|o\s+que|quem|será|sera|posso|pode|você|voce)\b")
+
+
+def normalize(text: str) -> str:
+    value = " ".join(text.casefold().strip().split())
+    value = _LEADING.sub("", value, count=1)
+    return _TRAILING.sub("", value, count=1).strip()
+
+
+def _known(app: str, names: Mapping[str, object]) -> bool:
+    return normalize_app_name(app) in names
 
 
 class IntentRouter:
-    """Roteador heurístico inicial para identificar ações operacionais claras."""
+    """Roteador heurístico: só reconhece comandos claros e completos.
 
-    OPEN_APP_PHRASES = (
-        "abrir o navegador", "abrir navegador", "abrir chrome", "abrir o chrome",
-        "abrir edge", "abrir o edge", "abrir bloco de notas", "abrir o bloco de notas",
-        "abrir notepad", "abrir calculadora", "abrir a calculadora", "abrir whatsapp",
-        "abrir o whatsapp", "abra o navegador", "abra navegador", "abra chrome",
-        "abra o chrome", "abra edge", "abra o edge", "abra bloco de notas",
-        "abra o bloco de notas", "abra notepad", "abra calculadora", "abra a calculadora",
-        "abra whatsapp", "abra o whatsapp", "abra o explorador", "abra explorador",
-        "abra paint", "inicie o chrome", "inicie o whatsapp", "inicie a calculadora",
-    )
+    Qualquer frase ambígua (negação, pergunta, pedido composto, app
+    desconhecido) vira conversa e fica para o modelo decidir, em vez de virar
+    uma ação errada.
+    """
 
     def route(self, text: str, context_app: str | None = None) -> Route:
-        value = " ".join(text.casefold().strip().split())
+        value = normalize(text)
         if not value:
-            return Route(Intent.UNKNOWN, 0.0, "texto vazio")
+            return Route(Intent.UNKNOWN, 0.0)
 
-        if any(phrase in value for phrase in self.OPEN_APP_PHRASES):
-            return Route(Intent.OPEN_APP, 0.95, "pedido explícito para abrir aplicativo")
+        is_question = "?" in value or bool(_QUESTION_START.match(value))
+        negated = value.startswith(("não ", "nao ", "nunca "))
 
-        if any(phrase in value for phrase in (
-            "feche o chrome", "fechar o chrome", "fecha o chrome",
-            "feche o navegador", "fechar o navegador", "fecha o navegador",
-            "feche o edge", "fechar o edge", "fecha o edge",
-            "feche o whatsapp", "fechar o whatsapp", "fecha o whatsapp",
-            "feche o bloco de notas", "fechar o bloco de notas", "fecha o bloco de notas",
-            "feche a calculadora", "fechar a calculadora", "fecha a calculadora",
-            "feche o paint", "fechar o paint", "fecha o paint",
-            "encerre o chrome", "encerra o chrome", "encerre o navegador",
-        )):
-            return Route(Intent.CLOSE_APP, 0.95, "pedido explícito para fechar aplicativo")
+        if _CHECK.search(value):
+            mentions_app = any(re.search(rf"\b{re.escape(app)}\b", value) for app in PROCESS_NAMES)
+            if mentions_app or (context_app and _PRONOUN.search(value)):
+                return Route(Intent.CHECK_APP, 0.94)
 
-        app_markers = (
-            "chrome", "google chrome", "navegador",
-            "edge", "microsoft edge",
-            "whatsapp", "whatsapp desktop",
-            "bloco de notas", "notepad", "calculadora", "calc", "paint",
-        )
-        check_markers = (
-            "está aberto", "esta aberto", "está rodando", "esta rodando",
-            "está funcionando", "esta funcionando", "está em execução", "esta em execução",
-            "está aberto?", "esta aberto?", "rodando?", "aberto?",
-        )
-        if (any(app in value for app in app_markers) or context_app) and any(marker in value for marker in check_markers):
-            return Route(Intent.CHECK_APP, 0.94, "pedido para verificar o estado de um aplicativo")
+        if is_question or negated:
+            return Route(Intent.CHAT, 0.6)
 
-        if any(x in value for x in (
-            "liste os arquivos", "listar os arquivos", "listar arquivos",
-            "mostre os arquivos", "mostra os arquivos", "listar a pasta",
-            "mostre a pasta", "leia o arquivo", "ler o arquivo", "abra o arquivo",
-            "leia arquivo", "ler arquivo", "abra arquivo", "analise o arquivo",
-            "analisa o arquivo", "analise arquivo", "analisa arquivo",
-            "mostre o conteúdo", "mostre o conteudo", "crie o arquivo",
-            "criar o arquivo", "escreva o arquivo", "salve o arquivo",
-            "exclua o arquivo", "apague o arquivo", "delete o arquivo",
-            "arquivo", "pasta",
-        )):
-            return Route(Intent.FILE_OPERATION, 0.92, "operação explícita sobre arquivos")
+        command = value.rstrip("?")
+        if _RESULT.match(command):
+            return Route(Intent.OPEN_SEARCH_RESULT, 0.95)
 
-        if any(x in value for x in ("abra a página", "abra a pagina", "abre a página", "abre a pagina", "abra o resultado", "abre o resultado", "mostre o resultado")):
-            return Route(Intent.OPEN_SEARCH_RESULT, 0.95, "pedido explícito para abrir resultado da pesquisa")
+        # Pedidos compostos ("abra o chrome e pesquise...") ficam para o modelo.
+        compound = re.search(r"\s(?:e|depois|então|entao)\s", command) is not None
 
-        if any(x in value for x in ("pesquise", "pesquisar", "procure na internet", "busque na internet", "google")):
-            return Route(Intent.SEARCH, 0.9, "pedido explícito de pesquisa")
+        match = _OPEN.match(command)
+        if match and not compound and _known(match.group("app"), KNOWN_APPS):
+            return Route(Intent.OPEN_APP, 0.95)
 
-        if any(x in value for x in (
-            "crie um código", "criar código", "escreva um código", "programa",
-            "programar", "debug", "corrija o código", "implemente",
-        )):
-            return Route(Intent.CODE, 0.9, "pedido relacionado a programação")
+        match = _CLOSE.match(command)
+        if match and not compound and _known(match.group("app"), PROCESS_NAMES):
+            return Route(Intent.CLOSE_APP, 0.95)
 
-        if any(x in value for x in ("me lembre", "lembrete", "lembrar", "agenda", "agende")):
-            return Route(Intent.REMINDER, 0.85, "pedido de lembrete/agendamento")
+        if _SEARCH.match(command) and not compound:
+            return Route(Intent.SEARCH, 0.9)
 
-        if any(x in value for x in (
-            "desligue o computador", "desligar o computador", "desligue o pc",
-            "desligar o pc", "reinicie o computador", "reiniciar o computador",
-            "reinicie o pc", "reiniciar o pc", "aumente o volume", "aumentar o volume",
-            "diminua o volume", "diminuir o volume", "mute o computador",
-            "mutar o computador", "desative o som", "ative o som",
-        )):
-            return Route(Intent.SYSTEM, 0.9, "ação explícita de sistema")
+        if _FILE.match(command):
+            return Route(Intent.FILE_OPERATION, 0.92)
 
-        return Route(Intent.CHAT, 0.6, "conversa geral")
+        return Route(Intent.CHAT, 0.6)

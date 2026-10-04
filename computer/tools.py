@@ -1,13 +1,23 @@
 from __future__ import annotations
 
+import platform
+import time
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 from urllib.request import Request, urlopen
 
-from .apps import PROCESS_NAMES, resolve_app
-from .controller import ComputerController
+from ._proc import CONSOLE_ENCODING, run_quiet
+from .apps import PROCESS_NAMES, normalize_app_name, resolve_app
+from .controller import ComputerController, ShellTarget
+
+# open_path abre documentos e pastas; programas e scripts exigem ferramentas
+# próprias (open_app/run_command) com o nível de risco adequado.
+EXECUTABLE_SUFFIXES = frozenset({
+    ".exe", ".bat", ".cmd", ".com", ".ps1", ".vbs", ".vbe", ".js", ".jse",
+    ".wsf", ".msi", ".lnk", ".scr", ".hta", ".reg",
+})
 
 
 class _SearchParser(HTMLParser):
@@ -98,8 +108,18 @@ class ComputerTools:
         command = resolve_app(name)
         if not command:
             raise ValueError(f"Aplicativo não encontrado: {name}")
+        if self._processes_for(name, required=False) and platform.system() == "Windows":
+            if self.is_app_running(name)["running"]:
+                return {
+                    "app": name,
+                    "opened": False,
+                    "already_running": True,
+                    "message": f"O aplicativo {name} já está aberto.",
+                }
+        # Erros de inicialização (programa ausente, protocolo sem handler) sobem.
         self.controller.launch(command)
-        return {"app": name, "command": command, "opened": True}
+        printable = command.target if isinstance(command, ShellTarget) else command
+        return {"app": name, "command": printable, "opened": True}
 
     def open_url(self, url: str) -> dict[str, Any]:
         if not url.startswith(("http://", "https://")):
@@ -107,53 +127,56 @@ class ComputerTools:
         self.controller.open_url(url)
         return {"url": url, "opened": True}
 
-    def close_app(self, name: str) -> dict[str, Any]:
-        import platform
-        import subprocess
-
-        normalized = name.casefold().strip()
-        processes = PROCESS_NAMES.get(normalized)
-        if not processes:
+    @staticmethod
+    def _processes_for(name: str, *, required: bool = True) -> list[str]:
+        processes = PROCESS_NAMES.get(normalize_app_name(name), [])
+        if not processes and required:
             raise ValueError(f"Não sei qual processo corresponde ao aplicativo: {name}")
-        if platform.system() != "Windows":
-            raise RuntimeError("Fechamento por processo está implementado apenas para Windows.")
-        closed: list[str] = []
-        for process in processes:
-            result = subprocess.run(
-                ["taskkill", "/IM", process],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                shell=False,
-            )
-            if result.returncode == 0:
-                closed.append(process)
-        if not closed:
-            return {"app": name, "closed": False, "processes": processes, "message": "Aplicativo não estava em execução."}
-        return {"app": name, "closed": True, "processes": closed}
+        return processes
 
-    def is_app_running(self, name: str) -> dict[str, Any]:
-        import platform
-        import subprocess
-
-        normalized = name.casefold().strip()
-        processes = PROCESS_NAMES.get(normalized)
-        if not processes:
-            raise ValueError(f"Não sei qual processo corresponde ao aplicativo: {name}")
-        if platform.system() != "Windows":
-            raise RuntimeError("Consulta por processo está implementada apenas para Windows.")
-        tasklist = subprocess.run(
-            ["tasklist", "/FO", "CSV", "/NH"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            shell=False,
-        )
-        running = {
+    @staticmethod
+    def _running_processes() -> set[str]:
+        tasklist = run_quiet(["tasklist", "/FO", "CSV", "/NH"], timeout=30, encoding=CONSOLE_ENCODING)
+        return {
             line.split('","', 1)[0].strip('"').casefold()
             for line in tasklist.stdout.splitlines()
             if line.strip()
         }
+
+    def close_app(self, name: str) -> dict[str, Any]:
+        processes = self._processes_for(name)
+        if platform.system() != "Windows":
+            raise RuntimeError("Fechamento por processo está implementado apenas para Windows.")
+        wanted = {process.casefold() for process in processes}
+        was_running = sorted(wanted & self._running_processes())
+        if not was_running:
+            return {"app": name, "closed": False, "processes": processes, "message": "Aplicativo não estava em execução."}
+        for process in was_running:
+            run_quiet(["taskkill", "/IM", process], timeout=30, encoding=CONSOLE_ENCODING)
+        # taskkill sem /F pede o fechamento; o código de saída não garante que o
+        # processo terminou. Decide pelo estado real, aguardando até ~3s.
+        still_running = was_running
+        deadline = time.monotonic() + 3.0
+        while True:
+            still_running = sorted(wanted & self._running_processes())
+            if not still_running or time.monotonic() >= deadline:
+                break
+            time.sleep(0.25)
+        if still_running:
+            return {
+                "app": name,
+                "closed": False,
+                "processes": still_running,
+                "still_running": True,
+                "message": "O aplicativo continua aberto (talvez esteja pedindo para salvar).",
+            }
+        return {"app": name, "closed": True, "processes": was_running}
+
+    def is_app_running(self, name: str) -> dict[str, Any]:
+        processes = self._processes_for(name)
+        if platform.system() != "Windows":
+            raise RuntimeError("Consulta por processo está implementada apenas para Windows.")
+        running = self._running_processes()
         matched = [process for process in processes if process.casefold() in running]
         return {"app": name, "running": bool(matched), "processes": matched}
 
@@ -161,6 +184,8 @@ class ComputerTools:
         target = Path(path).expanduser()
         if not target.exists():
             raise FileNotFoundError(f"Caminho não encontrado: {target}")
+        if target.is_file() and target.suffix.casefold() in EXECUTABLE_SUFFIXES:
+            raise PermissionError(f"open_path não executa programas ou scripts: {target.name}")
         self.controller.open_path(target)
         return {"path": str(target), "opened": True}
 

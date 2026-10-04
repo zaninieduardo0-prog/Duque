@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -9,14 +10,21 @@ from threading import RLock
 from typing import Any
 
 
+DEFAULT_PATH = Path(__file__).resolve().parent.parent / "duque_data" / "memory.db"
+# Histórico de conversa e tarefas encerradas mais antigos que isso são apagados
+# ao abrir o banco, para ele não crescer sem limite.
+RETENTION_DAYS = 30
+
+
 class MemoryDatabase:
     """Persistência SQLite local para memória, tarefas e agendamentos."""
 
-    def __init__(self, path: str | Path = "duque_data/memory.db") -> None:
+    def __init__(self, path: str | Path = DEFAULT_PATH, *, retention_days: float = RETENTION_DAYS) -> None:
         self.path = Path(path).expanduser()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = RLock()
         self._initialize()
+        self.prune(retention_days)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -25,7 +33,7 @@ class MemoryDatabase:
         `with sqlite3.connect(...)` sozinho só controla a transação e deixa a
         conexão aberta; no Windows isso mantém o arquivo travado.
         """
-        connection = sqlite3.connect(self.path, check_same_thread=False)
+        connection = sqlite3.connect(self.path, check_same_thread=False, timeout=15)
         connection.row_factory = sqlite3.Row
         try:
             with connection:
@@ -35,6 +43,8 @@ class MemoryDatabase:
 
     def _initialize(self) -> None:
         with self._connect() as db:
+            # WAL deixa leituras e escritas de threads diferentes conviverem.
+            db.execute("PRAGMA journal_mode=WAL")
             db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS memories (
@@ -77,6 +87,17 @@ class MemoryDatabase:
                 """
             )
 
+    def prune(self, retention_days: float) -> None:
+        cutoff = time.time() - retention_days * 86400
+        with self._lock, self._connect() as db:
+            db.execute("DELETE FROM memories WHERE layer='conversation' AND updated_at < ?", (cutoff,))
+            db.execute("DELETE FROM memories WHERE layer='operational' AND updated_at < ?", (cutoff,))
+            db.execute(
+                "DELETE FROM tasks WHERE status IN ('completed','failed','cancelled') AND COALESCE(finished_at, created_at) < ?",
+                (cutoff,),
+            )
+            db.execute("DELETE FROM scheduled_jobs WHERE enabled=0 AND COALESCE(last_run_at, created_at) < ?", (cutoff,))
+
     def set(self, layer: str, key: str, value: str, timestamp: float) -> None:
         with self._lock, self._connect() as db:
             db.execute(
@@ -101,8 +122,9 @@ class MemoryDatabase:
             clauses.append("layer=?")
             params.append(layer)
         if query:
-            clauses.append("(key LIKE ? OR value LIKE ?)")
-            pattern = f"%{query}%"
+            clauses.append("(key LIKE ? ESCAPE '\\' OR value LIKE ? ESCAPE '\\')")
+            escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pattern = f"%{escaped}%"
             params.extend([pattern, pattern])
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._lock, self._connect() as db:

@@ -20,6 +20,9 @@ def to_anthropic_messages(messages: list[dict[str, str]]) -> tuple[str, list[dic
     for message in messages:
         role = message.get("role", "user")
         content = str(message.get("content", ""))
+        if not content.strip():
+            # A API rejeita mensagens com conteúdo vazio.
+            continue
         if role == "system":
             system_parts.append(content)
             continue
@@ -40,7 +43,7 @@ class ClaudeAdapter(ModelAdapter):
     Duque conhece o SDK.
     """
 
-    def __init__(self, model: str | None = None, *, max_tokens: int = 8000, client: Any | None = None) -> None:
+    def __init__(self, model: str | None = None, *, max_tokens: int = 16000, client: Any | None = None) -> None:
         self.model = model or os.getenv("DUQUE_DEV_MODEL") or DEFAULT_CLAUDE_MODEL
         self.max_tokens = max_tokens
         if client is not None:
@@ -65,6 +68,10 @@ class ClaudeAdapter(ModelAdapter):
         if system:
             params["system"] = system
         response = self.client.messages.create(**params)
+        stop_reason = getattr(response, "stop_reason", None)
+        if stop_reason in {"max_tokens", "refusal"}:
+            # Texto cortado ou recusado viraria uma ação JSON inválida/parcial.
+            raise RuntimeError(f"Resposta do Claude interrompida ({stop_reason})")
         text = "".join(
             getattr(block, "text", "") for block in getattr(response, "content", []) if getattr(block, "type", "text") == "text"
         )

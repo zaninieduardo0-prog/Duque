@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-import subprocess
+import os
 import sys
 from typing import Any
 
+from ._proc import run_quiet
 from .workspace import Workspace
+
+# Operações que falam com o remoto podem demorar mais que as locais.
+_NETWORK_GIT = {"push", "fetch", "pull"}
 
 
 class CodeTools:
@@ -32,13 +36,10 @@ class CodeTools:
         target = self.workspace.resolve(path)
         if target.suffix.lower() != ".py":
             raise ValueError("run_python aceita apenas arquivos .py")
-        completed = subprocess.run(
+        completed = run_quiet(
             [sys.executable, str(target)],
             cwd=str(self.workspace.root),
-            capture_output=True,
-            text=True,
             timeout=max(1, min(timeout, 120)),
-            shell=False,
         )
         return {
             "path": str(target),
@@ -49,31 +50,26 @@ class CodeTools:
         }
 
     def run_tests(self, path: str = ".", timeout: int = 120) -> dict[str, Any]:
-        """Valida o workspace sem depender de uma pasta tests."""
+        """Roda pytest no alvo; sem testes, ao menos valida a sintaxe com compileall."""
         target = self.workspace.resolve(path)
-        tests_dir = self.workspace.root / "tests"
-        if tests_dir.is_dir():
-            command = [sys.executable, "-m", "pytest", str(tests_dir)]
-            target_label = "tests"
+        if target.is_file() and target.suffix.lower() == ".py" and target.name.startswith("test"):
+            command = [sys.executable, "-m", "pytest", "-q", str(target)]
+        elif target.is_dir() and target.name == "tests":
+            command = [sys.executable, "-m", "pytest", "-q", str(target)]
+        elif target.is_dir() and (target / "tests").is_dir():
+            command = [sys.executable, "-m", "pytest", "-q", str(target / "tests")]
+        elif target.exists():
+            command = [sys.executable, "-m", "compileall", "-q", str(target)]
         else:
-            command = [
-                sys.executable,
-                "-m",
-                "compileall",
-                "-q",
-                str(target),
-            ]
-            target_label = str(target)
-        completed = subprocess.run(
+            raise FileNotFoundError(str(target))
+        completed = run_quiet(
             command,
             cwd=str(self.workspace.root),
-            capture_output=True,
-            text=True,
             timeout=max(1, min(timeout, 300)),
-            shell=False,
         )
         return {
-            "target": target_label,
+            "target": str(target),
+            "runner": command[2],
             "return_code": completed.returncode,
             "stdout": completed.stdout,
             "stderr": completed.stderr,
@@ -104,25 +100,30 @@ class CodeTools:
     def git_commit(self, message: str) -> dict[str, Any]:
         if not isinstance(message, str) or not message.strip():
             raise ValueError("message não pode ser vazio")
-        add = self._git(["add", "-A"])
+        # Só arquivos já rastreados: nada de versionar segredos ou lixo novo por engano.
+        add = self._git(["add", "-u"])
         if not add["success"]:
             return add
         return self._git(["commit", "-m", message.strip()])
 
     def git_push(self, remote: str = "origin", branch: str | None = None) -> dict[str, Any]:
-        args = ["push", remote]
+        for value in (remote, branch):
+            if value is not None and (not isinstance(value, str) or not value.strip() or value.strip().startswith("-")):
+                raise ValueError(f"Nome de remoto/branch inválido: {value!r}")
+        args = ["push", remote.strip()]
         if branch:
-            args.append(branch)
+            args.append(branch.strip())
         return self._git(args)
 
     def _git(self, args: list[str]) -> dict[str, Any]:
-        completed = subprocess.run(
+        # Sem prompts de credencial: um git esperando senha travaria o agente.
+        env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="never")
+        completed = run_quiet(
             ["git", *args],
             cwd=str(self.workspace.root),
-            capture_output=True,
-            text=True,
-            timeout=30,
-            shell=False,
+            timeout=120 if args and args[0] in _NETWORK_GIT else 30,
+            encoding="utf-8",
+            env=env,
         )
         return {
             "return_code": completed.returncode,
