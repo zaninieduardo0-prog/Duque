@@ -3,12 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import queue
 import threading
 import time
 import urllib.request
-from typing import Any, cast
 from collections import deque
 from pathlib import Path
+from typing import Any, Coroutine, cast
 
 import numpy as np
 import openwakeword
@@ -19,36 +20,41 @@ from pedalboard import Compressor, Gain, HighpassFilter, LowShelfFilter, Pedalbo
 from agents.realtime import OpenAIRealtimeWebSocketModel, RealtimeRunner, RealtimePlaybackTracker
 from agents.realtime.model_inputs import RealtimeModelSendRawMessage
 from agent.duque_realtime import duque_realtime, refresh_instructions
-from core.emergency import emergency
+from core.emergency import emergency, is_pause_command
 from core.voice_bridge import bridge
 from voice import local_wake, local_runtime
 from voice.devices import match_input_device, pick_wake_device
 from voice.conversation_flow import VoiceFlow, greeting_reply
-from voice.gate import ListenGate
+from voice.gate import addressed, is_echo
 from voice.session import PlaybackFence
+from voice.transcripts import speech_from_event
+
+# Runtime de voz ÚNICO do TELEX: ativação ("Bom dia, TELEX" / "Telex" / "Hey Jarvis"),
+# conversa Realtime (OpenAI) e conversa local (voice/local_runtime.py). Antes as
+# regras da conversa ficavam num segundo arquivo (duque_wake_v3.py) que trocava
+# funções deste aqui em tempo de execução; agora tudo mora neste módulo.
 
 MODEL = os.getenv("DUQUE_REALTIME_MODEL", "gpt-realtime-2.1")
 VOICE = os.getenv("DUQUE_VOICE", "cedar")
-# Microfones: definidos por DUQUE_WAKE_MIC / DUQUE_MIC ou escolhidos automaticamente.
-MICROFONE: int | None = int(os.environ["DUQUE_MIC"]) if os.getenv("DUQUE_MIC", "").strip() else None
-WAKE_MICROFONE = int(os.environ["DUQUE_WAKE_MIC"]) if os.getenv("DUQUE_WAKE_MIC", "").strip() else -1
+# Microfone: DUQUE_WAKE_MIC / DUQUE_MIC (o número da lista do diagnóstico, que é a do
+# PvRecorder) ou escolha automática. A conversa usa o MESMO microfone, achado pelo nome
+# (o sounddevice numera os dispositivos de outro jeito).
+WAKE_MICROFONE = -1
 WAKE_DEVICE_NAME = ""
-
 
 
 def pick_input_device(wake_name: str) -> int | None:
     """Microfone da conversa: o mesmo da wake word (os índices do sounddevice são outros)."""
-    if MICROFONE is not None:
-        return MICROFONE
     try:
         return match_input_device(wake_name, sd.query_devices())
     except Exception:
         return None  # padrão do Windows
+
+
 SAMPLE_RATE = 24000
 CANAIS = 1
 BLOCKSIZE = 480
 SERVIDOR = "http://127.0.0.1:5000"
-_INTERFACE_ABERTA = False
 WAKEWORD = "hey_jarvis"
 WAKEWORD_MODEL_NAME = "hey_jarvis_v0.1"
 FRAME_LENGTH = 1280
@@ -181,15 +187,25 @@ SHUTDOWN_EVENT: asyncio.Event | None = None
 VAD_COUNT = 0
 LAST_INTERRUPT = 0.0
 SPEECH_STARTED_AT: float | None = None
-GATE = ListenGate()
 # Regras da conversa (voice/conversation_flow.py): saudação, "Telex", interrupção.
 FLOW = VoiceFlow()
-# Laço de prazos da conversa (fim do pedido, escuta, "continuo?"); o v3 preenche.
-flow_ticker: Any = None
 LAST_ACTIVITY = time.monotonic()
 LAST_ASSISTANT_TEXT = ""
 # A resposta ao "Bom dia, TELEX" deixa a audição aberta para o primeiro pedido.
 GREETING_TURN = False
+# Uma resposta do modelo em andamento (entre agent_start e agent_end).
+RESPONDING = False
+TURN = 0
+# Última resposta falada: o que o microfone ouvir parecido logo depois é eco.
+RECENT_SPOKEN = ""
+RECENT_SPOKEN_AT = 0.0
+ECHO_SECONDS = 6.0
+# Trava de segurança: sem NENHUMA atividade por este tempo (ex.: o fim de uma
+# resposta nunca chegou), a conversa fecha mesmo fora do standby, em vez de
+# ficar com o microfone aberto para a OpenAI para sempre.
+STUCK_SECONDS = max(IDLE_SECONDS * 5, 300.0) if IDLE_SECONDS > 0 else 0.0
+# Tarefas assíncronas em andamento (referência forte + erro registrado no log).
+TASKS: set[asyncio.Task] = set()
 
 
 def touch() -> None:
@@ -199,16 +215,51 @@ def touch() -> None:
 
 
 def idle_expired(now: float | None = None) -> bool:
-    if IDLE_SECONDS <= 0 or DUQUE_SPEAKING or FLOW.state != "standby" or FLOW.user_talking:
+    if IDLE_SECONDS <= 0:
         return False
-    return ((time.monotonic() if now is None else now) - LAST_ACTIVITY) >= IDLE_SECONDS
+    elapsed = (time.monotonic() if now is None else now) - LAST_ACTIVITY
+    if STUCK_SECONDS and elapsed >= STUCK_SECONDS:
+        return True
+    if DUQUE_SPEAKING or RESPONDING or FLOW.state != "standby" or FLOW.user_talking:
+        return False
+    return elapsed >= IDLE_SECONDS
+
+
+def spawn(coro: Coroutine[Any, Any, Any], name: str = "") -> asyncio.Task:
+    """create_task que guarda a referência (o asyncio só guarda uma fraca) e registra erros."""
+    task = asyncio.get_running_loop().create_task(coro, name=name or None)
+    TASKS.add(task)
+
+    def done(finished: asyncio.Task) -> None:
+        TASKS.discard(finished)
+        if not finished.cancelled() and finished.exception() is not None:
+            log(f"[VOZ] tarefa {finished.get_name()} falhou: {finished.exception()!r}")
+
+    task.add_done_callback(done)
+    return task
+
+
+def spawn_threadsafe(loop: asyncio.AbstractEventLoop | None, factory: Any, name: str = "") -> bool:
+    """Agenda ``factory()`` (que cria a corrotina) no laço da conversa, vindo de outra thread."""
+    if loop is None or loop.is_closed():
+        return False
+    try:
+        loop.call_soon_threadsafe(lambda: spawn(factory(), name))
+        return True
+    except RuntimeError:  # laço já fechado
+        return False
 
 
 def hud_waiting() -> None:
     hud("standby", 'Em espera — diga "Telex"')
 
 
-def hud(state: str, task: str = "") -> None:
+_HUD_QUEUE: queue.Queue[tuple[str, str]] = queue.Queue(maxsize=64)
+_HUD_THREAD: threading.Thread | None = None
+_HUD_LOCK = threading.Lock()
+
+
+def _post_hud(state: str, task: str) -> None:
     try:
         body = json.dumps({"estado": state, "tarefa": task}).encode()
         request = urllib.request.Request(
@@ -219,6 +270,29 @@ def hud(state: str, task: str = "") -> None:
             pass
     except Exception:
         pass
+
+
+def _hud_worker() -> None:
+    while True:
+        state, task = _HUD_QUEUE.get()
+        _post_hud(state, task)
+
+
+def hud(state: str, task: str = "") -> None:
+    """Atualiza o HUD sem bloquear: o POST sai numa thread própria, na ordem.
+
+    Antes o POST (até 0,5 s) rodava dentro do laço da conversa e atrasava o áudio
+    e os eventos sempre que o servidor demorava.
+    """
+    global _HUD_THREAD
+    with _HUD_LOCK:
+        if _HUD_THREAD is None or not _HUD_THREAD.is_alive():
+            _HUD_THREAD = threading.Thread(target=_hud_worker, name="telex-hud", daemon=True)
+            _HUD_THREAD.start()
+    try:
+        _HUD_QUEUE.put_nowait((state, task))
+    except queue.Full:
+        pass  # HUD fora do ar: o estado é descartável
 
 
 def post_server(path: str, body: dict) -> None:
@@ -301,8 +375,16 @@ def enqueue_audio(data: bytes, item_id: str, content_index: int, *, allow_shutdo
     with AUDIO_LOCK:
         AUDIO.append((item_id, content_index, processed))
         PLAYBACK_DRAINED.clear()
-    with state_lock:
-        CURRENT_ITEM = item_id
+    if not item_id.startswith("telex-"):
+        # Só falas do modelo: o bipe ("telex-chime") virava o "item atual" e, ao
+        # interromper, entrava na lista de cancelados — e os bipes seguintes sumiam.
+        with state_lock:
+            CURRENT_ITEM = item_id
+
+
+def queued_bytes() -> int:
+    with AUDIO_LOCK:
+        return sum(len(chunk[2]) for chunk in AUDIO)
 
 
 def output_callback(outdata, frames, _time_info, status) -> None:
@@ -349,6 +431,8 @@ def output_callback(outdata, frames, _time_info, status) -> None:
         FENCE.can_consume(generation)
     if TRACKER:
         for item_id, content_index, chunk in played:
+            if item_id.startswith("telex-"):
+                continue  # bipe local: o modelo não conhece esse item
             try:
                 TRACKER.on_play_bytes(item_id, content_index, chunk)
             except Exception:
@@ -359,9 +443,11 @@ def microphone_callback(indata, _frames, _time_info, status) -> None:
     global VAD_COUNT, LAST_INTERRUPT
     if status:
         log(f"[MIC] {status}")
-    if not REALTIME or not MIC_ACTIVE or LOOP is None or MIC_QUEUE is None:
+    loop = LOOP
+    if not REALTIME or not MIC_ACTIVE or loop is None or MIC_QUEUE is None:
         return
     audio = indata.copy().tobytes()
+    # Só o nome "Telex" interrompe (voice/conversation_flow.py); barulho não corta a fala.
     if LOCAL_VAD_INTERRUPT and DUQUE_SPEAKING and not SHUTTING_DOWN:
         now = time.perf_counter()
         if SPEECH_STARTED_AT is None or now - SPEECH_STARTED_AT >= LOCAL_VAD_IGNORE_AFTER_SPEECH:
@@ -369,16 +455,32 @@ def microphone_callback(indata, _frames, _time_info, status) -> None:
             if VAD_COUNT >= LOCAL_VAD_BLOCKS and now - LAST_INTERRUPT >= LOCAL_VAD_COOLDOWN:
                 VAD_COUNT = 0
                 LAST_INTERRUPT = now
-                LOOP.call_soon_threadsafe(lambda: asyncio.create_task(interrupt_session()))
+                spawn_threadsafe(loop, interrupt_session, "interromper")
+
+    def enqueue() -> None:
+        queue_ = MIC_QUEUE
+        if queue_ is None or not REALTIME or not MIC_ACTIVE or SHUTTING_DOWN:
+            return
+        try:
+            queue_.put_nowait(audio)
+        except asyncio.QueueFull:
+            pass  # rede lenta ou sessão caindo: o trecho atual é descartável
+
     try:
-        LOOP.call_soon_threadsafe(MIC_QUEUE.put_nowait, audio)
-    except Exception:
-        pass
+        loop.call_soon_threadsafe(enqueue)
+    except RuntimeError:
+        pass  # laço já fechado
 
 
 async def interrupt_session() -> None:
     if SESSION is None or SHUTTING_DOWN:
         return
+    # A resposta interrompida não pode voltar a tocar com os trechos que ainda
+    # estão chegando pela rede (antes só o evento audio_interrupted cancelava).
+    item_id = CURRENT_ITEM
+    if item_id:
+        with CANCELLED_LOCK:
+            CANCELLED.add(item_id)
     clear_audio()
     reset_voice_processor()
     try:
@@ -387,7 +489,26 @@ async def interrupt_session() -> None:
         log(f"[VAD] interrupção falhou: {exc}")
 
 
+async def finish_shutdown(reply_wait: float = 8.0, reply_limit: float = 30.0) -> None:
+    """Fecha a conversa depois que a despedida foi falada por inteiro.
+
+    Antes este passo esperava só o áudio JÁ recebido: como a despedida ainda nem
+    tinha começado, a sessão fechava na hora e cortava o "Até logo, Du".
+    """
+    started = time.monotonic()
+    while not (RESPONDING or DUQUE_SPEAKING) and time.monotonic() - started < reply_wait:
+        await asyncio.sleep(0.1)
+    while (RESPONDING or DUQUE_SPEAKING) and time.monotonic() - started < reply_limit:
+        if not RESPONDING and PLAYBACK_DRAINED.is_set():
+            break
+        await asyncio.sleep(0.1)
+    await wait_playback()
+    if SHUTDOWN_EVENT:
+        SHUTDOWN_EVENT.set()
+
+
 def request_shutdown() -> None:
+    """Encerramento: corta a entrada na hora, mas deixa a despedida terminar."""
     global SHUTTING_DOWN, MIC_ACTIVE
     if SHUTTING_DOWN:
         return
@@ -399,9 +520,10 @@ def request_shutdown() -> None:
                 MIC_QUEUE.get_nowait()
             except asyncio.QueueEmpty:
                 break
-    FENCE.shutdown()
     hud("processando", "Encerrando conversa...")
-    log("Encerramento solicitado; microfone desativado.")
+    log("Encerramento solicitado; microfone desativado. A despedida continua liberada.")
+    if LOOP is not None and SHUTDOWN_EVENT is not None:
+        spawn_threadsafe(LOOP, finish_shutdown, "despedida")
 
 
 async def send_microphone(session) -> None:
@@ -444,10 +566,17 @@ async def drop_item(session, item_id: str | None) -> None:
 
 async def idle_watch() -> None:
     """Fecha a conversa depois de um tempo em standby, sem ser chamado."""
-    while REALTIME and not SHUTTING_DOWN:
+    # Não termina durante o encerramento: esta tarefa é vigiada pela sessão e, se
+    # acabasse, a conversa fechava na hora e cortava a despedida.
+    while REALTIME:
         await asyncio.sleep(1.0)
+        if SHUTTING_DOWN:
+            continue
         if idle_expired():
-            log(f"[GATE] {IDLE_SECONDS:.0f}s sem ser chamado; voltando ao standby.")
+            if FLOW.state == "standby" and not (DUQUE_SPEAKING or RESPONDING):
+                log(f"[GATE] {IDLE_SECONDS:.0f}s sem ser chamado; voltando ao standby.")
+            else:
+                log(f"[GATE] {STUCK_SECONDS:.0f}s sem nenhuma atividade (estado {FLOW.state}); fechando a conversa.")
             return
 
 
@@ -457,7 +586,6 @@ def send_text_to_session(text: str) -> bool:
     if loop is None or session is None or SHUTTING_DOWN:
         return False
     touch()
-    GATE.close()
 
     async def deliver() -> None:
         if DUQUE_SPEAKING:
@@ -467,14 +595,11 @@ def send_text_to_session(text: str) -> bool:
         except Exception as exc:
             log(f"[REALTIME] envio de texto falhou: {exc}")
 
-    loop.call_soon_threadsafe(lambda: asyncio.create_task(deliver()))
-    return True
+    return spawn_threadsafe(loop, deliver, "texto-digitado")
 
 
 def stop_speech_from_core() -> None:
-    loop = LOOP
-    if loop is not None:
-        loop.call_soon_threadsafe(lambda: asyncio.create_task(interrupt_session()))
+    spawn_threadsafe(LOOP, interrupt_session, "parar-fala")
 
 
 # Dois tons subindo = "estou ouvindo"; dois tons descendo = "parei, estou executando".
@@ -508,8 +633,11 @@ def play_chime_blocking() -> None:
     """Bipe "estou ouvindo" da conversa local: toca direto e só volta quando acabou
     (o microfone não pode ouvir o próprio bipe)."""
     try:
-        sd.play(np.frombuffer(chime_audio(CHIME_LISTEN), dtype=np.int16), SAMPLE_RATE)
-        sd.wait()
+        samples = np.frombuffer(chime_audio(CHIME_LISTEN), dtype=np.int16)
+        sd.play(samples, SAMPLE_RATE)
+        # Sem sd.wait(): ele travava para sempre se o alto-falante sumisse.
+        time.sleep(len(samples) / SAMPLE_RATE + 0.05)
+        sd.stop()
     except Exception as exc:
         log(f"[VOZ] bipe falhou: {exc}")
 
@@ -532,7 +660,7 @@ def end_session_now(reason: str = "standby") -> None:
         await interrupt_session()
         done.set()
 
-    loop.call_soon_threadsafe(lambda: asyncio.create_task(close()))
+    spawn_threadsafe(loop, close, "encerrar")
 
 
 def send_greeting(greeting: str) -> None:
@@ -552,70 +680,238 @@ def send_greeting(greeting: str) -> None:
         except Exception as exc:
             log(f"[REALTIME] saudação não enviada: {exc}")
 
-    loop.call_soon_threadsafe(lambda: asyncio.create_task(deliver()))
+    spawn_threadsafe(loop, deliver, "saudacao")
 
 
-async def wait_playback() -> None:
-    await asyncio.to_thread(PLAYBACK_DRAINED.wait)
+async def wait_playback(stall_seconds: float = 3.0) -> None:
+    """Espera o alto-falante tocar tudo o que está na fila.
+
+    Nunca espera para sempre: se o dispositivo de saída sumiu (fone desconectado,
+    driver travado), a fila para de andar; depois de ``stall_seconds`` sem progresso
+    o resto é descartado e a conversa segue (antes ela travava para sempre e a
+    ativação por voz nunca mais voltava).
+    """
+    last = queued_bytes()
+    last_change = time.monotonic()
+    while not PLAYBACK_DRAINED.is_set():
+        await asyncio.to_thread(PLAYBACK_DRAINED.wait, 0.25)
+        current = queued_bytes()
+        if current != last:
+            last, last_change = current, time.monotonic()
+        elif time.monotonic() - last_change >= stall_seconds:
+            log("[PLAYER] o alto-falante parou de tocar; descartando o áudio que faltava.")
+            clear_audio()
+            break
     await asyncio.sleep(0.15)
 
 
-def extract_text(value, depth: int = 0) -> str:
-    if value is None or depth > 6:
+def busy() -> bool:
+    return DUQUE_SPEAKING or RESPONDING
+
+
+def user_transcript(event) -> tuple[str, str] | None:
+    """(item_id, texto) de uma fala do Du já transcrita."""
+    if getattr(event, "type", "") != "raw_model_event":
+        return None
+    data = getattr(event, "data", None)
+    if getattr(data, "type", "") != "input_audio_transcription_completed":
+        return None
+    text = str(getattr(data, "transcript", "") or "").strip()
+    return (str(getattr(data, "item_id", "") or ""), text) if text else None
+
+
+def raw_server_type(event) -> str:
+    data = getattr(event, "data", None)
+    if getattr(data, "type", "") != "raw_server_event":
         return ""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, dict):
-        return " ".join(filter(None, (extract_text(v, depth + 1) for v in value.values())))
-    if isinstance(value, (list, tuple, set)):
-        return " ".join(filter(None, (extract_text(v, depth + 1) for v in value)))
-    parts = []
-    for name in ("text", "transcript", "transcription", "delta", "item", "content", "parts", "data"):
+    payload = getattr(data, "data", None)
+    return str(payload.get("type", "")) if isinstance(payload, dict) else ""
+
+
+async def finish_turn(turn: int, spoken: str) -> None:
+    """Depois que a fala terminou de tocar: standby (ou escuta curta, conforme as regras)."""
+    global DUQUE_SPEAKING, SPEECH_STARTED_AT, RECENT_SPOKEN_AT, GREETING_TURN
+    await wait_playback()
+    if turn != TURN or RESPONDING or SHUTTING_DOWN or not REALTIME:
+        return  # outra resposta já começou
+    DUQUE_SPEAKING = False
+    SPEECH_STARTED_AT = None
+    touch()
+    RECENT_SPOKEN_AT = time.monotonic()  # eco possível por mais alguns segundos
+    flow = FLOW
+    if GREETING_TURN:
+        GREETING_TURN = False
+        context = await asyncio.to_thread(bridge.context)
+        has_previous = len([line for line in context.splitlines() if line.strip()]) > 2
+        flow.on_greeting_done(has_previous)
+        log("[VOZ] saudação feita; esperando o Du por 5 s")
+        hud("ouvindo", "Pode falar...")
+        return
+    action = flow.on_reply_done(spoken)
+    if flow.state in {"listening", "ask_resume"}:
+        hud("ouvindo", "Pode responder...")
+    elif action == "standby":
+        hud_waiting()
+
+
+async def flow_ticker(session) -> None:
+    """Prazos da conversa: fim do pedido, escuta que acabou, pergunta de continuar."""
+    flow = FLOW
+    while REALTIME:  # (vigiada pela sessão: não pode terminar no encerramento)
+        await asyncio.sleep(0.2)
+        if SHUTTING_DOWN:
+            continue
+        action = flow.tick()
+        if action == "respond":
+            text = flow.take_collected()
+            log(f"[VOZ] pedido completo: {text[:80]!r}")
+            play_done()  # "parei de ouvir, estou executando"
+            if is_farewell(text):
+                request_shutdown()
+            hud("processando", "Processando comando...")
+            await respond_now(session)
+        elif action == "ask_resume":
+            log("[VOZ] silêncio após a saudação; perguntando se continua de onde parou")
+            try:
+                await session.send_message(
+                    "(O Du ficou em silêncio depois da saudação.) Pergunte só, sem mais nada: "
+                    "\"Quer que eu continue de onde parei?\""
+                )
+            except Exception as exc:
+                log(f"[VOZ] pergunta não enviada: {exc}")
+        elif action == "standby":
+            log("[VOZ] sem fala; standby")
+            hud_waiting()
+
+
+async def handle_user_speech(session, item_id: str, text: str) -> None:
+    """Aplica as regras de voice/conversation_flow.py a uma fala transcrita."""
+    global DUQUE_SPEAKING
+    flow = FLOW
+    if busy() and flow.state != "speaking":
+        flow.on_speaking()
+    short = text if len(text) <= 70 else text[:67] + "..."
+    if (addressed(text) or flow.state != "standby") and is_pause_command(text):
+        # "Telex, pausa tudo": para tudo e guarda onde parou (core/emergency.py).
+        log(f"[GATE] pausa de emergência: {short!r}")
+        await drop_item(session, item_id)
+        await asyncio.to_thread(
+            post_server, "/api/emergencia", {"acao": "pausar", "origem": "voz"}
+        )
+        return
+    recent = RECENT_SPOKEN if time.monotonic() - RECENT_SPOKEN_AT < ECHO_SECONDS else ""
+    if is_echo(text, (recent + " " + LAST_ASSISTANT_TEXT).strip()) and not addressed(text):
+        log(f"[GATE] ignore (eco da própria voz): {short!r}")
+        await drop_item(session, item_id)
+        return
+    state = flow.state
+    action = flow.on_transcript(text)
+    log(f"[GATE] {action} (estado {state}): {short!r}")
+    if action == "ignore":
+        await drop_item(session, item_id)
+        return
+    touch()
+    if action in {"interrupt_and_listen", "interrupt_and_collect"}:
+        await interrupt_session()
+        DUQUE_SPEAKING = False
+    if action in {"chime", "interrupt_and_listen"}:
+        await drop_item(session, item_id)
+        play_chime()
+        hud("ouvindo", "Pode falar...")
+        return
+    if action == "sleep":
+        await drop_item(session, item_id)
+        end_session_now("repousar")
+        return
+    if action == "standby":
+        await drop_item(session, item_id)
+        hud_waiting()
+        return
+    if action == "resume":
+        await drop_item(session, item_id)
+        await asyncio.to_thread(bridge.record, "user", text, "voz")
         try:
-            value2 = getattr(value, name, None)
-        except Exception:
-            value2 = None
-        if value2 is not None:
-            parts.append(extract_text(value2, depth + 1))
-    return " ".join(filter(None, parts))
-
-
-def extract_raw_text(data, raw_type: str) -> str:
-    text_types = {
-        "conversation.item.input_audio_transcription.completed",
-        "response.output_audio_transcript.delta",
-        "response.output_text.delta",
-    }
-    if raw_type not in text_types:
-        return ""
-    return extract_text(data).strip()
+            await session.send_message("Sim, continue de onde paramos.")
+        except Exception as exc:
+            log(f"[VOZ] não consegui continuar: {exc}")
+        return
+    # collect / interrupt_and_collect: guarda e responde quando ele terminar de falar.
+    await asyncio.to_thread(bridge.record, "user", text, "voz")
+    hud("ouvindo", "Escutando você...")
 
 
 async def receive_events(session) -> None:
-    global DUQUE_SPEAKING, SPEECH_STARTED_AT, CURRENT_ITEM
+    """Consumidor de eventos sem despejar deltas de áudio Base64 no terminal."""
+    global RESPONDING, TURN, RECENT_SPOKEN, RECENT_SPOKEN_AT
+    global DUQUE_SPEAKING, SPEECH_STARTED_AT, LAST_ASSISTANT_TEXT
+    DUQUE_SPEAKING = False
+    SPEECH_STARTED_AT = None
+    RESPONDING = False
+
     async for event in session:
         if not REALTIME:
             return
         kind = getattr(event, "type", "")
+
+        heard = user_transcript(event)
+        if heard:
+            await handle_user_speech(session, *heard)
+            continue
+
+        # Registra as falas do Duque na conversa única (texto + voz). As do Du só
+        # entram quando o portão aceita (som de fundo fica de fora).
+        speech = speech_from_event(event)
+        if speech and speech[0] == "assistant":
+            LAST_ASSISTANT_TEXT = speech[1]
+            if not is_announcement(speech[1]):  # o aviso já está na conversa
+                await asyncio.to_thread(bridge.record, "assistant", speech[1], "voz")
+
+        if kind == "tool_start":
+            touch()
+            hud("executando", "Executando pedido...")
+            continue
+        if kind == "tool_end":
+            touch()
+            hud("processando", "Resultado recebido")
+            continue
+
         if kind == "raw_model_event":
-            data = getattr(event, "data", None)
-            raw_type = getattr(data, "type", "")
-            if raw_type == "input_audio_buffer.speech_started" and not SHUTTING_DOWN:
-                hud("ouvindo", "Escutando você...")
-            text = extract_raw_text(data, raw_type)
-            if text and is_farewell(text):
-                request_shutdown()
+            server_type = raw_server_type(event)
+            if server_type == "input_audio_buffer.speech_started" and not SHUTTING_DOWN:
+                FLOW.on_speech_started()
+                if FLOW.state in {"listening", "collecting", "ask_resume"}:
+                    hud("ouvindo", "Escutando você...")
+            elif server_type == "input_audio_buffer.speech_stopped":
+                FLOW.on_speech_stopped()
+
         elif kind == "audio":
             item_id = event.audio.item_id
-            if cancelled(item_id) or SHUTTING_DOWN:
+            if cancelled(item_id):
                 continue
+            allow_shutdown = SHUTTING_DOWN
+            generation = FENCE.state.generation
+            if not FENCE.can_enqueue(
+                generation,
+                item_id,
+                allow_shutdown=allow_shutdown,
+            ):
+                continue
+            touch()
             if not DUQUE_SPEAKING:
                 DUQUE_SPEAKING = True
+                FLOW.on_speaking()
                 SPEECH_STARTED_AT = time.perf_counter()
-                hud("falando", "Duque falando...")
-            FENCE.can_enqueue(FENCE.state.generation, item_id)
-            enqueue_audio(event.audio.data, item_id, event.audio.content_index)
+                hud("falando", "TELEX falando...")
+            enqueue_audio(
+                event.audio.data,
+                item_id,
+                event.audio.content_index,
+                allow_shutdown=allow_shutdown,
+            )
+
         elif kind == "audio_interrupted":
+            # Só vem daqui quando NÓS interrompemos (ouviu "Telex"): o modelo do
+            # TELEX não se interrompe mais sozinho com som de fundo.
             item_id = CURRENT_ITEM
             if item_id:
                 with CANCELLED_LOCK:
@@ -624,31 +920,45 @@ async def receive_events(session) -> None:
             reset_voice_processor()
             DUQUE_SPEAKING = False
             SPEECH_STARTED_AT = None
+
             if TRACKER:
                 try:
                     TRACKER.on_interrupted()
                 except Exception:
                     pass
-            if not SHUTTING_DOWN:
-                hud("ouvindo", "Escutando você...")
+
         elif kind == "agent_start":
+            TURN += 1
+            RESPONDING = True
+            FLOW.on_speaking()
             DUQUE_SPEAKING = False
             SPEECH_STARTED_AT = None
+            touch()
             if not SHUTTING_DOWN:
                 hud("processando", "Processando comando...")
+
+        elif kind == "audio_end":
+            pass
+
         elif kind == "agent_end":
+            RESPONDING = False
             if SHUTTING_DOWN:
                 await wait_playback()
+                DUQUE_SPEAKING = False
                 if SHUTDOWN_EVENT:
                     SHUTDOWN_EVENT.set()
                 return
-            await wait_playback()
-            DUQUE_SPEAKING = False
-            SPEECH_STARTED_AT = None
-            hud("ouvindo", "Escutando você...")
+            # Não espera o áudio terminar aqui: o laço precisa continuar lendo
+            # eventos para ouvir "Telex, stop" no meio de uma explicação.
+            spoken = LAST_ASSISTANT_TEXT
+            LAST_ASSISTANT_TEXT = ""
+            RECENT_SPOKEN, RECENT_SPOKEN_AT = spoken, time.monotonic() + 30  # vale até tocar tudo
+            spawn(finish_turn(TURN, spoken), "fim-da-fala")
+
         elif kind == "error":
+            # Erros do servidor (ex.: resposta já em andamento) não derrubam a
+            # conversa; uma queda real da conexão encerra o laço sozinha.
             log(f"[REALTIME] erro: {getattr(event, 'error', event)}")
-            return
 
 
 def resample_16k_to_24k(pcm: bytes) -> bytes:
@@ -661,29 +971,81 @@ def resample_16k_to_24k(pcm: bytes) -> bytes:
 
 
 def abrir_interface_na_ativacao() -> None:
-    """Quando o TELEX roda oculto (iniciou com o Windows), mostra a interface ao ser ativado."""
-    global _INTERFACE_ABERTA
-    if _INTERFACE_ABERTA or os.getenv("DUQUE_START_HIDDEN", "0").casefold() not in {"1", "true", "yes", "on", "sim"}:
+    """Quando o TELEX roda oculto (iniciou com o Windows), mostra a interface ao ser ativado.
+
+    core/hud.py só abre uma aba se nenhum HUD estiver conectado (e recusa uma
+    segunda abertura em seguida): nada de uma aba nova a cada "Bom dia, TELEX".
+    """
+    if os.getenv("DUQUE_START_HIDDEN", "0").casefold() not in {"1", "true", "yes", "on", "sim"}:
         return
-    _INTERFACE_ABERTA = True
 
     def abrir() -> None:
         try:
-            from computer.chrome import open_in_chrome
+            from core.hud import abrir_hud
 
-            if not open_in_chrome(SERVIDOR):
-                import webbrowser
-
-                webbrowser.open_new_tab(SERVIDOR)
+            abrir_hud(SERVIDOR, log=log)
         except Exception as exc:
             log(f"[VOZ] não consegui abrir a interface: {exc}")
 
     threading.Thread(target=abrir, name="telex-interface-ativacao", daemon=True).start()
 
 
-async def realtime_session(greeting: str | None = None, *, call: bool = False, preroll: bytes = b"") -> None:
+# Avisos do núcleo (lembretes, Forja, pausa) durante uma conversa de voz: o HUD fica
+# calado para não haver duas vozes, e quem fala é a própria conversa.
+ANNOUNCED: deque[str] = deque(maxlen=8)
+
+
+def announce(text: str) -> bool:
+    """Fala um aviso na conversa de voz ativa. False se não há conversa para falar."""
+    loop, session = LOOP, SESSION
+    text = (text or "").strip()
+    if loop is None or session is None or SHUTTING_DOWN or not text:
+        return False
+    ANNOUNCED.append(text)
+
+    async def deliver() -> None:
+        deadline = time.monotonic() + 20.0
+        while busy() and time.monotonic() < deadline:  # não atropela a resposta em curso
+            await asyncio.sleep(0.2)
+        touch()
+        try:
+            await session.send_message(
+                f"(Aviso do sistema, não é fala do Du.) Diga exatamente, e só isto: \"{text}\""
+            )
+        except Exception as exc:
+            log(f"[VOZ] aviso não falado: {exc}")
+
+    return spawn_threadsafe(loop, deliver, "aviso")
+
+
+def is_announcement(spoken: str) -> bool:
+    """A fala do modelo é a leitura de um aviso que o núcleo já registrou na conversa?"""
+    for notice in list(ANNOUNCED):
+        if is_echo(spoken, notice, threshold=0.7):
+            try:
+                ANNOUNCED.remove(notice)
+            except ValueError:
+                pass
+            return True
+    return False
+
+
+def _attach_announcer(active: bool) -> None:
+    # Gancho opcional da ponte (core/voice_bridge.py): enquanto não existir, o
+    # núcleo segue com o comportamento anterior.
+    method = getattr(bridge, "attach_announcer" if active else "detach_announcer", None)
+    if callable(method):
+        try:
+            method(announce) if active else method()
+        except Exception as exc:
+            log(f"[VOZ] gancho de avisos indisponível: {exc}")
+
+
+async def realtime_session(greeting: str | None = None, *, call: bool = False, preroll: bytes = b"") -> bool:
+    """Uma conversa pela OpenAI Realtime. Devolve False se nem chegou a conectar."""
     global LOOP, MIC_QUEUE, SHUTDOWN_EVENT, REALTIME, MIC_ACTIVE, SESSION, TRACKER
     global DUQUE_SPEAKING, SHUTTING_DOWN, SPEECH_STARTED_AT, CURRENT_ITEM, GREETING_TURN
+    global RESPONDING, OPENAI_BLOCKED, LAST_ASSISTANT_TEXT
     LOOP = asyncio.get_running_loop()
     MIC_QUEUE = asyncio.Queue(maxsize=100)
     SHUTDOWN_EVENT = asyncio.Event()
@@ -694,6 +1056,8 @@ async def realtime_session(greeting: str | None = None, *, call: bool = False, p
     DUQUE_SPEAKING = False
     CURRENT_ITEM = None
     GREETING_TURN = False
+    RESPONDING = False
+    LAST_ASSISTANT_TEXT = ""
     with CANCELLED_LOCK:
         CANCELLED.clear()
     clear_audio()
@@ -702,17 +1066,16 @@ async def realtime_session(greeting: str | None = None, *, call: bool = False, p
     FLOW.user_talking = False
     if greeting:
         FLOW.on_speaking()  # vai responder "Boa tarde, Du. À sua disposição."
-    elif call:
-        FLOW.on_call()  # "Telex": bipe e escuta
     else:
-        FLOW.on_call()
+        FLOW.on_call()  # "Telex" / "Hey Jarvis": bipe e escuta
     touch()
     hud("ouvindo", "Escutando você...")
     abrir_interface_na_ativacao()  # TELEX iniciou oculto: ao ser ativado, mostra o HUD
     player = None
     input_stream = None
+    connected = False
+    started = time.perf_counter()
     try:
-        started = time.perf_counter()
 
         def mark(step: str) -> None:
             log(f"[REALTIME] {step} (+{time.perf_counter() - started:.1f}s)")
@@ -732,7 +1095,9 @@ async def realtime_session(greeting: str | None = None, *, call: bool = False, p
         session = await build_runner(voice).run(model_config={"playback_tracker": TRACKER})
         async with session:
             SESSION = session
+            connected = True
             bridge.attach_session(send_text_to_session, stop_speech_from_core, end_session_now)
+            _attach_announcer(True)
             mark("conectado ao modelo de voz")
             input_device = pick_input_device(WAKE_DEVICE_NAME)
             input_stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=CANAIS, dtype=np.int16, device=input_device, blocksize=BLOCKSIZE, callback=microphone_callback)
@@ -748,17 +1113,20 @@ async def realtime_session(greeting: str | None = None, *, call: bool = False, p
                         break
             input_stream.start()
             MIC_ACTIVE = True
-            mic_task = asyncio.create_task(send_microphone(session))
-            event_task = asyncio.create_task(receive_events(session))
-            shutdown_task = asyncio.create_task(SHUTDOWN_EVENT.wait())
-            idle_task = asyncio.create_task(idle_watch())
-            flow_task = asyncio.create_task(flow_ticker(session)) if flow_ticker is not None else None
+            watched = [
+                asyncio.create_task(send_microphone(session), name="microfone"),
+                asyncio.create_task(receive_events(session), name="eventos"),
+                asyncio.create_task(SHUTDOWN_EVENT.wait(), name="encerramento"),
+                asyncio.create_task(idle_watch(), name="espera"),
+                # Os prazos da conversa também são vigiados: se o laço morrer, a
+                # conversa fecha em vez de ficar surda até o tempo de espera.
+                asyncio.create_task(flow_ticker(session), name="prazos"),
+            ]
             if greeting:
                 send_greeting(greeting)
-            watched = [mic_task, event_task, shutdown_task, idle_task]
             done, pending = await asyncio.wait(watched, return_when=asyncio.FIRST_COMPLETED)
-            if flow_task is not None:
-                flow_task.cancel()
+            for task in done:
+                log(f"[REALTIME] conversa fechando: tarefa '{task.get_name()}' terminou.")
             for task in pending:
                 task.cancel()
             for task in pending:
@@ -775,16 +1143,19 @@ async def realtime_session(greeting: str | None = None, *, call: bool = False, p
                     log(f"[REALTIME] tarefa terminou com erro: {exc}")
     except Exception as exc:
         log(f"[REALTIME] sessão falhou: {exc!r}")
-        if "insufficient_quota" in repr(exc) or "credit_balance" in repr(exc):
-            # Sem créditos na OpenAI: as próximas conversas passam a ser locais.
-            global OPENAI_BLOCKED
+        if any(mark in repr(exc) for mark in ("insufficient_quota", "credit_balance", "invalid_api_key")):
+            # Sem créditos (ou chave inválida) na OpenAI: as próximas conversas passam a ser locais.
             OPENAI_BLOCKED = True
-            log("[VOZ] OpenAI sem créditos; a partir de agora a conversa de voz é local.")
+            log("[VOZ] OpenAI indisponível (créditos/chave); a partir de agora a conversa de voz é local.")
     finally:
-        duracao = time.perf_counter() - started if "started" in dir() else 0.0
+        for task in list(TASKS):
+            task.cancel()
+        duracao = time.perf_counter() - started
         motivo = "você encerrou" if SHUTTING_DOWN else "a conexão caiu (voltando ao standby)"
         log(f"[VOZ] conversa de voz encerrada após {duracao:.0f}s — {motivo}.")
         bridge.detach_session()
+        _attach_announcer(False)
+        ANNOUNCED.clear()
         MIC_ACTIVE = False
         if input_stream:
             try:
@@ -813,74 +1184,103 @@ async def realtime_session(greeting: str | None = None, *, call: bool = False, p
         SPEECH_STARTED_AT = None
         CURRENT_ITEM = None
         GREETING_TURN = False
-        GATE.close()
+        RESPONDING = False
         FLOW.state, FLOW.deadline = "standby", None
+        FLOW.collected.clear()
+        FLOW.user_talking = False
         if emergency.paused:
             hud("standby", "Pausa de emergência")
         else:
             hud("standby", "Sistema online")
+    return connected
 
 
 OPENAI_BLOCKED = False
 
 
-def wake_loop() -> None:
-    global WAKE_MICROFONE, WAKE_DEVICE_NAME
-    log("[WAKE] verificando chave, modelo e microfone...")
-    if not os.getenv("OPENAI_API_KEY"):
-        log("[WAKE] sem OPENAI_API_KEY: a conversa de voz será 100% local (Ollama + Piper/Windows).")
-
+def _wake_model_path() -> Path:
     openwakeword_file = openwakeword.__file__
     if not openwakeword_file:
         raise RuntimeError("Arquivo do openwakeword não foi localizado")
-
-    wake_model_path = (
-        Path(openwakeword_file).resolve().parent
-        / "resources"
-        / "models"
-        / "hey_jarvis_v0.1.onnx"
-    )
-    if not wake_model_path.exists():
+    path = Path(openwakeword_file).resolve().parent / "resources" / "models" / "hey_jarvis_v0.1.onnx"
+    if not path.exists():
         # Instalações em que o modelo não veio junto: baixa na hora (uma vez só).
-        log(f"[WAKE] modelo ausente em {wake_model_path.parent}; baixando agora...")
+        log(f"[WAKE] modelo ausente em {path.parent}; baixando agora...")
         try:
             import openwakeword.utils as oww_utils
 
             oww_utils.download_models(model_names=["hey_jarvis"])
         except Exception as exc:
             log(f"[WAKE] download do modelo falhou: {type(exc).__name__}: {exc}")
-    if not wake_model_path.exists():
-        raise RuntimeError(f"Modelo wake word não encontrado: {wake_model_path}")
-    log("[WAKE] modelo pronto.")
+    if not path.exists():
+        raise RuntimeError(f"Modelo wake word não encontrado: {path}")
+    return path
 
-    log(
-        f"[WAKE] inicializando | modelo={wake_model_path.name} | "
-        f"threshold={WAKE_THRESHOLD} | frame={FRAME_LENGTH} | wake_mic={WAKE_MICROFONE}"
-    )
 
+def select_microphone() -> None:
+    """Escolhe (de novo) o microfone. Chamado no início e depois de falhas: ao
+    conectar/desconectar um fone, o Windows renumera os dispositivos."""
+    global WAKE_MICROFONE, WAKE_DEVICE_NAME
     devices = PvRecorder.get_available_devices()
     log(f"[WAKE] dispositivos PvRecorder: {devices}")
     if not devices:
         raise RuntimeError("Nenhum dispositivo de entrada foi encontrado pelo PvRecorder.")
-    WAKE_MICROFONE, reason = pick_wake_device(devices)
-    log(f"[WAKE] microfone {WAKE_MICROFONE}: {reason}")
-    if WAKE_MICROFONE >= len(devices):
-        raise RuntimeError(
-            f"DUQUE_WAKE_MIC={WAKE_MICROFONE} inválido; "
-            f"existem apenas {len(devices)} dispositivo(s) no PvRecorder."
-        )
+    index, reason = pick_wake_device(devices)
+    if index >= len(devices):
+        log(f"[WAKE] DUQUE_WAKE_MIC={index} não existe (só há {len(devices)}); usando o padrão do sistema.")
+        index, reason = -1, "padrão do sistema (número configurado inválido)"
+    WAKE_MICROFONE = index
+    WAKE_DEVICE_NAME = devices[index] if index >= 0 else ""
+    log(f"[WAKE] microfone {index} ({WAKE_DEVICE_NAME or 'padrão do sistema'}): {reason}")
 
-    selected_name = (
-        devices[WAKE_MICROFONE] if WAKE_MICROFONE >= 0 else "padrão do sistema"
-    )
-    WAKE_DEVICE_NAME = selected_name if WAKE_MICROFONE >= 0 else ""
-    log(f"[WAKE] dispositivo selecionado: {selected_name!r}")
 
-    wake_model = Model(
-        wakeword_models=[str(wake_model_path)],
-        inference_framework="onnx",
-    )
-    log("[WAKE] modelo carregado com sucesso.")
+def local_control(text: str) -> bool:
+    """Conversa local: "Telex, pausa tudo" aciona a pausa de emergência de verdade."""
+    if is_pause_command(text):
+        log("[VOZ-LOCAL] pausa de emergência pedida por voz.")
+        post_server("/api/emergencia", {"acao": "pausar", "origem": "voz"})
+        return True
+    return False
+
+
+def converse(local_voice: Any, greeting: str | None, action: str, preroll: bytes) -> None:
+    """Uma conversa: OpenAI Realtime ou local, com a outra de reserva."""
+    call = action == "call"
+    has_key = bool(os.getenv("OPENAI_API_KEY"))
+    chosen = os.getenv("DUQUE_VOICE", "auto").strip().casefold()
+    if local_runtime.voice_mode(has_key, OPENAI_BLOCKED) == "local":
+        reason = local_voice.run(greeting, call=call, preroll=preroll)
+        if reason == "indisponível" and has_key and not OPENAI_BLOCKED and chosen != "local":
+            log("[VOZ] conversa local indisponível; usando a OpenAI desta vez.")
+            asyncio.run(realtime_session(greeting, call=call, preroll=preroll))
+        elif reason == "indisponível":
+            hud("erro", "Voz local indisponível — rode o preparar_local.bat")
+        return
+    connected = asyncio.run(realtime_session(greeting, call=call, preroll=preroll))
+    if not connected and chosen != "openai":
+        # Sem internet / OpenAI fora do ar: a mesma ativação vira uma conversa local.
+        log("[VOZ] OpenAI não conectou; seguindo com a conversa local.")
+        local_voice.run(greeting, call=call, preroll=preroll)
+
+
+def wake_loop() -> None:
+    log("[WAKE] verificando chave, modelo e microfone...")
+    if not os.getenv("OPENAI_API_KEY"):
+        log("[WAKE] sem OPENAI_API_KEY: a conversa de voz será 100% local (Ollama + Piper/Windows).")
+
+    # Preparação com novas tentativas: sem microfone no boot (fone Bluetooth ainda
+    # conectando), a voz antes morria de vez até reiniciar o TELEX.
+    while True:
+        try:
+            wake_model_path = _wake_model_path()
+            select_microphone()
+            wake_model = Model(wakeword_models=[str(wake_model_path)], inference_framework="onnx")
+            break
+        except Exception as exc:
+            log(f"[WAKE] preparação falhou: {type(exc).__name__}: {exc}. Tentando de novo em 15s.")
+            hud("erro", "Ativação por voz indisponível — veja o duque.log")
+            time.sleep(15.0)
+    log(f"[WAKE] modelo carregado | threshold={WAKE_THRESHOLD} | frame={FRAME_LENGTH}")
     # "Bom dia / Boa tarde / Boa noite, TELEX" (local, sem internet).
     local = local_wake.load(log)
     if local is None and not HEY_JARVIS:
@@ -897,30 +1297,35 @@ def wake_loop() -> None:
         chime=play_chime_blocking,
         device_index=lambda: WAKE_MICROFONE,
         vosk_model=getattr(local, "model", None),
+        control=local_control,
     )
     last_wake = 0.0
+    failures = 0
     while True:
         recorder = None
         try:
-            recorder = PvRecorder(
-                frame_length=FRAME_LENGTH,
-                device_index=WAKE_MICROFONE,
-            )
+            recorder = PvRecorder(frame_length=FRAME_LENGTH, device_index=WAKE_MICROFONE)
             recorder.start()
             phrases = '"Bom dia, TELEX" e "Telex"' if local else ""
             if jarvis_on:
-                phrases = (phrases + ' e ' if phrases else "") + '"Hey Jarvis"'
+                phrases = (phrases + " e " if phrases else "") + '"Hey Jarvis"'
             log(
-                f"[WAKE] ativo: {phrases} | modelo={WAKEWORD_MODEL_NAME} | "
-                f"threshold={WAKE_THRESHOLD} | mic={WAKE_MICROFONE} | "
+                f"[WAKE] ativo: {phrases} | mic={WAKE_MICROFONE} | "
                 f"dispositivo={recorder.selected_device!r}"
             )
+            # Nada do áudio de antes da conversa (ou da própria voz do TELEX) pode
+            # sobrar nos buffers e reativar sozinho logo depois.
             if local:
                 local.reset()
+            try:
+                wake_model.reset()
+            except Exception:
+                pass
             recent: deque[bytes] = deque(maxlen=PREROLL_FRAMES)
 
             while True:
                 frame = np.asarray(recorder.read(), dtype=np.int16)
+                failures = 0
                 recent.append(frame.tobytes())
                 heard = None
                 if local is not None:
@@ -955,26 +1360,26 @@ def wake_loop() -> None:
                     if emergency.paused:
                         hud("standby", 'Pausa de emergência — diga "Retomar, TELEX"')
                     continue
-                last_wake = now
                 preroll = b"".join(recent) if action == "call" else b""
                 recorder.stop()
                 recorder.delete()
                 recorder = None
-                if local_runtime.voice_mode(bool(os.getenv("OPENAI_API_KEY")), OPENAI_BLOCKED) == "local":
-                    local_voice.run(greeting, call=action == "call", preroll=preroll)
-                else:
-                    asyncio.run(realtime_session(greeting, call=action == "call", preroll=preroll))
+                converse(local_voice, greeting, action, preroll)
+                last_wake = time.perf_counter()  # o intervalo conta do FIM da conversa
                 break
 
         except KeyboardInterrupt:
             return
         except Exception as exc:
-            log(
-                f"[WAKE] loop falhou: {type(exc).__name__}: {exc!r}. "
-                "Tentando novamente em 2s."
-            )
+            failures += 1
+            log(f"[WAKE] loop falhou: {type(exc).__name__}: {exc!r}. Tentando novamente em 2s.")
             hud("erro", "Wake word temporariamente indisponível")
             time.sleep(2.0)
+            if failures >= 3:
+                try:
+                    select_microphone()
+                except Exception as select_exc:
+                    log(f"[WAKE] não consegui escolher outro microfone: {select_exc}")
         finally:
             if recorder:
                 try:
@@ -982,3 +1387,8 @@ def wake_loop() -> None:
                     recorder.delete()
                 except Exception:
                     pass
+
+
+if __name__ == "__main__":
+    log(f"TELEX Realtime | modelo={MODEL} | voz={VOICE} | processamento={'on' if VOICE_PROCESSING else 'off'}")
+    wake_loop()

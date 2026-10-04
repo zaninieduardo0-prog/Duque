@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any, Callable
 
 from . import local_stt, local_tts
@@ -34,8 +35,11 @@ class LocalVoice:
         chime: Callable[[], None],
         device_index: Callable[[], int],
         vosk_model: Any = None,
+        control: Callable[[str], bool] | None = None,
     ) -> None:
-        self._args = dict(think=think, record=record, log=log, hud=hud, chime=chime)
+        self._args: dict[str, Any] = dict(think=think, record=record, log=log, hud=hud, chime=chime)
+        if control is not None:
+            self._args["control"] = control
         self._device_index = device_index
         self._vosk_model = vosk_model
         self._log = log
@@ -61,6 +65,7 @@ class LocalVoice:
 
         if not self.load():
             return "indisponível"
+        hud = self._args["hud"]
         recorder = PvRecorder(frame_length=FRAME_SAMPLES, device_index=self._device_index())
         recorder.start()
         log = self._log
@@ -82,7 +87,20 @@ class LocalVoice:
 
         def play(audio: local_tts.Audio) -> None:
             sd.play(np.frombuffer(audio.pcm, dtype=np.int16), audio.sample_rate)
-            sd.wait()
+            # Nunca espera para sempre: se o alto-falante sumir no meio da fala,
+            # sd.wait() travava a conversa local (e a ativação por voz) de vez.
+            limit = time.monotonic() + audio.seconds + 5.0
+            while time.monotonic() < limit:
+                try:
+                    active = bool(sd.get_stream().active)
+                except Exception:
+                    active = False
+                if not active:
+                    break
+                time.sleep(0.05)
+            else:
+                log("[VOZ-LOCAL] o alto-falante não terminou de tocar; seguindo.")
+                sd.stop()
 
         deps = Deps(
             read_frame=read_frame,
@@ -98,6 +116,9 @@ class LocalVoice:
             reason = LocalSession(deps).converse(greeting, call=call, preroll=preroll)
             log(f"[VOZ-LOCAL] conversa local encerrada ({reason}).")
             return reason
+        except Exception:
+            hud("erro", "Conversa local falhou — veja o duque.log")
+            raise
         finally:
             try:
                 recorder.stop()

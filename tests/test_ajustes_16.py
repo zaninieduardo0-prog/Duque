@@ -7,6 +7,7 @@ import io
 import os
 import struct
 import unittest
+from pathlib import Path
 from typing import Any
 from unittest import mock
 
@@ -95,7 +96,11 @@ class LoadTests(unittest.TestCase):
             self.assertNotIsInstance(getattr(speaker, "engine", None), (FishEngine, FallbackEngine))
 
     def test_with_key_fish_has_local_backup(self) -> None:
-        with mock.patch.dict(os.environ, {"FISH_API_KEY": "k", "DUQUE_TTS": "auto"}):
+        # Hermético: a voz local de reserva existe (Piper instalado), seja qual for a
+        # máquina. Antes o teste dependia de SAPI (só Windows) ou de um Piper real.
+        with mock.patch.dict(os.environ, {"FISH_API_KEY": "k", "DUQUE_TTS": "auto"}), mock.patch.object(
+            local_tts, "find_piper_exe", return_value=Path("piper.exe")
+        ), mock.patch.object(local_tts, "find_piper_voice", return_value=Path("pt_BR-faber-medium.onnx")):
             speaker = local_tts.load(lambda _m: None)
             assert speaker is not None
             self.assertIsInstance(speaker.engine, FallbackEngine)

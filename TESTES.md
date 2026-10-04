@@ -113,16 +113,16 @@ marque ✅ ou ❌. Se der ❌, anote o que aconteceu (e, se houver, o trecho de
 | 4D.7 | `resumo do dia` | Quantos pedidos, o que falhou e a agenda de amanhã |
 | 4D.8 | Deixe o Duque ligado às 21:30 | Ele fala o resumo do dia sozinho (mude com `setx DUQUE_DAILY_SUMMARY "22:00"` ou desligue com `"0"`) |
 
-## 4E. Audição com portão, "Duque, stop", Chrome e interface nova
+## 4E. Audição com portão, "Telex, stop", Chrome e interface nova
 
 | # | Ação | Esperado |
 |---|------|----------|
 | 4E.1 | Abrir o Duque | HUD azul novo (cérebro de partículas), no **seu** perfil do Chrome, sem tela de escolher conta |
 | 4E.2 | Diga `Hey Jarvis` e, em seguida, `abra o WhatsApp` | Abre **uma vez** (app ou WhatsApp Web no seu Chrome) e não fica tentando de novo |
-| 4E.3 | Converse com alguém perto do microfone, sem dizer "Duque" | O Duque **não responde** (no log: `[GATE] ignore`) |
-| 4E.4 | Diga `Duque, que horas são?` | Responde (no log: `[GATE] respond`) |
-| 4E.5 | Peça algo longo (`Duque, me explica como funciona um motor`) e no meio diga `Duque, stop` | Para de falar na hora |
-| 4E.6 | No meio de uma explicação, diga só `Duque` | Para e fica esperando seu pedido |
+| 4E.3 | Converse com alguém perto do microfone, sem dizer "Telex" | O TELEX **não responde** (no log: `[GATE] ignore`) |
+| 4E.4 | Diga `Telex, que horas são?` | Responde (no log: `[GATE] respond`) |
+| 4E.5 | Peça algo longo (`Telex, me explica como funciona um motor`) e no meio diga `Telex, stop` | Para de falar na hora |
+| 4E.6 | No meio de uma explicação, diga só `Telex` | Para e fica esperando seu pedido |
 | 4E.7 | Fique 1 minuto sem chamar | Volta ao standby; só `Hey Jarvis` (ou digitar) abre de novo |
 | 4E.8 | Digite `stop` (ou aperte Esc) enquanto ele fala | Para na hora |
 | 4E.9 | Clique no ícone do YouTube/WhatsApp à esquerda | Abre no seu Chrome |

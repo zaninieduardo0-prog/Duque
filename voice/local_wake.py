@@ -62,6 +62,11 @@ def plain(text: str) -> str:
 # Modo livre (modelo sem a palavra "telex" no vocabulário): aceita o que soar
 # parecido — "teles", "telê", "telecs", "tele"...
 _LOOSE_NAME = re.compile(r"tele[a-z]{0,4}|tel[ei]?[ckx]s?|tel[ée]")
+# Palavras comuns que o padrão livre confundia com o nome ("telefone tocou" acordava o TELEX).
+_NOT_NAMES = frozenset({
+    "telefone", "telefones", "telefona", "telefonar", "telefonou", "telefonei", "telefonia",
+    "telefonema", "teleco", "telha", "telhas", "telas", "telado", "teleton",
+})
 
 
 _PLAIN_NAMES = frozenset(plain(name) for name in NAME_SPELLINGS)
@@ -80,7 +85,7 @@ class Heard:
 
 
 def _is_name(word: str, loose: bool) -> bool:
-    return word in _PLAIN_NAMES or (loose and bool(_LOOSE_NAME.fullmatch(word)))
+    return word in _PLAIN_NAMES or (loose and word not in _NOT_NAMES and bool(_LOOSE_NAME.fullmatch(word)))
 
 
 def classify(text: str, *, loose: bool = False) -> Heard | None:

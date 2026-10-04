@@ -8,3 +8,6 @@ duque_data/
 # bancos locais (dados pessoais) nunca vão para o GitHub
 *.db
 *.db-journal
+
+# logs girados do Duque
+duque.log.*

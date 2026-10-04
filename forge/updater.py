@@ -73,13 +73,19 @@ class Updater:
             target = self.git.out("rev-parse", f"{self.remote}/{self.base}")
             if previous == target:
                 return UpdateResult("up_to_date", "já está na versão mais recente", previous, previous)
+            if target == read_state(self.state_path).get("failed"):
+                # Essa versão já falhou (validação ou não subiu): aplicar de novo só
+                # repetiria o ciclo atualiza → cai → volta. Espera um commit novo no main.
+                return UpdateResult("refused", f"a versão {target[:10]} já falhou antes; aguardando uma correção no main", previous, previous)
             if not self.git.is_ancestor(previous, target):
                 return UpdateResult("refused", "a instalação tem commits locais que não estão no remoto", previous, target)
 
             self.git.run("merge", "--ff-only", target)
             gate = self.smoke.run(self.root)
             if not gate.passed:
-                self.git.run("reset", "--hard", previous)
+                # --keep (e não --hard): volta o commit sem apagar nada que o Du
+                # tenha editado nesse meio-tempo.
+                self.git.run("reset", "--keep", previous)
                 write_state(self.state_path, status="rolled_back", previous=previous, current=previous, failed=target, reason=gate.failure_report(2000))
                 return UpdateResult("rolled_back", f"nova versão falhou na validação ({gate.summary()}); voltei para a anterior", previous, previous)
 

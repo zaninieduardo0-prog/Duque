@@ -5,12 +5,9 @@ from __future__ import annotations
 import os
 import unittest
 from pathlib import Path
-from typing import Any
 from unittest import mock
 
 from brain.planner import WHATSAPP_ACTION
-from brain.router import IntentRouter
-from computer import whatsapp_flow
 from computer.whatsapp_flow import parse_request, set_known_names
 from tests.helpers import TempDirTestCase
 

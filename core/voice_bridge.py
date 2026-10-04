@@ -26,6 +26,7 @@ class VoiceBridge:
         self._context: Callable[[], str] | None = None
         self._memories: Callable[[], str] | None = None
         self._voice: Callable[[], str] | None = None
+        self._announcer: Callable[[str], bool] | None = None
 
     # lado da voz ------------------------------------------------------------
     def attach_session(
@@ -54,6 +55,26 @@ class VoiceBridge:
         try:
             ender(reason)
             return True
+        except Exception:
+            return False
+
+    def attach_announcer(self, announcer: Callable[[str], bool]) -> None:
+        """A sessão de voz se oferece para falar avisos (lembretes, Forja)."""
+        with self._lock:
+            self._announcer = announcer
+
+    def detach_announcer(self) -> None:
+        with self._lock:
+            self._announcer = None
+
+    def announce(self, text: str) -> bool:
+        """Fala um aviso pela conversa de voz ativa; False se não há quem fale."""
+        with self._lock:
+            announcer = self._announcer
+        if announcer is None:
+            return False
+        try:
+            return bool(announcer(text))
         except Exception:
             return False
 

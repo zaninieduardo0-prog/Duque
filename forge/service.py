@@ -66,6 +66,8 @@ class ForgeService:
         self._current: dict[str, Any] | None = None
         self._history: list[dict[str, Any]] = []
         self._thread: threading.Thread | None = None
+        self._worker_lock = threading.Lock()
+        self._worker_exiting = False
         # Pausa de emergência: a Forja para entre as etapas e continua de onde parou.
         self.pause: Any | None = None
         forge.progress = self._on_progress
@@ -113,17 +115,25 @@ class ForgeService:
 
     # internos ------------------------------------------------------------
     def _ensure_worker(self) -> None:
-        if self._thread and self._thread.is_alive():
-            return
-        self._thread = threading.Thread(target=self._worker, name="duque-forja", daemon=True)
-        self._thread.start()
+        with self._worker_lock:
+            if self._thread and self._thread.is_alive() and not self._worker_exiting:
+                return
+            self._worker_exiting = False
+            self._thread = threading.Thread(target=self._worker, name="duque-forja", daemon=True)
+            self._thread.start()
 
     def _worker(self) -> None:
         while True:
             try:
                 job = self._queue.get(timeout=5)
             except queue.Empty:
-                return
+                # Decide sair sob a mesma trava do submit(): antes um trabalho que
+                # chegasse nesse instante via a thread "viva" e ficava na fila para sempre.
+                with self._worker_lock:
+                    if self._queue.empty():
+                        self._worker_exiting = True
+                        return
+                continue
             try:
                 self.run_job(job)
             except Exception as exc:

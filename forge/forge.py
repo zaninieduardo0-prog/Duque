@@ -168,6 +168,18 @@ class Forge:
                     continue
                 report.commit = sandbox.git.head()
 
+            if any(change.path.replace("\\", "/").startswith(".github/") for change in changes):
+                # Workflows rodam no GitHub assim que o branch é enviado (com os
+                # segredos do repositório). Mudança em .github/ só sai daqui depois
+                # de aprovada: o commit fica num branch local para o Du revisar.
+                sandbox.keep_branch = True
+                report.status = ForgeStatus.AWAITING_APPROVAL
+                report.approval_reasons.append(
+                    f"altera .github/: não enviado; revise o branch local {sandbox.branch} e envie você mesmo"
+                )
+                self._step(report, f"mudança em .github/ guardada no branch local {sandbox.branch}")
+                return
+
             self._step(report, f"enviando branch {sandbox.branch}")
             sandbox.push(force=True)
             if report.pr_url is None:

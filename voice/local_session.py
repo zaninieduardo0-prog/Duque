@@ -73,6 +73,9 @@ class Deps:
     # Antes/depois de falar: o microfone não pode guardar o que o alto-falante disse.
     mute_mic: Callable[[], None] = lambda: None
     unmute_mic: Callable[[], None] = lambda: None
+    # Comandos de controle ("Telex, pausa tudo"): devolve True se tratou. Sem isto a
+    # pausa de emergência por voz só encerrava a conversa local (caía no "parar").
+    control: Callable[[str], bool] = lambda _text: False
 
 
 @dataclass
@@ -190,6 +193,14 @@ class LocalSession:
                     break
                 window = LISTEN_SECONDS
                 continue
+            try:
+                handled = deps.control(text)
+            except Exception as exc:
+                deps.log(f"[VOZ-LOCAL] comando de controle falhou: {type(exc).__name__}: {exc}")
+                handled = False
+            if handled:
+                reason = "controle"
+                break
             if is_sleep(text):
                 reason = "repousar"
                 break

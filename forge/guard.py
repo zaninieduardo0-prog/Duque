@@ -25,6 +25,11 @@ def check_changes(changes: list[FileChange], protected: tuple[str, ...]) -> Guar
             if fnmatch(path, pattern):
                 reasons.append(f"altera arquivo protegido: {path}")
                 break
-        if change.status.startswith("D") and (path.startswith("tests/") or path.endswith("_test.py")):
+        is_test = path.startswith("tests/") or path.endswith("_test.py")
+        if is_test and change.status.startswith("D"):
             reasons.append(f"remove teste: {path}")
+        elif is_test and not change.status.startswith("A") and not path.endswith("__init__.py"):
+            # Alterar um teste que já existia pode enfraquecê-lo: só com aprovação.
+            # Testes NOVOS continuam liberados.
+            reasons.append(f"altera teste existente: {path}")
     return GuardVerdict(not reasons, reasons)

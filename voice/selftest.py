@@ -63,7 +63,7 @@ def run(seconds: float = 8.0, log: Callable[[str], Any] = lambda _m: None) -> di
         _say(f"  {index}: {name}{marca}", log)
     report["devices"] = devices
     if not devices:
-        _say("[FALHA] nenhum microfone. Conecte/!habilite um e tente de novo.", log)
+        _say("[FALHA] nenhum microfone. Conecte/habilite um e tente de novo.", log)
         return report
 
     try:
@@ -71,7 +71,9 @@ def run(seconds: float = 8.0, log: Callable[[str], Any] = lambda _m: None) -> di
 
         wake_index, motivo = pick_wake_device(devices)
     except Exception:
-        wake_index, motivo = (int(os.getenv("DUQUE_WAKE_MIC", "-1")), "padrão")
+        wake_index, motivo = -1, "padrão do sistema"
+    if wake_index >= len(devices):
+        wake_index, motivo = -1, f"padrão do sistema (o número configurado não existe; há {len(devices)})"
     _say(f"Microfone escolhido: {wake_index} ({motivo})", log)
 
     # 3) Ativação local ("Bom dia, TELEX" / "Telex")

@@ -38,7 +38,7 @@ namespaces = true
 
 [tool.ruff]
 line-length = 100
-exclude = [".venv", "lixeira"]
+extend-exclude = [".venv", "lixeira", "duque_data", "interface"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
@@ -58,9 +58,8 @@ include = [
     "diagnostico.py",
     "servidor.py",
     "duque_wake_v2.py",
-    "duque_wake_v3.py",
 ]
-exclude = [".venv", "lixeira"]
+exclude = [".venv", "lixeira", "duque_data"]
 pythonVersion = "3.13"
 typeCheckingMode = "basic"
 reportMissingImports = "none"

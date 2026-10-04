@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import array
+import importlib.util
 import json
 import os
 import subprocess
@@ -47,6 +48,10 @@ class StyleTests(unittest.TestCase):
         self.assertIn("--length_scale", seen[0])
         self.assertIn("--sentence_silence", seen[0])
 
+    @unittest.skipUnless(
+        importlib.util.find_spec("numpy") is not None and importlib.util.find_spec("pedalboard") is not None,
+        "o estilo de voz usa numpy + pedalboard (sem eles o áudio sai como veio, de propósito)",
+    )
     def test_apply_style_keeps_length_and_changes_sound(self) -> None:
         samples = array.array("h", [int(8000 * (1 if (i // 20) % 2 else -1)) for i in range(22050)])
         audio = Audio(samples.tobytes(), 22050)

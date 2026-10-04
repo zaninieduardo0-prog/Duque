@@ -12,7 +12,7 @@
   bom?"), a resposta vale sem o nome por 5 s.
 
 Este módulo é só a lógica (testável sem microfone). O runtime de voz
-(duque_wake_v3.py) chama on_* e tick() e executa as ações devolvidas.
+(duque_wake_v2.py) chama on_* e tick() e executa as ações devolvidas.
 """
 
 from __future__ import annotations

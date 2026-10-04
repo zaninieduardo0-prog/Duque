@@ -465,6 +465,8 @@ def executar_comando():
         agent.conversation.add("user", texto.strip(), "texto")
         if bridge.send_to_voice(texto.strip()):
             return jsonify({"ok": True, "via": "voz", "text": "", "resposta": ""})
+        # A fala do usuário já foi registrada acima; não registrar de novo.
+        registrar = False
 
     try:
         # Estado visual: um comando novo sempre pode começar, mesmo vindo de
@@ -699,8 +701,14 @@ def registrar_conversa():
 
 
 def _avisar(texto: str) -> None:
-    """Fala do TELEX que entra na conversa (o HUD lê em voz alta)."""
+    """Fala do TELEX que entra na conversa (o HUD lê em voz alta).
+
+    Com a conversa de voz ativa o HUD fica calado (para não falar junto com a
+    voz); então a própria sessão de voz fala o aviso.
+    """
     agent.conversation.add("assistant", texto, "aviso")
+    if bridge.voice_active:
+        bridge.announce(texto)
 
 
 def _pausar(origem: str = "hud") -> dict[str, Any]:

@@ -129,10 +129,10 @@ Conferir se ficaram salvas (mostra só se existe, não a chave):
 
 Tudo `[OK]` ou `[AVISO]` → siga. Algum `[FALHA]` → mande print para o Claude.
 
-Microfone errado? O diagnóstico lista os microfones com número. Para escolher:
+Microfone errado? O diagnóstico lista os microfones com número. Para escolher
+(um número só: a conversa usa o mesmo microfone da ativação):
 
 ```powershell
-setx DUQUE_MIC "<número>"
 setx DUQUE_WAKE_MIC "<número>"
 ```
 
@@ -193,7 +193,6 @@ Trocar o microfone, se o diagnóstico apontar outro número:
 
 ```powershell
 setx DUQUE_WAKE_MIC "<número>"
-setx DUQUE_MIC "<número>"
 ```
 
 ## Iniciar junto com o Windows (sem interface, só voz)
