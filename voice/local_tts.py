@@ -8,9 +8,14 @@ Dois motores, escolhidos por DUQUE_TTS (auto | piper | sapi):
 - **SAPI** (as vozes do Windows, como "Microsoft Maria"). Não instala nada;
   serve de reserva quando o Piper ainda não foi instalado.
 
-Em ``auto``: Piper se o executável e uma voz existirem, senão SAPI.
+- **Fish Audio** (opcional, nuvem): só entra se FISH_API_KEY existir. Usa a faixa
+  gratuita (``s2.1-pro-free``) e, se o Fish recusar (sem chave válida, sem saldo,
+  sem rede), o TELEX cancela e segue com a voz local sem travar.
+
+Em ``auto``: Fish (se houver chave) → Piper (se houver executável e voz) → SAPI.
 Variáveis: DUQUE_PIPER_EXE, DUQUE_PIPER_VOICE (caminho ou nome do arquivo),
-DUQUE_SAPI_VOICE (parte do nome, ex. "Maria"), DUQUE_TTS_RATE (-10..10, SAPI).
+DUQUE_SAPI_VOICE (parte do nome, ex. "Maria"), DUQUE_TTS_RATE (-10..10, SAPI),
+FISH_API_KEY, FISH_VOICE_ID (reference_id da voz), FISH_MODEL (padrão s2.1-pro-free).
 """
 
 from __future__ import annotations
@@ -25,7 +30,7 @@ import tempfile
 import wave
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parent.parent
 VOICES_DIR = ROOT / "duque_data" / "vozes"
@@ -168,16 +173,94 @@ class SapiEngine:
         return Audio(frames, rate)
 
 
+def parse_wav(data: bytes) -> Audio:
+    """WAV (inclusive de resposta em streaming, com tamanho zerado) → Audio mono de 16 bits."""
+    if data[:4] != b"RIFF" or b"fmt " not in data[:200]:
+        raise RuntimeError("o Fish não devolveu um WAV")
+    fmt = data.index(b"fmt ") + 8
+    channels = int.from_bytes(data[fmt + 2 : fmt + 4], "little")
+    rate = int.from_bytes(data[fmt + 4 : fmt + 8], "little")
+    bits = int.from_bytes(data[fmt + 14 : fmt + 16], "little")
+    start = data.index(b"data", fmt) + 8
+    pcm = data[start:]
+    if bits != 16:
+        raise RuntimeError(f"formato de áudio não suportado ({bits} bits)")
+    pcm = pcm[: len(pcm) - len(pcm) % (2 * max(1, channels))]
+    if channels == 2:
+        import array
+
+        stereo = array.array("h")
+        stereo.frombytes(pcm)
+        pcm = array.array("h", ((stereo[i] + stereo[i + 1]) // 2 for i in range(0, len(stereo) - 1, 2))).tobytes()
+    return Audio(pcm, rate)
+
+
+class FishEngine:
+    """Voz do Fish Audio pela API. Qualquer recusa vira erro; quem chama cai para a voz local."""
+
+    name = "fish"
+    URL = "https://api.fish.audio/v1/tts"
+
+    def __init__(self, api_key: str, voice_id: str = "", model: str = "", opener: Callable[..., Any] | None = None) -> None:
+        import urllib.request
+
+        self.api_key, self.voice_id = api_key, voice_id
+        self.model = model or os.getenv("FISH_MODEL", "s2.1-pro-free")
+        self._open = opener or urllib.request.urlopen
+
+    def synthesize(self, text: str) -> Audio:
+        import urllib.request
+
+        body: dict[str, Any] = {"text": text, "format": "wav", "sample_rate": 24000, "latency": "balanced"}
+        if self.voice_id:
+            body["reference_id"] = self.voice_id
+        request = urllib.request.Request(
+            self.URL,
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json", "model": self.model},
+        )
+        try:
+            with self._open(request, timeout=30) as response:
+                return parse_wav(response.read())
+        except Exception as exc:
+            code = getattr(exc, "code", None)
+            raise RuntimeError(f"Fish Audio recusou ({code or type(exc).__name__})") from exc
+
+
+class FallbackEngine:
+    """Tenta o motor principal; se falhar, usa o reserva e deixa o principal de castigo por um tempo."""
+
+    def __init__(self, primary: Any, backup: Any, cooldown: float = 300.0, clock: Callable[[], float] | None = None) -> None:
+        import time
+
+        self.primary, self.backup, self.cooldown = primary, backup, cooldown
+        self._clock = clock or time.monotonic
+        self._blocked_until = 0.0
+        self.name = primary.name
+        self.last_error: str | None = None
+
+    def synthesize(self, text: str) -> Audio:
+        if self._clock() >= self._blocked_until:
+            try:
+                return self.primary.synthesize(text)
+            except Exception as exc:
+                self.last_error = f"{type(exc).__name__}: {exc}"
+                self._blocked_until = self._clock() + self.cooldown
+        return self.backup.synthesize(text)
+
+
 class Speaker:
     """Escolhe o motor e transforma texto em áudio."""
 
-    def __init__(self, engine: PiperEngine | SapiEngine) -> None:
+    def __init__(self, engine: Any) -> None:
         self.engine = engine
 
     @property
     def name(self) -> str:
-        detail = f" ({self.engine.voice.stem})" if isinstance(self.engine, PiperEngine) else ""
-        return self.engine.name + detail
+        engine = self.engine
+        if isinstance(engine, FallbackEngine):
+            return f"{engine.name} (reserva: {Speaker(engine.backup).name})"
+        return engine.name + (f" ({engine.voice.stem})" if isinstance(engine, PiperEngine) else "")
 
     def synthesize(self, text: str) -> Audio:
         spoken = clean_for_speech(text)
@@ -186,9 +269,8 @@ class Speaker:
         return self.engine.synthesize(spoken)
 
 
-def load(log: Callable[[str], object] = print) -> Speaker | None:
-    mode = os.getenv("DUQUE_TTS", "auto").strip().casefold()
-    if mode in {"auto", "piper"}:
+def _load_local(mode: str, log: Callable[[str], object]) -> Speaker | None:
+    if mode in {"auto", "fish", "piper"}:
         exe, voice = find_piper_exe(), find_piper_voice()
         if exe and voice:
             log(f"[TTS] voz local: Piper ({voice.stem}).")
@@ -196,10 +278,24 @@ def load(log: Callable[[str], object] = print) -> Speaker | None:
         if mode == "piper":
             log("[TTS] Piper pedido, mas falta o executável ou a voz; rode o preparar_local.bat.")
             return None
-    if mode in {"auto", "sapi"} and os.name == "nt":
+    if mode in {"auto", "fish", "sapi"} and os.name == "nt":
         log("[TTS] voz local: Windows (SAPI). Para uma voz melhor, instale o Piper (preparar_local.bat).")
         return Speaker(SapiEngine())
     return None
+
+
+def load(log: Callable[[str], object] = print) -> Speaker | None:
+    mode = os.getenv("DUQUE_TTS", "auto").strip().casefold()
+    local = _load_local(mode, log)
+    key = os.getenv("FISH_API_KEY", "").strip()
+    if mode in {"auto", "fish"} and key:
+        # Sem FISH_API_KEY o Fish nunca é chamado: o TELEX fica 100% local.
+        fish = FishEngine(key, os.getenv("FISH_VOICE_ID", "").strip())
+        log(f"[TTS] voz: Fish Audio ({fish.model})" + (", com a voz local de reserva." if local else ", sem reserva local."))
+        return Speaker(FallbackEngine(fish, local.engine)) if local else Speaker(fish)
+    if mode == "fish":
+        log("[TTS] Fish pedido, mas falta FISH_API_KEY; seguindo com a voz local.")
+    return local
 
 
 PIPER_URL = os.getenv(

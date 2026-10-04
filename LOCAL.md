@@ -40,3 +40,16 @@ mas sem o cérebro de modelo (só as regras locais: abrir apps, YouTube, notas, 
 - Na conversa local o TELEX não é interrompido no meio da fala (ele não distingue a própria voz no
   microfone). Peça "para" depois que ele terminar, ou use o HUD.
 - O ouvido Vosk erra mais que o da OpenAI com frases longas ou barulho.
+
+## Voz do Fish Audio (opcional)
+
+O Fish só é usado se existir a chave. Sem `FISH_API_KEY`, nada é enviado para fora e o TELEX fica 100% local.
+
+```powershell
+setx FISH_API_KEY "sua-chave"          # fish.audio → conta → API Keys
+setx FISH_VOICE_ID "id-da-voz"         # opcional: o ID (reference_id) da voz escolhida/clonada
+```
+
+Reabra o Duque. Por padrão usa a faixa gratuita (`FISH_MODEL=s2.1-pro-free`). Se o Fish recusar
+(chave inválida, sem saldo, sem rede), o TELEX cancela e fala com a voz local (Piper/Windows) sem travar,
+e só tenta o Fish de novo depois de 5 minutos. Para desligar o Fish: `setx DUQUE_TTS piper`.
