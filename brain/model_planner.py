@@ -18,7 +18,10 @@ class ModelPlanner:
         '"kind" pode ser think, tool ou respond. Use apenas ferramentas fornecidas. '
         "Use ferramentas só quando o pedido exigir uma ação no computador ou um dado que você não "
         'tem (hora, clima, arquivos...). Cumprimentos, conversa e perguntas de conhecimento geral '
-        'não usam ferramentas: devolva apenas uma etapa "respond".'
+        'não usam ferramentas: devolva apenas uma etapa "respond". '
+        "Pedidos com várias ações viram várias etapas em ordem. Nunca responda que não existe "
+        "ferramenta para uma ação no computador: combine as ferramentas disponíveis (abrir app/site, "
+        "describe_screen, click_on, ui_type_text, ui_hotkey, wait) para fazer pela tela."
     )
 
     def __init__(self, model: ModelAdapter, schemas: ToolSchemaRegistry) -> None:

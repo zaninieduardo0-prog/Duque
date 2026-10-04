@@ -146,6 +146,25 @@ _SAVE_TO_NOTEPAD = re.compile(
     re.IGNORECASE,
 )
 
+# Destinos do texto criado na etapa anterior ("copie isso", "mande por e-mail para X",
+# "salve num arquivo chamado X").
+_ITS = r"(?:\s+(?:isso|ele|ela|o poema|a poesia|o texto|a carta|a mensagem|tudo|o resultado))?"
+_CARRY_CLIPBOARD = re.compile(
+    rf"^(?:por favor[,]?\s+)?(?:copi[ae]|copiar){_ITS}(?:\s+para a [áa]rea de transfer[êe]ncia)?\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+_CARRY_EMAIL = re.compile(
+    rf"^(?:por favor[,]?\s+)?(?:mand[ae]|envi[ae]|encaminh[ae]){_ITS}\s+(?:por|via|no)\s+(?:e-?mail|gmail|outlook)"
+    r"(?:\s+(?:para|pro|pra|ao|à|a)\s+(?P<to>[^\s,;]+(?:\s+[^\s,;]+)?))?\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+_CARRY_FILE = re.compile(
+    rf"^(?:por favor[,]?\s+)?(?:salv[ae]|guard[ae]|grav[ae]){_ITS}\s+(?:em|n[uo]m?)\s+(?:um\s+)?arquivo"
+    r"(?:\s+(?:chamado|com o nome|de nome))?(?:\s+(?P<name>[\w .-]+?))?"
+    r"(?:\s+(?:na|em)\s+(?:pasta\s+)?(?P<folder>documentos|downloads|[áa]rea de trabalho|desktop))?\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+
 # Etapa que só faz sentido se a anterior deu certo ("toque lá", "feche ele", "salve isso").
 _DEPENDS_ON_PREVIOUS = re.compile(r"\b(?:l[aá]|nele|nela|neles|nelas|ali|a[ií]|isso|ele|ela|o mesmo)\b", re.IGNORECASE)
 
@@ -1378,6 +1397,11 @@ class AgentLoop:
             self.engine.emit(EventType.RESPONSE_STARTED, task_id=task.id)
             self.engine.emit(EventType.RESPONSE_FINISHED, task_id=task.id)
             return AgentResult(answer, task.id)
+        if not tool_steps and not small_talk and self._operator_available() and looks_like_action(text):
+            # O atalho reconheceu o tipo de pedido mas não montou etapas (frase diferente
+            # do esperado): em vez de desistir com "nenhuma ferramenta", o operador tenta.
+            self.tasks.cancel(task.id)
+            return self._handle_operator(text)
         if not tool_steps:
             self.tasks.start(task.id)
             if intent in {"open_app", "close_app", "check_app", "search", "file_operation", "reminder", "system", "open_search_result", "time", "weather", "media", "note", "calc", "shortcut"}:
@@ -1485,20 +1509,38 @@ class AgentLoop:
 
         if _SAVE_TO_NOTEPAD.match(step):
             return ("notepad_write", {})
+        names = set(self.executor.tools.names())
+        if _CARRY_CLIPBOARD.match(step) and "clipboard_write" in names:
+            return ("clipboard_write", {})
+        email = _CARRY_EMAIL.match(step)
+        if email and "email_compose" in names:
+            return ("email_compose", {"to": (email.group("to") or "").strip()})
+        saved = _CARRY_FILE.match(step)
+        if saved and "save_text_file" in names:
+            arguments: dict[str, Any] = {"name": (saved.group("name") or "").strip() or "texto do TELEX"}
+            if saved.group("folder"):
+                arguments["folder"] = saved.group("folder")
+            return ("save_text_file", arguments)
         if parse_request(step) is not None:
             return None  # já traz o texto da mensagem: segue o fluxo normal
         delivery = parse_delivery(step)
         if delivery is None:
             return None
-        arguments: dict[str, Any] = {"contact": delivery.contact, "hint": delivery.hint, "send": True}
+        delivery_args: dict[str, Any] = {"contact": delivery.contact, "hint": delivery.hint, "send": True}
         if delivery.profile:
-            arguments["profile"] = delivery.profile
-        return ("whatsapp_send", arguments)
+            delivery_args["profile"] = delivery.profile
+        if getattr(delivery, "group", False):
+            delivery_args["group"] = True
+        return ("whatsapp_send", delivery_args)
 
     def _run_carry_action(self, step: str, action: tuple[str, dict[str, Any]], carry: str) -> AgentResult:
         tool, arguments = action
         if tool == "notepad_write":
             return self._run_tool_step(step, "notepad_write", {"request": carry, "literal": True})
+        if tool == "email_compose":
+            return self._run_tool_step(step, tool, {**arguments, "body": carry})
+        if tool == "save_text_file":
+            return self._run_tool_step(step, tool, {**arguments, "content": carry})
         return self._run_tool_step(step, tool, {**arguments, "text": carry})
 
     def _run_tool_step(self, step: str, tool: str, arguments: dict[str, Any]) -> AgentResult:
