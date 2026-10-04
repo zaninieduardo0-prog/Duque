@@ -40,10 +40,15 @@ def kill_tree(pid: int) -> None:
             return
         import signal
 
+        # getattr: killpg/SIGKILL não existem no Windows (o pyright do CI checa lá).
+        sigkill = getattr(signal, "SIGKILL", signal.SIGTERM)
+        killpg = getattr(os, "killpg", None)
         try:
-            os.killpg(int(pid), signal.SIGKILL)
+            if killpg is None:
+                raise OSError("killpg indisponível")
+            killpg(int(pid), sigkill)
         except (ProcessLookupError, PermissionError, OSError):
-            os.kill(int(pid), signal.SIGKILL)
+            os.kill(int(pid), sigkill)
     except Exception:
         pass
 
