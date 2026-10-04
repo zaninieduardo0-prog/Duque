@@ -53,3 +53,17 @@ setx FISH_VOICE_ID "id-da-voz"         # opcional: o ID (reference_id) da voz es
 Reabra o Duque. Por padrão usa a faixa gratuita (`FISH_MODEL=s2.1-pro-free`). Se o Fish recusar
 (chave inválida, sem saldo, sem rede), o TELEX cancela e fala com a voz local (Piper/Windows) sem travar,
 e só tenta o Fish de novo depois de 5 minutos. Para desligar o Fish: `setx DUQUE_TTS piper`.
+
+## Estilo da voz (grave, calma, firme)
+
+`DUQUE_VOICE_STYLE`: `firme` (padrão: calma, grave, fala um pouco mais devagar e com pausas marcadas),
+`grave` (ainda mais grave e lento) ou `padrao` (a voz como o Piper entrega).
+Ajuste fino: `DUQUE_VOICE_PITCH` (semitons; `-3` mais grave, `0` normal) e `DUQUE_VOICE_SPEED`
+(`0.9` mais devagar, `1.0` normal). Ouvir os três estilos em sequência:
+
+```powershell
+.\.venv\Scripts\python.exe -m voice.local_tts --amostras
+```
+
+Palavra pronunciada errada? Crie `duque_data/pronuncia.txt` com linhas `palavra=como falar`
+(ex.: `Embralan=embralã`).

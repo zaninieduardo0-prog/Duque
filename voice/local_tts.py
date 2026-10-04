@@ -68,6 +68,78 @@ def clean_for_speech(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip(" .") + "." if text.strip(" .") else ""
 
 
+# Estilos de voz. "firme": grave, calma e imponente (fala mais devagar, com pausas
+# marcadas e o timbre um pouco mais baixo). Ajuste fino: DUQUE_VOICE_PITCH (semitons,
+# negativo = mais grave) e DUQUE_VOICE_SPEED (1.0 normal; 0.9 = mais devagar).
+STYLES: dict[str, dict[str, float]] = {
+    "padrao": {"length_scale": 1.0, "noise_scale": 0.667, "noise_w": 0.8, "sentence_silence": 0.2, "pitch": 0.0, "bass_db": 0.0, "comp": 0.0},
+    "firme": {"length_scale": 1.12, "noise_scale": 0.5, "noise_w": 0.6, "sentence_silence": 0.4, "pitch": -2.0, "bass_db": 5.0, "comp": 1.0},
+    "grave": {"length_scale": 1.18, "noise_scale": 0.45, "noise_w": 0.55, "sentence_silence": 0.5, "pitch": -3.5, "bass_db": 6.0, "comp": 1.0},
+}
+
+
+def current_style() -> dict[str, float]:
+    style = dict(STYLES.get(os.getenv("DUQUE_VOICE_STYLE", "firme").strip().casefold(), STYLES["firme"]))
+    try:
+        if os.getenv("DUQUE_VOICE_PITCH"):
+            style["pitch"] = float(os.environ["DUQUE_VOICE_PITCH"])
+        if os.getenv("DUQUE_VOICE_SPEED"):
+            style["length_scale"] = 1.0 / max(0.5, float(os.environ["DUQUE_VOICE_SPEED"]))
+    except ValueError:
+        pass
+    return style
+
+
+# Palavras que os motores leem errado. O Du pode somar as dele em duque_data/pronuncia.txt
+# (uma por linha, "palavra=como falar").
+PRONUNCIA = {"telex": "télex", "tele x": "télex", "etc.": "etcétera", "km/h": "quilômetros por hora", "%": " por cento", "&": " e ", "wi-fi": "uaifai", "whatsapp": "uatsápi", "youtube": "iutiúbi", "spotify": "espotifai"}
+
+
+def _pronunciation() -> dict[str, str]:
+    table = dict(PRONUNCIA)
+    path = ROOT / "duque_data" / "pronuncia.txt"
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.lstrip().startswith("#"):
+                word, said = line.split("=", 1)
+                if word.strip():
+                    table[word.strip().casefold()] = said.strip()
+    except OSError:
+        pass
+    return table
+
+
+def fix_pronunciation(text: str) -> str:
+    for word, said in _pronunciation().items():
+        text = re.sub(rf"(?<!\w){re.escape(word)}(?!\w)" if word[-1].isalnum() else re.escape(word), said, text, flags=re.IGNORECASE)
+    return text
+
+
+def apply_style(audio: "Audio", style: dict[str, float]) -> "Audio":
+    """Timbre mais grave e encorpado (pedalboard). Sem o pacote, devolve o áudio como veio."""
+    if not audio.pcm or (not style.get("pitch") and not style.get("bass_db")):
+        return audio
+    try:
+        import numpy as np
+        from pedalboard import Compressor, Gain, HighpassFilter, LowShelfFilter, Pedalboard, PitchShift  # type: ignore[attr-defined]
+
+        effects: list[Any] = []
+        if style.get("pitch"):
+            effects.append(PitchShift(semitones=style["pitch"]))
+        effects.append(HighpassFilter(cutoff_frequency_hz=70.0))
+        if style.get("bass_db"):
+            effects.append(LowShelfFilter(cutoff_frequency_hz=200.0, gain_db=style["bass_db"]))
+        if style.get("comp"):
+            effects.append(Compressor(threshold_db=-22.0, ratio=3.0, attack_ms=8.0, release_ms=150.0))
+        effects.append(Gain(gain_db=-2.0))
+        samples = np.frombuffer(audio.pcm, dtype=np.int16).astype(np.float32) / 32768.0
+        out = Pedalboard(effects)(samples.reshape(1, -1), audio.sample_rate)
+        pcm = (np.clip(out.reshape(-1), -1.0, 1.0) * 32767).astype(np.int16).tobytes()
+        return Audio(pcm, audio.sample_rate)
+    except Exception:
+        return audio
+
+
 def find_piper_exe() -> Path | None:
     configured = os.getenv("DUQUE_PIPER_EXE")
     candidates = [Path(configured)] if configured else []
@@ -107,9 +179,19 @@ class PiperEngine:
         except Exception:
             self.sample_rate = 22050
 
+    @staticmethod
+    def _style_args() -> list[str]:
+        style = current_style()
+        return [
+            "--length_scale", f"{style['length_scale']:.2f}",
+            "--noise_scale", f"{style['noise_scale']:.2f}",
+            "--noise_w", f"{style['noise_w']:.2f}",
+            "--sentence_silence", f"{style['sentence_silence']:.2f}",
+        ]
+
     def synthesize(self, text: str) -> Audio:
         result = self._run(
-            [str(self.exe), "--model", str(self.voice), "--output_raw"],
+            [str(self.exe), "--model", str(self.voice), "--output_raw", *self._style_args()],
             input=text.encode("utf-8"),
             capture_output=True,
             timeout=60,
@@ -263,10 +345,10 @@ class Speaker:
         return engine.name + (f" ({engine.voice.stem})" if isinstance(engine, PiperEngine) else "")
 
     def synthesize(self, text: str) -> Audio:
-        spoken = clean_for_speech(text)
+        spoken = fix_pronunciation(clean_for_speech(text))
         if not spoken:
             return Audio(b"", 22050)
-        return self.engine.synthesize(spoken)
+        return apply_style(self.engine.synthesize(spoken), current_style())
 
 
 def _load_local(mode: str, log: Callable[[str], object]) -> Speaker | None:
@@ -353,6 +435,20 @@ if __name__ == "__main__":
             download(rest[0] if rest else "faber")
         except Exception as exc:
             print(f"[AVISO] Não consegui baixar a voz: {exc}")
+    elif "--amostras" in sys.argv:
+        import numpy as np
+        import sounddevice as sd
+
+        speaker = load()
+        if speaker is None:
+            raise SystemExit("Nenhuma voz local disponível.")
+        frase = "Atenção, Du. Missão dada é missão cumprida. Pode contar comigo."
+        for nome in STYLES:
+            os.environ["DUQUE_VOICE_STYLE"] = nome
+            print(f"Estilo: {nome}")
+            audio = speaker.synthesize(frase)
+            sd.play(np.frombuffer(audio.pcm, dtype=np.int16), audio.sample_rate)
+            sd.wait()
     elif "--testar" in sys.argv:
         speaker = load()
         if speaker is None:
