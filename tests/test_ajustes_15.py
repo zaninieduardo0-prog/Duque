@@ -15,7 +15,7 @@ from typing import Any
 from unittest import mock
 
 from brain.model import ChainModel, ModelAdapter, ModelResponse, NullModel, OllamaModel, default_model
-from voice import local_runtime, local_session, local_stt, local_tts
+from voice import local_runtime, local_stt, local_tts
 from voice.local_session import FRAME_BYTES, Deps, LocalSession, strip_name
 
 

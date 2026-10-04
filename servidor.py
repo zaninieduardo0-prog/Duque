@@ -285,8 +285,11 @@ def gerar_fala():
     if not isinstance(texto, str) or not texto.strip():
         return jsonify({"erro": "O texto para fala não pode ser vazio."}), 400
 
-    if openai_client is None:
-        return jsonify({"erro": "OPENAI_API_KEY não configurada."}), 503
+    if openai_client is None or __import__("os").getenv("DUQUE_VOICE", "auto").strip().casefold() == "local":
+        local = _falar_local(texto.strip())
+        if local is not None:
+            return local
+        return jsonify({"erro": "Sem voz: configure OPENAI_API_KEY ou instale a voz local (preparar_local.bat)."}), 503
 
     voz: Any = str(dados["voz"]) if dados.get("voz") in VOICES else current_voice(agent.memory)
     try:
@@ -300,6 +303,9 @@ def gerar_fala():
         )
         return Response(audio.content, mimetype="audio/mpeg")
     except Exception as exc:
+        local = _falar_local(texto.strip())  # sem créditos/rede: fala com a voz local
+        if local is not None:
+            return local
         return jsonify({"erro": f"{type(exc).__name__}: {exc}"}), 500
 
 

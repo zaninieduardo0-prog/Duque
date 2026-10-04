@@ -54,6 +54,9 @@ class AutonomousLoop:
         self.executor = executor
         self.schemas = schemas
         self.max_steps = max(1, max_steps)
+        # Modelos pequenos (locais) às vezes não acertam o formato: desiste cedo em vez de
+        # gastar minutos de passos inúteis.
+        self.invalid_limit = 5
         self.observer = observer
         self.event_sink = event_sink
 
@@ -76,6 +79,7 @@ class AutonomousLoop:
         last_action_key: str | None = None
         repeated_action_count = 0
         repeat_limit = 3
+        invalid_streak = 0  # respostas do modelo recusadas em sequência
         import time as _time
 
         started = _time.monotonic()
@@ -100,8 +104,12 @@ class AutonomousLoop:
             except Exception as exc:
                 error = f"Falha ao interpretar decisão do modelo: {type(exc).__name__}: {exc}"
                 context.record_failure(error)
+                invalid_streak += 1
+                if invalid_streak >= self.invalid_limit:
+                    return self._gave_up(task.id, step_number, executions, "o modelo não conseguiu responder no formato esperado")
                 messages.append({"role": "user", "content": "AÇÃO REJEITADA: " + error + ". Retorne somente um objeto JSON válido no formato solicitado."})
                 continue
+            invalid_streak = 0
 
             if action["action"] == "cannot":
                 # Avaliou que não consegue: resposta honesta, sem fingir sucesso.
@@ -143,9 +151,13 @@ class AutonomousLoop:
             if not validation.valid:
                 error = validation.error or "Ação inválida"
                 context.record_failure(error)
+                invalid_streak += 1
+                if invalid_streak >= self.invalid_limit:
+                    return self._gave_up(task.id, step_number, executions, "o modelo insistiu em ações inválidas")
                 messages.append({"role": "assistant", "content": self._safe_json(action)})
                 messages.append({"role": "user", "content": f"AÇÃO REJEITADA: {error}. Escolha uma ferramenta válida e tente novamente."})
                 continue
+            invalid_streak = 0
 
             self._emit(
                 EventType.TASK_STARTED, task_id=task.id, step=step_number, tool=tool,
@@ -185,6 +197,11 @@ class AutonomousLoop:
 
         return AutonomousResult(False, "", self.max_steps, executions, f"Limite de {self.max_steps} passos atingido")
 
+    def _gave_up(self, task_id: str, step_number: int, executions: list[ExecutionResult], why: str) -> AutonomousResult:
+        message = f"Não consegui levar isso adiante: {why}."
+        self._emit(EventType.TASK_FAILED, task_id=task_id, step=step_number, error=message)
+        return AutonomousResult(False, message, step_number, executions, why)
+
     @staticmethod
     def _should_observe(goal: str) -> bool:
         """Observação de tela só é necessária quando a tarefa depende da interface gráfica."""
@@ -215,7 +232,9 @@ class AutonomousLoop:
         try:
             payload = json.loads(cleaned)
         except json.JSONDecodeError as exc:
-            raise ValueError("O modelo retornou uma ação que não é JSON válido") from exc
+            payload = self._first_json_object(cleaned)  # modelo pequeno: JSON no meio de texto
+            if payload is None:
+                raise ValueError("O modelo retornou uma ação que não é JSON válido") from exc
         if not isinstance(payload, dict):
             raise ValueError("Ação do modelo deve ser um objeto JSON")
         action = payload.get("action")
@@ -228,6 +247,20 @@ class AutonomousLoop:
             if not isinstance(payload.get("arguments", {}), dict):
                 raise ValueError("arguments deve ser um objeto")
         return payload
+
+    @staticmethod
+    def _first_json_object(text: str) -> Any:
+        """Primeiro objeto {...} que parseia dentro de um texto ("Claro! {...} Pronto.")."""
+        decoder = json.JSONDecoder()
+        for index, char in enumerate(text):
+            if char == "{":
+                try:
+                    value, _end = decoder.raw_decode(text[index:])
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(value, dict):
+                    return value
+        return None
 
     @staticmethod
     def _safe_json(value: Any) -> str:

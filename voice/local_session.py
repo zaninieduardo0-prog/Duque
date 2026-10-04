@@ -40,6 +40,8 @@ END_SILENCE_SECONDS = float(os.getenv("DUQUE_END_OF_TURN", "1.1"))
 MAX_UTTERANCE_SECONDS = 25.0
 MIN_SPEECH_LEVEL = float(os.getenv("DUQUE_SPEECH_LEVEL", "0.02"))
 MAX_EMPTY_TURNS = 2
+# Resposta muito longa (lista de arquivos, pesquisa) não é lida inteira em voz alta.
+MAX_SPOKEN_CHARS = int(os.getenv("DUQUE_MAX_SPOKEN_CHARS", "500"))
 
 _NAME = re.compile(r"\b(?:t[eé]l[eé](?:x|cs|ks|s|xi)|tele[\s-]*x|talex|telax)\b[\s,.!?:;-]*", re.IGNORECASE)
 
@@ -122,8 +124,28 @@ class LocalSession:
         return b"".join(frames) if speaking else b""
 
     # fala --------------------------------------------------------------------
+    @staticmethod
+    def shorten(text: str) -> str:
+        """Corta no fim de uma frase e avisa que o resto está na tela."""
+        text = text.strip()
+        if len(text) <= MAX_SPOKEN_CHARS:
+            return text
+        cut = text[:MAX_SPOKEN_CHARS]
+        end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "), cut.rfind("\n"))
+        head = cut[: end + 1] if end > MAX_SPOKEN_CHARS // 3 else cut.rsplit(" ", 1)[0]
+        return head.rstrip() + " O resto está na tela."
+
+    def chime(self) -> None:
+        """Bipe com o microfone fechado: ele não pode ouvir o próprio bipe como se fosse fala."""
+        self.deps.mute_mic()
+        try:
+            self.deps.chime()
+        finally:
+            self.deps.unmute_mic()
+
     def say(self, text: str) -> None:
-        if not text.strip():
+        text = self.shorten(text)
+        if not text:
             return
         deps = self.deps
         deps.mute_mic()
@@ -146,7 +168,7 @@ class LocalSession:
             self.say(greeting_reply(greeting))
             window = AFTER_GREETING_SECONDS
         else:
-            deps.chime()
+            self.chime()
             window = LISTEN_SECONDS
         pending, empty, reason = preroll if call else b"", 0, "silêncio"
         while True:
@@ -175,7 +197,7 @@ class LocalSession:
                 reason = "parar"
                 break
             if only_name(text) or not strip_name(text):
-                deps.chime()
+                self.chime()
                 window = LISTEN_SECONDS
                 continue
             request = strip_name(text) if addressed(text) else text

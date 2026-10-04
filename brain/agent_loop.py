@@ -40,7 +40,7 @@ from .compound import plan_steps, strip_name
 from .operator import OPERATOR_SYSTEM, looks_like_action
 from .planner import WHATSAPP_ACTION
 from .autonomous_loop import AutonomousLoop
-from .model import ModelAdapter, NullModel, OpenAIResponsesModel, default_model
+from .model import ModelAdapter, NullModel, OllamaModel, default_model
 from .persona import text_system_prompt
 from .routines import Routines
 from .voice_style import list_voices, set_voice
@@ -855,7 +855,14 @@ class AgentLoop:
         return fallback
 
     def _operator_available(self) -> bool:
-        return not isinstance(self.model, NullModel) and os.getenv("DUQUE_OPERATOR", "1").casefold() not in {"0", "false", "off", "no", "nao", "não"}
+        if isinstance(self.model, NullModel):
+            return False
+        setting = os.getenv("DUQUE_OPERATOR")
+        if setting is None and isinstance(self.model, OllamaModel):
+            # Com só um modelo pequeno local, operar a tela por tentativa e erro gasta minutos e
+            # erra muito; fica desligado até o Du ligar (DUQUE_OPERATOR=1).
+            return False
+        return (setting or "1").casefold() not in {"0", "false", "off", "no", "nao", "não"}
 
     def _handle_operator(self, text: str, *, failure: str | None = None, confirmed: bool = False) -> AgentResult:
         goal = text if not failure else (
