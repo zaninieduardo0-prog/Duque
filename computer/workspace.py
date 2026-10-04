@@ -1,7 +1,41 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
+
+# Pasta do próprio TELEX (o código que está rodando agora).
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+# Dados do TELEX (memória, configurações): podem mudar; o código, não.
+_PROJECT_DATA = ("duque_data",)
+# Pastas que não entram em listagens (ambiente virtual, Git, caches).
+SKIP_DIRS = frozenset({".git", ".venv", "venv", "env", "__pycache__", "node_modules", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox", "build", "dist"})
+
+
+def self_modification_allowed() -> bool:
+    return os.getenv("DUQUE_ALLOW_SELF_MODIFICATION", "0").casefold() in {"1", "true", "yes", "on"}
+
+
+def is_project_source(path: str | Path, root: Path = PROJECT_ROOT) -> bool:
+    """O caminho é parte do código do TELEX em execução (fora de duque_data)?
+
+    Só a Forja muda o código: numa cópia isolada, com testes, PR e rollback.
+    Uma ferramenta comum escrevendo aqui quebraria o TELEX sem volta.
+    """
+    target = Path(path).expanduser().resolve()
+    try:
+        relative = target.relative_to(root)
+    except ValueError:
+        return False
+    return not (relative.parts and relative.parts[0] in _PROJECT_DATA)
+
+
+def guard_project_source(path: str | Path, action: str = "alterar") -> None:
+    if is_project_source(path) and not self_modification_allowed():
+        raise PermissionError(
+            f"Não posso {action} o código do próprio TELEX ({Path(path).name}). "
+            "Peça à Forja (forge_improve): ela muda uma cópia isolada, testa e aplica com segurança."
+        )
 
 
 @dataclass(slots=True)
@@ -51,5 +85,14 @@ class Workspace:
         path.unlink()
         return FileResult(str(path), changed=True)
 
-    def list_files(self) -> list[str]:
-        return sorted(str(path.relative_to(self.root)) for path in self.root.rglob("*") if path.is_file())
+    def list_files(self, limit: int = 5000) -> list[str]:
+        """Arquivos do workspace, sem .git/.venv/caches (que travavam e enchiam o contexto)."""
+        found: list[str] = []
+        for current, dirs, files in os.walk(self.root):
+            dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not d.endswith(".egg-info"))
+            base = Path(current)
+            for name in sorted(files):
+                found.append(str((base / name).relative_to(self.root)))
+                if len(found) >= limit:
+                    return sorted(found)
+        return sorted(found)

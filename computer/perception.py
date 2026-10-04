@@ -12,6 +12,10 @@ class ScreenCapture:
     width: int
     height: int
     source: str = "screen"
+    # Posição do pixel (0, 0) da imagem na área de trabalho virtual. Com vários
+    # monitores, um monitor à esquerda/acima do principal deixa a origem negativa.
+    origin_x: int = 0
+    origin_y: int = 0
 
 
 class ScreenBackend(Protocol):
@@ -56,5 +60,6 @@ class Perception:
             "source": capture.source,
             "width": capture.width,
             "height": capture.height,
+            "origin": {"x": capture.origin_x, "y": capture.origin_y},
             "visual_analysis": analysis,
         }

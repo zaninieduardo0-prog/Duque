@@ -43,23 +43,33 @@ class ScreenTools:
         if width <= 0 or height <= 0:
             raise RuntimeError("Elemento visual possui dimensões inválidas")
 
+        # Coordenadas do modelo são da imagem; o mouse usa a área de trabalho virtual.
+        origin = description.get("origin")
+        offset_x = int(origin.get("x", 0) or 0) if isinstance(origin, dict) else 0
+        offset_y = int(origin.get("y", 0) or 0) if isinstance(origin, dict) else 0
         return {
             "found": True,
             "text": text,
             "element": best,
-            "click_point": {"x": int(x + width / 2), "y": int(y + height / 2)},
+            "click_point": {"x": int(x + width / 2) + offset_x, "y": int(y + height / 2) + offset_y},
         }
 
     @staticmethod
     def _vision_payload(description: dict[str, Any]) -> dict[str, Any]:
-        # Perception direta usa visual_analysis; o compositor usa o nome do analyzer.
+        # Perception direta: visual_analysis tem os elementos. Com o compositor, o
+        # resultado de cada analisador fica DENTRO de visual_analysis, pelo nome
+        # (antes procurava no nível de cima e nunca achava a visão por modelo).
         direct = description.get("visual_analysis")
-        if isinstance(direct, dict) and "elements" in direct:
-            return direct
+        if isinstance(direct, dict):
+            if "elements" in direct:
+                return direct
+            nested = direct.get("ModelVisionAnalyzer")
+            if isinstance(nested, dict):
+                return nested
         nested = description.get("ModelVisionAnalyzer")
         if isinstance(nested, dict):
             return nested
-        return {"status": "unavailable", "reason": "model_vision_not_found"}
+        return {"status": "unavailable", "reason": "visão por modelo desligada (DUQUE_ENABLE_MODEL_VISION=1 liga)"}
 
     def register(self, executor: Any) -> None:
         executor.register("screen_find", self.find)

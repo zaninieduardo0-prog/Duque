@@ -196,7 +196,7 @@ def _open_target(target: str) -> None:
                 pass
         os.startfile(target)  # type: ignore[attr-defined]  # noqa: S606
     else:
-        subprocess.Popen(["xdg-open", target], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen(["xdg-open", target], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def _press_key(vk: int, times: int = 1) -> None:
@@ -398,21 +398,29 @@ class AssistantTools:
     def clipboard_read(self) -> dict[str, Any]:
         if not IS_WINDOWS:
             return {"success": False, "error": "Disponível apenas no Windows"}
-        completed = subprocess.run(["powershell", "-NoProfile", "-Command", "Get-Clipboard -Raw"], capture_output=True, text=True, timeout=10)
-        text = completed.stdout.strip()
+        from .windows_focus import get_clipboard_text
+
+        # API do Windows direto: o PowerShell abria uma janela que piscava e estragava acentos.
+        text = (get_clipboard_text() or "").strip()
         return {"message": f"Na área de transferência: {text[:500]}" if text else "A área de transferência está vazia.", "text": text}
 
     def clipboard_write(self, text: str) -> dict[str, Any]:
         if not IS_WINDOWS:
             return {"success": False, "error": "Disponível apenas no Windows"}
-        subprocess.run(["powershell", "-NoProfile", "-Command", "$input | Set-Clipboard"], input=text, text=True, timeout=10, check=True)
+        from .windows_focus import set_clipboard_text
+
+        if not set_clipboard_text(text):
+            return {"success": False, "error": "A área de transferência está em uso por outro programa; tente de novo."}
         return {"message": "Copiei para a área de transferência.", "chars": len(text)}
 
     # sistema -------------------------------------------------------------------
     def lock_screen(self) -> dict[str, Any]:
         if not IS_WINDOWS:
             return {"success": False, "error": "Disponível apenas no Windows"}
-        subprocess.Popen(["rundll32.exe", "user32.dll,LockWorkStation"])
+        import ctypes
+
+        if not ctypes.windll.user32.LockWorkStation():  # type: ignore[attr-defined]
+            return {"success": False, "error": "O Windows não deixou bloquear a tela."}
         return {"message": "Tela bloqueada."}
 
     def system_status(self) -> dict[str, Any]:
@@ -440,7 +448,8 @@ class AssistantTools:
             target = Path.home() / KNOWN_FOLDERS[key]
         else:
             target = Path(name).expanduser()
-        if not target.exists():
+        if not target.is_dir():
+            # Só pastas: um caminho de arquivo .exe/.bat aqui seria EXECUTADO pelo Windows.
             return {"success": False, "error": f"Pasta não encontrada: {target}"}
         self.open_target(str(target))
         return {"message": f"Abri {target.name or target}.", "path": str(target)}

@@ -59,7 +59,13 @@ class VisualWorkflow:
         if step.action == "click_text":
             if not step.target:
                 raise ValueError("click_text exige target")
-            return self.actions.click_text(step.target, step.min_confidence)
+            result = self.actions.click_text(step.target, step.min_confidence)
+            # click_text não levanta depois de clicar (evita clique em dobro); aqui a
+            # sequência para quando o clique visivelmente não fez nada.
+            status = str((result.get("verification") or {}).get("status", ""))
+            if status in {"not_changed", "failed"}:
+                raise RuntimeError(str(result["verification"].get("reason") or "O clique não teve efeito visível"))
+            return result
         if step.action == "type_text":
             if step.value is None:
                 raise ValueError("type_text exige value")

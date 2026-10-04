@@ -31,18 +31,27 @@ def _screen_analyzer():
     return CompositeScreenAnalyzer(local, vision)
 
 
+_shared: Perception | None = None
+
+
+def shared_perception() -> Perception:
+    """Uma percepção só para o processo (antes eram duas pilhas, cada uma com seu analisador e visão)."""
+    global _shared
+    if _shared is None:
+        _shared = Perception(WindowsScreenBackend(), analyzer=_screen_analyzer())
+    return _shared
+
+
 def create_ui_tools() -> UITools:
     """Monta o conjunto real de UI/percepção quando executado no Windows."""
     if platform.system() != "Windows":
         return UITools()
     controller: UIController = WindowsUIController()
-    perception = Perception(WindowsScreenBackend(), analyzer=_screen_analyzer())
-    return UITools(controller=controller, perception=perception)
+    return UITools(controller=controller, perception=shared_perception())
 
 
 def create_verification() -> Verification | None:
     """Cria percepção/verificação visual real no Windows."""
     if platform.system() != "Windows":
         return None
-    perception = Perception(WindowsScreenBackend(), analyzer=_screen_analyzer())
-    return Verification(perception)
+    return Verification(shared_perception())

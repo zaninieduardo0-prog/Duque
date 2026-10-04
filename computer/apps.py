@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import shutil
+import re
 
 
 # Comandos conhecidos e deliberadamente explícitos. Novos aplicativos podem ser
@@ -65,8 +65,8 @@ PROCESS_NAMES: dict[str, list[str]] = {
     "calculadora": ["calculatorapp.exe", "calculator.exe", "calc.exe"],
     "calculadora do windows": ["calculatorapp.exe", "calculator.exe", "calc.exe"],
     "calc": ["calculatorapp.exe", "calculator.exe", "calc.exe"],
-    "explorador": ["explorer.exe"],
-    "explorer": ["explorer.exe"],
+    # explorer.exe NÃO entra aqui: é o shell do Windows (barra de tarefas e área
+    # de trabalho). Está sempre "rodando" e fechá-lo derrubaria a interface.
     "navegador": ["chrome.exe"],
     "browser": ["chrome.exe"],
     "chrome": ["chrome.exe"],
@@ -95,12 +95,19 @@ PROCESS_NAMES: dict[str, list[str]] = {
 }
 
 
+_PATH_LIKE = re.compile(r"[/\\:]")
+
+
 def resolve_app(name: str) -> list[str] | None:
-    normalized = name.casefold().strip()
-    if normalized in KNOWN_APPS:
-        return KNOWN_APPS[normalized]
-    executable = shutil.which(name)
-    return [executable] if executable else None
+    """Só aplicativos cadastrados. Nunca caminhos nem programas soltos do PATH.
+
+    O antigo recurso ao ``shutil.which`` deixava o modelo rodar qualquer
+    executável (``format``, ``python``...) como "abrir app", de risco baixo.
+    """
+    if not isinstance(name, str) or _PATH_LIKE.search(name):
+        return None
+    normalized = " ".join(name.casefold().split()).strip(" .,;!?\"'")
+    return KNOWN_APPS.get(normalized)
 
 
 def find_app_in_text(text: str) -> str | None:

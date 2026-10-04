@@ -347,21 +347,30 @@ class WhatsAppDesktop:
             return self.without_vision(contact, text)
 
         phone = self.phone_of(contact)
+        web = False
         if phone:
             url = "whatsapp://send?" + urllib.parse.urlencode({"phone": phone, "text": text}, quote_via=urllib.parse.quote)
             self.open_target(url)
         else:
             try:
-                self.open_app("whatsapp")
+                opened = self.open_app("whatsapp")
             except Exception as exc:
                 return {"success": False, "error": f"Não consegui abrir o WhatsApp: {exc}"}
+            # Sem o app instalado, open_app abre o WhatsApp Web no Chrome: lá o
+            # Ctrl+F é a busca da PÁGINA, não a de conversas.
+            web = isinstance(opened, dict) and bool(opened.get("web"))
         if not self.wait_window("WhatsApp", 20.0):
             return {"success": False, "error": "O WhatsApp não abriu a tempo."}
-        self.focus("WhatsApp")
+        if not self.focus("WhatsApp"):
+            # Sem foco, as teclas (busca, texto, Enter) iriam para outra janela.
+            return {"success": False, "error": "Abri o WhatsApp, mas não consegui trazer a janela para a frente. Não escrevi nada."}
         self.sleep(2.0)
         if not phone:
             self.keys.press("esc")
-            self.keys.hotkey("ctrl", "f")
+            if web:
+                self.keys.hotkey("ctrl", "alt", "/")  # busca do WhatsApp Web
+            else:
+                self.keys.hotkey("ctrl", "f")
             self._search_and_open(contact, hint)
         return self._verify_type_send(contact, text, send, typed=bool(phone), where="WhatsApp")
 
@@ -396,6 +405,13 @@ class WhatsAppDesktop:
         if not typed:
             self.keys.type_text(text)
             self.sleep(0.4)
+        if send and same is True and not self.focus("WhatsApp"):
+            # O foco saiu do WhatsApp enquanto digitava: Enter iria para outra janela.
+            return {
+                "message": f"Deixei a mensagem escrita na conversa com {seen or contact} ({where}), mas a janela perdeu o foco; "
+                "não enviei. É só conferir e apertar Enter.",
+                "sent": False, "chat": seen,
+            }
         if not send or same is None:
             why = "" if not send else " Não consegui conferir a conversa pela tela, então não enviei sozinho."
             return {
@@ -461,7 +477,8 @@ class WhatsAppDesktop:
             self.open_in_profile(info["dir"], WEB_URL)
         if not self.wait_window("WhatsApp", 25.0):
             return {"success": False, "error": f"O {where} não abriu a tempo."}
-        self.focus("WhatsApp")
+        if not self.focus("WhatsApp"):
+            return {"success": False, "error": f"Abri o {where}, mas não consegui trazer a janela para a frente. Não escrevi nada."}
         self.sleep(4.0)
         for _ in range(5):
             state = self._web_state()
