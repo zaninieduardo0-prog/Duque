@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
@@ -16,6 +17,11 @@ app = Flask(__name__)
 agent = AgentLoop()
 openai_client = OpenAI() if __import__('os').getenv('OPENAI_API_KEY') else None
 state_lock = Lock()
+# Momento da última consulta de estado feita por uma aba do HUD. Serve para o
+# launcher saber se já existe uma interface aberta e não abrir outra. A folga
+# é longa porque o navegador desacelera os timers de abas em segundo plano.
+ultimo_contato_hud: float | None = None
+HUD_TIMEOUT = 75.0
 
 estado_duque = {
     "estado": "standby",
@@ -205,10 +211,21 @@ def gerar_fala():
         return jsonify({"erro": f"{type(exc).__name__}: {exc}"}), 500
 
 
-@app.route("/api/estado", methods=["GET"])
 def obter_estado():
     with state_lock:
         return jsonify(dict(estado_duque))
+
+
+@app.route("/api/estado", methods=["GET"])
+def consultar_estado():
+    global ultimo_contato_hud
+    ultimo_contato_hud = time.monotonic()
+    return obter_estado()
+
+
+def hud_conectada() -> bool:
+    contato = ultimo_contato_hud
+    return contato is not None and time.monotonic() - contato < HUD_TIMEOUT
 
 
 @app.route("/api/estado", methods=["POST"])
@@ -331,6 +348,7 @@ def status():
             "estado": estado_duque["estado"],
             "atividade": estado_duque["atividade"],
             "tarefa": estado_duque["tarefa"],
+            "hud_conectada": hud_conectada(),
         })
 
 

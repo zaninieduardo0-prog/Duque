@@ -23,7 +23,7 @@ jobs:
       - name: Import runtime modules
         env:
           PYTHONPATH: ${{ github.workspace }}
-        run: python -c "import servidor; import duque_wake_v3"
+        run: python -c "import servidor; import duque_wake"
       - name: Compile Python
         env:
           PYTHONPATH: ${{ github.workspace }}

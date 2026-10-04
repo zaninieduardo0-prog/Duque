@@ -117,7 +117,6 @@ class AgentLoop:
             ToolSpec("read_many_files", "Lê vários arquivos do workspace", ("paths",), {"paths": list}),
             ToolSpec("write_file", "Escreve arquivo no workspace", ("path", "content"), {"path": str, "content": str}),
             ToolSpec("delete_file", "Exclui um arquivo do workspace", ("path",), {"path": str}),
-            ToolSpec("apply_code_change", "Aplica uma alteração de código somente quando a auto-modificação estiver explicitamente habilitada", ("path", "content"), {"path": str, "content": str}),
             ToolSpec("list_files", "Lista arquivos do workspace"),
             ToolSpec("inspect_workspace", "Inspeciona a estrutura do workspace"),
             ToolSpec("run_tests", "Executa a suíte de testes do workspace", (), {"path": str}),

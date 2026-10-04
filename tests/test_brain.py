@@ -201,6 +201,24 @@ class SelfCorrectionTests(TempDirTestCase):
         self.assertEqual(report.attempts, 2)
         self.assertEqual(report.last_error, "sempre falha")
 
+    def test_retry_does_not_reopen_what_already_opened(self) -> None:
+        executor = Executor(self.tasks)
+        opened: list[str] = []
+        executor.register("open_app", lambda name: opened.append(name) or {"opened": True})
+        attempts = {"n": 0}
+
+        def flaky() -> dict[str, object]:
+            attempts["n"] += 1
+            return {"success": attempts["n"] > 1, "error": "ainda carregando"}
+
+        executor.register("digitar", flaky)
+        steps = [("open_app", {"name": "chrome"}), ("digitar", {})]
+        report = SelfCorrection(TaskEngine(executor)).run(self.tasks.create("x"), lambda e, a: steps, max_attempts=3)
+
+        self.assertTrue(report.success)
+        self.assertEqual(report.attempts, 2)
+        self.assertEqual(opened, ["chrome"])
+
 
 if __name__ == "__main__":
     unittest.main()

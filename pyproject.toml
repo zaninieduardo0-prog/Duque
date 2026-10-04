@@ -54,8 +54,7 @@ include = [
     "duque.py",
     "duque_supervisor.py",
     "servidor.py",
-    "duque_wake_v2.py",
-    "duque_wake_v3.py",
+    "duque_wake.py",
 ]
 exclude = [".venv", "lixeira"]
 pythonVersion = "3.13"

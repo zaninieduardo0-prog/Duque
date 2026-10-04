@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -20,12 +19,14 @@ class DevelopmentReport:
 
 
 class SelfDevelopment:
-    """Ferramentas controladas para o Duque analisar e testar seu workspace."""
+    """Ferramentas para o Duque analisar e testar seu workspace.
+
+    Alterar o próprio código é papel exclusivo da Forja (veja FORJA.md).
+    """
 
     def __init__(self, workspace: Workspace) -> None:
         self.workspace = workspace
         self.tools = CodeTools(workspace)
-        self.allow_changes = os.getenv("DUQUE_ALLOW_SELF_MODIFICATION", "1").casefold() in {"1", "true", "yes", "on"}
 
     def inspect(self) -> dict[str, Any]:
         files = self.workspace.list_files()
@@ -35,7 +36,6 @@ class SelfDevelopment:
             "file_count": len(files),
             "python_files": python_files,
             "files": files,
-            "self_modification_enabled": self.allow_changes,
         }
 
     def read_many(self, paths: list[str]) -> dict[str, Any]:
@@ -66,16 +66,7 @@ class SelfDevelopment:
             }
         return self.tools.run_python(path)
 
-    def apply_change(self, path: str, content: str) -> dict[str, Any]:
-        if not self.allow_changes:
-            return {
-                "success": False,
-                "error": "Auto-modificação desativada. Defina DUQUE_ALLOW_SELF_MODIFICATION=1 para permitir alterações.",
-            }
-        return self.tools.write_file(path, content)
-
     def register(self, executor: Any) -> None:
         executor.register("inspect_workspace", self.inspect)
         executor.register("read_many_files", self.read_many)
         executor.register("run_tests", self.run_tests)
-        executor.register("apply_code_change", self.apply_change)

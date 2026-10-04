@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -29,16 +30,39 @@ sys.stderr = LOG_FILE
 URL = "http://127.0.0.1:5000"
 
 
-def server_online() -> bool:
+def read_status() -> dict | None:
     try:
         with urllib.request.urlopen(f"{URL}/status", timeout=0.7) as response:
-            return response.status == 200
+            if response.status != 200:
+                return None
+            return json.loads(response.read().decode("utf-8"))
     except Exception:
-        return False
+        return None
 
 
-def open_interface() -> None:
-    time.sleep(2.0)
+def server_online() -> bool:
+    return read_status() is not None
+
+
+def hud_connected() -> bool:
+    status = read_status()
+    return bool(status and status.get("hud_conectada"))
+
+
+def open_interface(wait_seconds: float = 0.0) -> None:
+    """Abre o HUD só se nenhuma aba dele estiver conectada.
+
+    Depois de um reinício (atualização da Forja ou queda), a aba que já estava
+    aberta volta a consultar o servidor sozinha; abrir outra só duplicaria.
+    """
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        if hud_connected():
+            print("[DUQUE] Interface já aberta; não vou abrir outra.", flush=True)
+            return
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.5)
     try:
         webbrowser.open_new_tab(URL)
     except Exception as exc:
@@ -64,14 +88,14 @@ def main() -> None:
     # Se o servidor já está ativo, esta é uma segunda tentativa de inicialização.
     # Não importamos o servidor/agente novamente para evitar duplicar scheduler e estado.
     if server_online():
-        print("[DUQUE] Instância já ativa; abrindo a interface.", flush=True)
+        print("[DUQUE] Instância já ativa.", flush=True)
         open_interface()
         return
 
     # Só carregamos o servidor/agente depois da checagem de instância única.
     # Assim uma segunda abertura não cria outro AgentLoop nem outro scheduler.
     from servidor import app
-    import duque_wake_v3 as voice_runtime
+    import duque_wake as voice_runtime
 
     print("=" * 64, flush=True)
     print("DUQUE — SISTEMA INTEGRADO", flush=True)
@@ -95,6 +119,7 @@ def main() -> None:
 
     threading.Thread(
         target=open_interface,
+        args=(4.0,),
         name="duque-interface",
         daemon=True,
     ).start()

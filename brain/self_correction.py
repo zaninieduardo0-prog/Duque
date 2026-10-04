@@ -15,6 +15,15 @@ class CorrectionReport:
     last_error: str | None = None
 
 
+# Ferramentas que abrem algo na tela. Repetir uma delas numa nova tentativa
+# só empilha janelas/abas iguais, então a etapa que já deu certo não é refeita.
+OPENING_TOOLS = frozenset({"open_app", "open_url", "open_path", "open_search_result"})
+
+
+def _step_key(tool: str, arguments: dict[str, Any]) -> tuple[str, str]:
+    return tool, repr(sorted(arguments.items()))
+
+
 class SelfCorrection:
     """Laço simples de executar -> observar erro -> pedir nova tentativa."""
 
@@ -32,14 +41,24 @@ class SelfCorrection:
         error: str | None = None
         all_results: list[StepResult] = []
         attempts_limit = max(1, max_attempts)
+        opened: set[tuple[str, str]] = set()
 
         for attempt in range(1, attempts_limit + 1):
-            steps = steps_factory(error, attempt)
+            steps = [
+                (tool, arguments)
+                for tool, arguments in steps_factory(error, attempt)
+                if _step_key(tool, arguments) not in opened
+            ]
             if not steps:
+                if attempt > 1:
+                    return CorrectionReport(False, attempt, all_results, error)
                 return CorrectionReport(False, attempt, all_results, "O plano não contém etapas executáveis")
 
             results = self.task_engine.run(task, steps, confirmed=confirmed)
             all_results.extend(results)
+            for item, (tool, arguments) in zip(results, steps):
+                if item.result.success and tool in OPENING_TOOLS:
+                    opened.add(_step_key(tool, arguments))
 
             if self.task_engine.succeeded(results):
                 return CorrectionReport(True, attempt, all_results)

@@ -23,13 +23,13 @@ jobs:
       - name: Import runtime modules
         env:
           PYTHONPATH: ${{ github.workspace }}
-        run: python -c "import servidor; import duque_wake_v3"
+        run: python -c "import servidor; import duque_wake"
       - name: Compile Python
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m compileall -q .
       - name: Run Ruff
-        run: ruff check automation brain computer core forge memory voice agent tests servidor.py duque.py duque_supervisor.py duque_wake_v2.py duque_wake_v3.py --select E,F --ignore E501
+        run: ruff check automation brain computer core forge memory voice agent tests servidor.py duque.py duque_supervisor.py duque_wake.py --select E,F --ignore E501
       - name: Run tests
         env:
           PYTHONPATH: ${{ github.workspace }}

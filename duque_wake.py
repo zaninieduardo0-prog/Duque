@@ -236,6 +236,7 @@ def microphone_callback(indata, _frames, _time_info, status) -> None:
         log(f"[MIC] {status}")
     if not REALTIME or not MIC_ACTIVE or LOOP is None or MIC_QUEUE is None:
         return
+    loop = LOOP
     audio = indata.copy().tobytes()
     if DUQUE_SPEAKING and not SHUTTING_DOWN:
         now = time.perf_counter()
@@ -244,9 +245,20 @@ def microphone_callback(indata, _frames, _time_info, status) -> None:
             if VAD_COUNT >= LOCAL_VAD_BLOCKS and now - LAST_INTERRUPT >= LOCAL_VAD_COOLDOWN:
                 VAD_COUNT = 0
                 LAST_INTERRUPT = now
-                LOOP.call_soon_threadsafe(lambda: asyncio.create_task(interrupt_session()))
+                loop.call_soon_threadsafe(lambda: asyncio.create_task(interrupt_session()))
+
+    def enqueue() -> None:
+        queue = MIC_QUEUE
+        if queue is None or not REALTIME or not MIC_ACTIVE or SHUTTING_DOWN:
+            return
+        try:
+            queue.put_nowait(audio)
+        except asyncio.QueueFull:
+            # Durante uma falha do transporte, o frame atual é descartável.
+            pass
+
     try:
-        LOOP.call_soon_threadsafe(MIC_QUEUE.put_nowait, audio)
+        loop.call_soon_threadsafe(enqueue)
     except Exception:
         pass
 
@@ -262,7 +274,15 @@ async def interrupt_session() -> None:
         log(f"[VAD] interrupção falhou: {exc}")
 
 
+async def finish_shutdown() -> None:
+    """Finaliza a sessão depois que a despedida realmente terminou."""
+    await wait_playback()
+    if SHUTDOWN_EVENT:
+        SHUTDOWN_EVENT.set()
+
+
 def request_shutdown() -> None:
+    """Corta o microfone na hora, mas deixa a resposta de despedida terminar."""
     global SHUTTING_DOWN, MIC_ACTIVE
     if SHUTTING_DOWN:
         return
@@ -274,9 +294,10 @@ def request_shutdown() -> None:
                 MIC_QUEUE.get_nowait()
             except asyncio.QueueEmpty:
                 break
-    FENCE.shutdown()
     hud("processando", "Encerrando conversa...")
-    log("Encerramento solicitado; microfone desativado.")
+    log("Encerramento solicitado; microfone desativado. A despedida continua liberada.")
+    if LOOP is not None and SHUTDOWN_EVENT is not None:
+        LOOP.call_soon_threadsafe(lambda: asyncio.create_task(finish_shutdown()))
 
 
 async def send_microphone(session) -> None:
@@ -333,7 +354,10 @@ def extract_raw_text(data, raw_type: str) -> str:
 
 
 async def receive_events(session) -> None:
-    global DUQUE_SPEAKING, SPEECH_STARTED_AT, CURRENT_ITEM
+    """Consome eventos da sessão sem despejar deltas de áudio Base64 no log."""
+    global DUQUE_SPEAKING, SPEECH_STARTED_AT
+    DUQUE_SPEAKING = False
+    SPEECH_STARTED_AT = None
     async for event in session:
         if not REALTIME:
             return
@@ -346,16 +370,22 @@ async def receive_events(session) -> None:
             text = extract_raw_text(data, raw_type)
             if text and is_farewell(text):
                 request_shutdown()
+        elif kind == "history_added":
+            text = extract_text(getattr(event, "item", event)).strip()
+            if text and is_farewell(text):
+                request_shutdown()
         elif kind == "audio":
             item_id = event.audio.item_id
-            if cancelled(item_id) or SHUTTING_DOWN:
+            if cancelled(item_id):
+                continue
+            allow_shutdown = SHUTTING_DOWN
+            if not FENCE.can_enqueue(FENCE.state.generation, item_id, allow_shutdown=allow_shutdown):
                 continue
             if not DUQUE_SPEAKING:
                 DUQUE_SPEAKING = True
                 SPEECH_STARTED_AT = time.perf_counter()
                 hud("falando", "Duque falando...")
-            FENCE.can_enqueue(FENCE.state.generation, item_id)
-            enqueue_audio(event.audio.data, item_id, event.audio.content_index)
+            enqueue_audio(event.audio.data, item_id, event.audio.content_index, allow_shutdown=allow_shutdown)
         elif kind == "audio_interrupted":
             item_id = CURRENT_ITEM
             if item_id:
@@ -378,17 +408,19 @@ async def receive_events(session) -> None:
             if not SHUTTING_DOWN:
                 hud("processando", "Processando comando...")
         elif kind == "agent_end":
-            if SHUTTING_DOWN:
-                await wait_playback()
-                if SHUTDOWN_EVENT:
-                    SHUTDOWN_EVENT.set()
-                return
             await wait_playback()
             DUQUE_SPEAKING = False
             SPEECH_STARTED_AT = None
+            if SHUTTING_DOWN:
+                if SHUTDOWN_EVENT:
+                    SHUTDOWN_EVENT.set()
+                return
             hud("ouvindo", "Escutando você...")
         elif kind == "error":
             log(f"[REALTIME] erro: {getattr(event, 'error', event)}")
+            # Garante limpeza completa da sessão após erro do modelo/WebSocket.
+            if SHUTDOWN_EVENT:
+                SHUTDOWN_EVENT.set()
             return
 
 
@@ -565,3 +597,11 @@ def wake_loop() -> None:
                     recorder.delete()
                 except Exception:
                     pass
+
+
+if __name__ == "__main__":
+    log(
+        f"Duque Realtime | modelo={MODEL} | voz={VOICE} | "
+        f"processamento={'on' if VOICE_PROCESSING else 'off'}"
+    )
+    wake_loop()

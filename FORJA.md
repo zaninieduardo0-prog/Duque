@@ -57,6 +57,8 @@ Log em `duque_data/supervisor.log`; estado em `duque_data/update_state.json`.
 ## Estado atual
 
 Os módulos da Forja, o adapter do Claude e o supervisor estão prontos e
-testados (`tests/test_forge.py`, com git real e remoto local). Ainda falta
-ligá-los ao `AgentLoop` (pedido por voz/texto → Forja) e trocar o
-`Duque.vbs` para iniciar pelo supervisor.
+testados (`tests/test_forge.py`, com git real e remoto local). O `Duque.vbs`
+já inicia pelo supervisor. Ainda falta ligar a Forja ao `AgentLoop`
+(pedido por voz/texto → Forja). A Forja é o único caminho para o Duque
+alterar o próprio código: a antiga ferramenta `apply_code_change`, que
+escrevia direto na cópia em execução, foi removida.
