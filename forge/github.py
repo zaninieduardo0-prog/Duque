@@ -11,10 +11,17 @@ API = "https://api.github.com"
 OK_CONCLUSIONS = {"success", "neutral", "skipped"}
 
 
+# Erros que não melhoram esperando: token sem permissão Checks: read, repositório
+# privado sem token ou slug errado.
+NO_ACCESS = {401, 403, 404}
+
+
 @dataclass(slots=True)
 class CIStatus:
     state: str  # success | failure | pending | none
     failures: list[str] = field(default_factory=list)
+    reason: str = ""
+    final: bool = False  # True: não adianta continuar consultando
 
 
 @dataclass(slots=True)
@@ -60,14 +67,26 @@ class GitHubClient:
             return None
         try:
             data = self._request("POST", f"/repos/{self.slug}/pulls", {"title": title, "head": head, "base": base, "body": body})
-        except urllib.error.HTTPError:
+            return PullRequest(int(data["number"]), str(data["html_url"]))
+        except (OSError, ValueError, KeyError, TypeError):
+            # URLError/HTTPError/timeout são OSError; JSON inválido é ValueError.
             return None
-        return PullRequest(int(data["number"]), str(data["html_url"]))
 
     def commit_checks(self, sha: str) -> CIStatus:
         if not self.slug:
-            return CIStatus("none")
-        data = self._request("GET", f"/repos/{self.slug}/commits/{sha}/check-runs?per_page=100")
+            return CIStatus("none", reason="repositório do GitHub desconhecido", final=True)
+        try:
+            data = self._request("GET", f"/repos/{self.slug}/commits/{sha}/check-runs?per_page=100")
+        except urllib.error.HTTPError as exc:
+            if exc.code in NO_ACCESS:
+                return CIStatus(
+                    "none",
+                    reason=f"sem acesso aos checks (HTTP {exc.code}); o token precisa de Checks: read",
+                    final=True,
+                )
+            return CIStatus("none", reason=f"GitHub respondeu HTTP {exc.code}")
+        except (OSError, ValueError) as exc:
+            return CIStatus("none", reason=f"falha de rede ao consultar o CI: {exc}")
         runs = data.get("check_runs", []) if isinstance(data, dict) else []
         if not runs:
             return CIStatus("none")
@@ -81,9 +100,9 @@ class GitHubClient:
             failures.append(f"check '{run.get('name')}' terminou como {run.get('conclusion')}")
             try:
                 annotations = self._request("GET", f"/repos/{self.slug}/check-runs/{run['id']}/annotations?per_page=50")
-            except (urllib.error.URLError, KeyError):
+            except (OSError, ValueError, KeyError):
                 continue
-            for item in annotations or []:
+            for item in annotations if isinstance(annotations, list) else []:
                 message = str(item.get("message", ""))
                 if "Node.js" in message or message.startswith("Process completed"):
                     continue
@@ -95,11 +114,8 @@ class GitHubClient:
         waited = 0
         status = CIStatus("none")
         while waited <= timeout:
-            try:
-                status = self.commit_checks(sha)
-            except urllib.error.URLError:
-                status = CIStatus("pending")
-            if status.state in {"success", "failure"}:
+            status = self.commit_checks(sha)
+            if status.state in {"success", "failure"} or status.final:
                 return status
             if status.state == "none" and waited >= grace:
                 return status

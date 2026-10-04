@@ -12,7 +12,7 @@ from .config import ForgeConfig, parse_github_slug
 from .developer import Developer, SandboxTools
 from .git import Git, GitError
 from .github import CodeHost, GitHubClient
-from .guard import check_changes
+from .guard import check_changes, touches_workflows
 from .quality import QualityGate
 from .sandbox import ForgeSandbox
 
@@ -85,7 +85,7 @@ class Forge:
     ) -> None:
         self.config = config
         self.developer = developer
-        self.gate = gate or QualityGate(config.checks)
+        self.gate = gate or QualityGate(config.checks, strict=config.require_ci)
         if host is None:
             slug = config.github_slug
             if slug is None:
@@ -132,6 +132,8 @@ class Forge:
     def _develop_and_ship(self, sandbox: ForgeSandbox, report: ForgeReport) -> None:
         tools = SandboxTools(sandbox.path, self.gate, sandbox.diff)
         feedback: str | None = None
+        # SHA -> falhas do CI: o mesmo commit não é esperado de novo.
+        failed_ci: dict[str, list[str]] = {}
 
         for round_number in range(1, self.config.max_rounds + 1):
             report.rounds = round_number
@@ -168,6 +170,15 @@ class Forge:
                     continue
                 report.commit = sandbox.git.head()
 
+            if touches_workflows(changes):
+                # Enviar o branch já faria o GitHub rodar o workflow alterado.
+                sandbox.keep_branch = True
+                report.status = ForgeStatus.AWAITING_APPROVAL
+                report.approval_reasons.append(
+                    f"altera .github/: branch local {sandbox.branch} não foi enviado; revise e envie manualmente"
+                )
+                return
+
             self._step(report, f"enviando branch {sandbox.branch}")
             sandbox.push(force=True)
             if report.pr_url is None:
@@ -181,21 +192,29 @@ class Forge:
                 return
 
             if self.config.require_ci:
+                head = sandbox.git.head()
+                if head in failed_ci:
+                    # Nada mudou desde a falha: esperar o CI de novo daria o mesmo resultado.
+                    feedback = "O CI no GitHub (Windows) falhou e nada foi alterado desde então:\n" + "\n".join(failed_ci[head])
+                    self._step(report, "commit igual ao que falhou no CI; nova rodada de correção")
+                    continue
                 self._step(report, "aguardando CI no GitHub")
                 ci = self.host.wait_for_checks(
-                    sandbox.git.head(),
+                    head,
                     timeout=self.config.ci_timeout_seconds,
                     poll=self.config.ci_poll_seconds,
                     grace=self.config.ci_grace_seconds,
                 )
                 report.ci = ci.state
                 if ci.state == "failure":
+                    failed_ci[head] = list(ci.failures)
                     feedback = "O CI no GitHub (Windows) falhou:\n" + "\n".join(ci.failures)
                     self._step(report, "CI falhou; nova rodada de correção")
                     continue
                 if ci.state != "success":
                     report.status = ForgeStatus.AWAITING_APPROVAL
-                    report.approval_reasons.append(f"CI não confirmou ({ci.state})")
+                    detail = f"{ci.state}: {ci.reason}" if ci.reason else ci.state
+                    report.approval_reasons.append(f"CI não confirmou ({detail})")
                     return
 
             try:

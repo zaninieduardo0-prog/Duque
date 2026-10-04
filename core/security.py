@@ -69,6 +69,11 @@ class SecurityPolicy:
         "run_command": RiskLevel.HIGH,
         "list_processes": RiskLevel.LOW,
         "kill_process": RiskLevel.HIGH,
+        # Ferramentas da Forja: só atuam na cópia isolada (worktree) do projeto.
+        "edit_file": RiskLevel.MEDIUM,
+        "search_code": RiskLevel.LOW,
+        "run_checks": RiskLevel.MEDIUM,
+        "show_diff": RiskLevel.LOW,
     }
 
     def __init__(self, default: RiskLevel = RiskLevel.HIGH) -> None:

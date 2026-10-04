@@ -75,18 +75,29 @@ class Updater:
                 return UpdateResult("up_to_date", "já está na versão mais recente", previous, previous)
             if not self.git.is_ancestor(previous, target):
                 return UpdateResult("refused", "a instalação tem commits locais que não estão no remoto", previous, target)
+            if target == self.state().get("failed"):
+                return UpdateResult("refused", f"a versão {target[:10]} já falhou antes; aguardando uma correção", previous, target)
 
             self.git.run("merge", "--ff-only", target)
             gate = self.smoke.run(self.root)
             if not gate.passed:
+                dirty = self.git.dirty_tracked_files()
+                if dirty:
+                    # A validação alterou arquivos versionados: reset --hard apagaria isso.
+                    write_state(self.state_path, status="rollback_refused", previous=previous, current=target, failed=target, dirty=dirty[:20])
+                    return UpdateResult("failed", "nova versão falhou na validação e há arquivos alterados; não voltei sozinho: " + ", ".join(dirty[:10]), previous, target)
                 self.git.run("reset", "--hard", previous)
                 write_state(self.state_path, status="rolled_back", previous=previous, current=previous, failed=target, reason=gate.failure_report(2000))
                 return UpdateResult("rolled_back", f"nova versão falhou na validação ({gate.summary()}); voltei para a anterior", previous, previous)
 
-            write_state(self.state_path, status="pending_restart", previous=previous, current=target)
+            write_state(self.state_path, status="updated", previous=previous, current=target)
             return UpdateResult("updated", f"atualizado de {previous[:10]} para {target[:10]}", previous, target)
         except GitError as exc:
             return UpdateResult("failed", str(exc))
+
+    def mark_pending_restart(self, result: UpdateResult) -> None:
+        """Só quando o reinício vai mesmo acontecer: o supervisor observa a versão nova."""
+        write_state(self.state_path, status="pending_restart", previous=result.previous, current=result.current)
 
     def state(self) -> dict[str, Any]:
         return read_state(self.state_path)

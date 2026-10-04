@@ -11,6 +11,17 @@ import os
 import subprocess
 import sys
 
+
+def escape_data(value: str) -> str:
+    """Escapa a mensagem de um comando do GitHub Actions (::error ...::mensagem)."""
+    return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def escape_property(value: str) -> str:
+    """Escapa propriedades (file=, title=), onde ':' e ',' também são separadores."""
+    return escape_data(value).replace(":", "%3A").replace(",", "%2C")
+
+
 completed = subprocess.run(["pyright", "--outputjson"], capture_output=True, text=True)
 try:
     report = json.loads(completed.stdout)
@@ -27,10 +38,13 @@ for diagnostic in report.get("generalDiagnostics", []):
         continue
     path = os.path.relpath(diagnostic.get("file", ""), root).replace("\\", "/")
     line = diagnostic.get("range", {}).get("start", {}).get("line", 0) + 1
-    message = diagnostic.get("message", "").replace("\n", " ")
+    message = diagnostic.get("message", "")
     rule = diagnostic.get("rule", "")
-    print(f"::{severity} file={path},line={line},title=pyright {rule}::{message}")
-    print(f"{path}:{line} {severity}: {message} ({rule})")
+    print(
+        f"::{severity} file={escape_property(path)},line={line},"
+        f"title={escape_property(f'pyright {rule}')}::{escape_data(message)}"
+    )
+    print(f"{path}:{line} {severity}: {' '.join(message.split())} ({rule})")
     errors += severity == "error"
 
 summary = report.get("summary", {})

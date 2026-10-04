@@ -97,7 +97,7 @@ def start_voice(voice_runtime) -> None:
         voice_runtime.wake_loop()
     except BaseException as exc:
         voice_runtime.log(f"Falha fatal no runtime de voz: {type(exc).__name__}: {exc!r}")
-        voice_runtime.hud("erro", f"Voz indisponível: {exc}"[:120])
+        voice_runtime.hud("erro", f"Voz indisponível: {exc}"[:120], mode="texto")
 
 
 def main() -> None:

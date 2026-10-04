@@ -117,26 +117,15 @@ body{
   position:absolute;left:40px;bottom:38px;width:262px;
   opacity:0;animation:boot 1.4s ease .95s forwards;
 }
-#spotify .head{display:flex;align-items:center;justify-content:space-between}
-#spotify .head .label{letter-spacing:.42em}
-#sTrack{margin-top:10px;font-size:14px;font-weight:200;letter-spacing:.1em;color:var(--warm-white);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#sArtist{margin-top:2px;font-size:10.5px;letter-spacing:.26em;text-transform:uppercase;color:var(--txt-dim)}
-#sBarWrap{margin-top:12px;height:1px;background:rgba(201,144,47,.16);position:relative}
-#sBar{position:absolute;left:0;top:0;height:1px;width:0%;
-  background:linear-gradient(90deg,rgba(201,144,47,.5),var(--gold-hot));box-shadow:0 0 8px rgba(232,168,56,.5)}
-#sBar::after{content:'';position:absolute;right:-1px;top:-1.5px;width:2px;height:4px;background:var(--gold-hot)}
-#sMeta{margin-top:7px;display:flex;justify-content:space-between;font-size:9.5px;letter-spacing:.2em;color:rgba(246,234,214,.28)}
-#sCtl{margin-top:12px;display:flex;align-items:center;gap:18px}
-#sCtl button,.ghost{
+#spotify .label{letter-spacing:.42em}
+.ghost{
   background:none;border:0;padding:0;color:rgba(246,234,214,.5);cursor:pointer;
   font-family:inherit;font-size:11px;letter-spacing:.24em;text-transform:uppercase;
   transition:color .25s ease,text-shadow .25s ease;
 }
-#sCtl button:hover,.ghost:hover,#sCtl button:focus-visible,.ghost:focus-visible{
+.ghost:hover,.ghost:focus-visible{
   color:var(--gold-hot);text-shadow:0 0 14px rgba(232,168,56,.55);outline:none}
-#sCtl button svg{display:block}
-#sOpen{margin-top:14px;display:inline-block;text-decoration:none}
+#sOpen{margin-top:10px;display:inline-block;text-decoration:none}
 
 /* ---------- comando / rodapé ---------- */
 #voice{position:absolute;left:50%;transform:translateX(-50%);bottom:38px;text-align:center;
@@ -151,8 +140,6 @@ body{
 #cmd:focus{outline:none;border-color:rgba(232,168,56,.55)}
 #response{margin:16px auto 0;width:min(560px,78vw);min-height:18px;font-size:11px;line-height:1.6;letter-spacing:.12em;color:rgba(246,234,214,.58);text-transform:none;opacity:0;transform:translateY(4px);transition:opacity .35s ease,transform .35s ease}
 #response.show{opacity:1;transform:none}
-#response .who{color:var(--gold-hot);letter-spacing:.22em;text-transform:uppercase;font-size:9px;margin-right:7px}
-#keys{margin-top:12px;font-size:9px;letter-spacing:.24em;color:rgba(246,234,214,.18);text-transform:uppercase}
 
 @media (max-width:820px){
   #telemetry{display:none}
@@ -227,28 +214,10 @@ body{
   <!-- atividade recente -->
   <div id="activity"></div>
 
-  <!-- spotify -->
+  <!-- spotify: só um atalho; não há integração com a conta -->
   <div id="spotify" class="z">
-    <div class="head">
-      <span class="label">Spotify</span>
-      <span class="label" id="sStatus" style="letter-spacing:.24em">Pausado</span>
-    </div>
-    <div id="sTrack">Nenhuma faixa</div>
-    <div id="sArtist">—</div>
-    <div id="sBarWrap"><div id="sBar"></div></div>
-    <div id="sMeta"><span id="sCur">0:00</span><span id="sDur">0:00</span></div>
-    <div id="sCtl">
-      <button id="sPrev" title="Faixa anterior" aria-label="Faixa anterior">
-        <svg width="13" height="11" viewBox="0 0 13 11" fill="none"><path d="M12 1 4 5.5 12 10V1Z" stroke="currentColor" stroke-width="1"/><path d="M1 1v9" stroke="currentColor" stroke-width="1"/></svg>
-      </button>
-      <button id="sPlay" title="Tocar" aria-label="Tocar" style="color:var(--gold-hot)">
-        <svg width="12" height="13" viewBox="0 0 12 13" fill="none" id="sIcon"><path d="M1 1l10 5.5L1 12V1Z" stroke="currentColor" stroke-width="1"/></svg>
-      </button>
-      <button id="sNext" title="Próxima faixa" aria-label="Próxima faixa">
-        <svg width="13" height="11" viewBox="0 0 13 11" fill="none"><path d="M1 1l8 4.5L1 10V1Z" stroke="currentColor" stroke-width="1"/><path d="M12 1v9" stroke="currentColor" stroke-width="1"/></svg>
-      </button>
-    </div>
-    <a id="sOpen" class="ghost" href="https://open.spotify.com" target="_blank" rel="noopener">Abrir Spotify</a>
+    <div class="label">Spotify</div>
+    <a id="sOpen" class="ghost" href="https://open.spotify.com" target="_blank" rel="noopener noreferrer">Abrir Spotify</a>
   </div>
 
   <!-- rodapé central -->
@@ -260,33 +229,33 @@ body{
     </div>
     <input id="cmd" autocomplete="off" spellcheck="false" placeholder="Digite um comando">
     <div id="response" aria-live="polite"></div>
-    <div id="keys">1–5 estados · M microfone · Enter comando</div>
   </div>
 </div>
 
 <script>
 /* =========================================================
    DUQUE — HUD NEURAL
-   Estado global observável. Tudo aqui pode ser alimentado por
-   WebSocket / backend Python sem recarregar a página:
-     DUQUE.setState({ state:'processing', currentTask:'...' })
-     DUQUE.telemetry([{k:'label', v:'valor'}], ms)
+   Estado global observável, alimentado pelo servidor (GET /api/estado):
+     DUQUE.setState({ state:'processing', label:'processando', currentTask:'...' })
+     DUQUE.telemetry([{k:'label', v:'valor', em:true}], ms)
      DUQUE.activity('WEB SEARCH')
      DUQUE.audioLevel(0..1)        // se preferir enviar nível externo
    ========================================================= */
+/* O servidor troca este marcador pelo token da sessão; todo POST o envia. */
+const DUQUE_TOKEN='__DUQUE_TOKEN__';
+
 const DUQUE = (() => {
   const state = {
-    state:'standby',           // standby | listening | processing | speaking | executing
+    state:'standby',           // chave visual: standby | listening | processing | speaking | executing
+    label:'standby',           // estado como o servidor mandou (para o rótulo)
     date:'', time:'', temperature:null, city:'', sky:'',
-    currentTask:'',
-    spotify:{ playing:false, track:'Nenhuma faixa', artist:'—', progress:0, duration:0 }
+    currentTask:''
   };
   const subs = [];
   return {
     get:()=>state,
     on:f=>subs.push(f),
     setState(patch){
-      if(patch.spotify) Object.assign(state.spotify, patch.spotify), delete patch.spotify;
       Object.assign(state, patch);
       subs.forEach(f=>f(state));
     },
@@ -689,6 +658,31 @@ requestAnimationFrame(draw);
 const $=id=>document.getElementById(id);
 const MONTHS=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
 const STATE_LABEL={standby:'Standby',ouvindo:'Listening',processando:'Processing',falando:'Speaking',executando:'Executing',dormindo:'Sleeping',erro:'Error',listening:'Listening',processing:'Processing',speaking:'Speaking',executing:'Executing'};
+/* Estados do servidor (pt) -> chaves visuais usadas por ENERGY e pelas animações. */
+const SERVER_STATE={ouvindo:'listening',processando:'processing',falando:'speaking',executando:'executing',dormindo:'standby',erro:'standby',standby:'standby'};
+
+function visualState(name){
+  return SERVER_STATE[name] || (name in ENERGY ? name : 'standby');
+}
+/* Aplica um estado vindo do servidor (ou local, com os mesmos nomes). */
+function applyState(name, task=''){
+  DUQUE.setState({state:visualState(name), label:name, currentTask:task});
+}
+
+function postJSON(url, body){
+  return fetch(url,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-Duque-Token':DUQUE_TOKEN},
+    body:JSON.stringify(body)
+  });
+}
+
+/* Stream aberto = "existe uma aba do HUD" para o servidor (o launcher não abre
+   outra). Não depende de timers, então abas em segundo plano continuam contando. */
+try{
+  const hudStream=new EventSource('/api/hud/stream');
+  hudStream.onerror=()=>{ /* o navegador reconecta sozinho (retry do servidor) */ };
+}catch(e){}
 
 function tickClock(){
   const d=new Date();
@@ -702,7 +696,6 @@ function tickClock(){
 setInterval(tickClock,1000); tickClock();
 try{ $('tz').textContent = Intl.DateTimeFormat().resolvedOptions().timeZone.replace('_',' '); }catch(e){}
 
-let hudAcc=0;
 function updateHudFast(){
   if(frame%10) return;
   $('nodeCount').textContent = `${String(NP).padStart(4,'0')} · ${String(LINKS.length).padStart(3,'0')}`;
@@ -711,7 +704,7 @@ function updateHudFast(){
 
 function renderState(){
   const s=DUQUE.get();
-  $('stateName').textContent = STATE_LABEL[s.state]||s.state;
+  $('stateName').textContent = STATE_LABEL[s.label]||STATE_LABEL[s.state]||s.label||s.state;
   $('stateTask').textContent = s.currentTask||'';
   $('coreState').textContent = s.state==='standby' ? 'Idle' : 'Active';
   $('sysDot').className = 'dot' + (s.state==='standby'?' idle':'');
@@ -719,21 +712,49 @@ function renderState(){
 }
 DUQUE.on(renderState); renderState();
 
+/* ---------------- voz / lembretes vindos do servidor ---------------- */
+let voiceActive=false;        // sessão de voz (wake word) em andamento
+let lastReminderId;           // undefined = ainda não houve a primeira consulta
+let speechBusy=false;
+
+function renderVoice(){
+  $('micState').textContent = voiceActive ? 'Ativo' : 'Inativo';
+  $('micDot').className = 'dot' + (voiceActive ? '' : ' idle');
+}
+renderVoice();
+
+function handleReminder(reminder){
+  const id = reminder && reminder.id ? String(reminder.id) : null;
+  if(lastReminderId===undefined){
+    // Primeira consulta após carregar: lembrete que já estava lá é antigo.
+    lastReminderId=id;
+    return;
+  }
+  if(!id || id===lastReminderId) return;
+  lastReminderId=id;
+  const text=String(reminder.texto||'').trim();
+  if(!text) return;
+  showResponse(text);
+  DUQUE.activity('LEMBRETE');
+  if(!voiceActive) void speakResponse(text);
+}
+
 let serverSyncBusy=false;
 async function syncServerState(){
-  if(serverSyncBusy || speechBusy) return;
+  if(serverSyncBusy) return;
   serverSyncBusy=true;
   try{
     const response=await fetch('/api/estado',{cache:'no-store'});
     if(!response.ok) return;
     const data=await response.json();
-    if(!data || !data.estado) return;
-    const current=DUQUE.get();
-    DUQUE.setState({
-      state:data.estado,
-      currentTask:data.tarefa||'',
-      serverActivity:data.atividade||''
-    });
+    if(!data) return;
+    const wasActive=voiceActive;
+    voiceActive=Boolean(data.voz_ativa);
+    if(wasActive!==voiceActive) renderVoice();
+    handleReminder(data.lembrete);
+    // Enquanto o HUD fala uma resposta, o estado visual é "speaking"; o resto
+    // (voz ativa, lembretes) continua sendo sincronizado.
+    if(data.estado && !speechBusy) applyState(data.estado, data.tarefa||'');
   }catch(e){
     // O HUD continua funcional mesmo se o servidor estiver indisponível.
   }finally{
@@ -743,13 +764,19 @@ async function syncServerState(){
 syncServerState();
 setInterval(syncServerState,250);
 
-/* telemetria contextual efêmera */
+/* telemetria contextual efêmera (só textContent: nada de HTML vindo de texto) */
 window.__tel=(items, ms=4200)=>{
   const box=$('telemetry');
   const nodes=items.map(it=>{
     const el=document.createElement('div');
     el.className='tel';
-    el.innerHTML=`<div class="k">${it.k}</div><div class="v">${it.v}</div>`;
+    const k=document.createElement('div');
+    k.className='k'; k.textContent=String(it.k??'');
+    const v=document.createElement('div');
+    v.className='v';
+    if(it.em){ const em=document.createElement('em'); em.textContent=String(it.v??''); v.appendChild(em); }
+    else v.textContent=String(it.v??'');
+    el.append(k,v);
     box.appendChild(el); return el;
   });
   nodes.forEach((n,i)=>{ n.style.animationDelay=(i*0.09)+'s'; });
@@ -761,30 +788,39 @@ window.__tel=(items, ms=4200)=>{
 
 /* atividade recente */
 const acts=[];
+let actTimer=null;
 window.__act=(txt)=>{
-  acts.unshift(txt); if(acts.length>4) acts.pop();
-  const box=$('activity'); box.innerHTML='';
+  acts.unshift(String(txt)); if(acts.length>4) acts.pop();
+  const box=$('activity'); box.replaceChildren();
   acts.forEach((a,i)=>{
     const d=document.createElement('div');
-    d.innerHTML=`<span class="i"></span>${i===0?'':''}${a}`;
+    const mark=document.createElement('span');
+    mark.className='i';
+    d.append(mark, document.createTextNode(a));
     d.style.animationDelay=(i*0.05)+'s';
     box.appendChild(d);
   });
-  clearTimeout(window.__actT);
-  window.__actT=setTimeout(()=>{ acts.length=0; box.innerHTML=''; }, 26000);
+  clearTimeout(actTimer);
+  actTimer=setTimeout(()=>{ acts.length=0; box.replaceChildren(); }, 26000);
 };
 
 /* ---------------- clima ---------------- */
+let weatherSeq=0;                         // só a consulta mais recente vale
+let weatherPlace={lat:-22.7253, lon:-47.6492, label:'Piracicaba'};
 async function weather(lat,lon,label){
+  const seq=++weatherSeq;
   try{
     const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&timezone=auto`;
     const r=await fetch(u); const j=await r.json();
+    if(seq!==weatherSeq) return;
     const temp=Math.round(j.current.temperature_2m);
-    DUQUE.setState({temperature:temp, city:label, sky:skyText(j.current.weather_code)});
+    const sky=skyText(j.current.weather_code);
+    DUQUE.setState({temperature:temp, city:label, sky});
     $('temp').textContent=temp+'°C';
     $('city').textContent=label;
-    $('sky').textContent=skyText(j.current.weather_code);
+    $('sky').textContent=sky;
   }catch(e){
+    if(seq!==weatherSeq) return;
     $('city').textContent=label; $('temp').textContent='--°C'; $('sky').textContent='Sem sinal';
   }
 }
@@ -798,7 +834,8 @@ function skyText(c){
   return 'Tempestade';
 }
 // padrão: Piracicaba — substituído por geolocalização, se autorizada
-weather(-22.7253,-47.6492,'Piracicaba');
+weather(weatherPlace.lat, weatherPlace.lon, weatherPlace.label);
+setInterval(()=>weather(weatherPlace.lat, weatherPlace.lon, weatherPlace.label), 30*60*1000);
 if(navigator.geolocation){
   navigator.geolocation.getCurrentPosition(async pos=>{
     const {latitude:la, longitude:lo}=pos.coords;
@@ -807,108 +844,28 @@ if(navigator.geolocation){
       const g=await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${la}&longitude=${lo}&localityLanguage=pt`);
       const gj=await g.json(); name=gj.city||gj.locality||name;
     }catch(e){}
+    weatherPlace={lat:la, lon:lo, label:name};
     weather(la,lo,name);
   },()=>{},{timeout:8000});
 }
 
-/* ---------------- microfone ---------------- */
-let micOn=false, analyser=null, buf=null;
+/* ---------------- nível de áudio ---------------- */
 window.__ext = v => { extAudio = (v===null?null:clamp(v,0,1)); };
 
-async function toggleMic(){
-  if(micOn){
-    micOn=false; $('micState').textContent='Inativo'; $('micDot').className='dot idle';
-    audioTarget=0; if(DUQUE.get().state==='listening') DUQUE.setState({state:'standby'});
-    return;
-  }
-  try{
-    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
-    const ac=new (window.AudioContext||window.webkitAudioContext)();
-    const src=ac.createMediaStreamSource(stream);
-    analyser=ac.createAnalyser(); analyser.fftSize=512; analyser.smoothingTimeConstant=.75;
-    src.connect(analyser); buf=new Uint8Array(analyser.frequencyBinCount);
-    micOn=true; $('micState').textContent='Aberto'; $('micDot').className='dot';
-    DUQUE.setState({state:'listening'});
-    (function loop(){
-      if(!micOn) return;
-      analyser.getByteFrequencyData(buf);
-      let sum=0; for(let i=0;i<buf.length;i++) sum+=buf[i];
-      audioTarget = clamp((sum/buf.length)/70, 0, 1);
-      requestAnimationFrame(loop);
-    })();
-  }catch(e){
-    $('micState').textContent='Negado';
-  }
-}
-
-/* nível de áudio simulado quando o Duque "fala" */
+/* nível de áudio simulado conforme o estado */
 setInterval(()=>{
   const s=DUQUE.get().state;
-  if(s==='speaking' && !micOn) audioTarget = clamp(0.25 + Math.random()*0.7, 0, 1);
-  else if(s==='processing' && !micOn) audioTarget = 0.12 + Math.random()*0.12;
-  else if(!micOn && s!=='listening') audioTarget = 0.02;
+  if(s==='speaking') audioTarget = clamp(0.25 + Math.random()*0.7, 0, 1);
+  else if(s==='processing') audioTarget = 0.12 + Math.random()*0.12;
+  else if(s!=='listening') audioTarget = 0.02;
 }, 110);
-
-/* ---------------- spotify (arquitetura pronta para OAuth) ---------------- */
-const queue=[
-  {track:'Night Terminal', artist:'Mirrorline', duration:243},
-  {track:'Slow Machines', artist:'Aeris Vale', duration:198},
-  {track:'Gold Standard', artist:'Kaito Ferreira', duration:274},
-  {track:'Low Orbit', artist:'The Quiet Signal', duration:221}
-];
-let qi=0, sTimer=null;
-
-/* Substitua este objeto pela integração real (Web Playback SDK / Web API).
-   Basta chamar DUQUE.setState({spotify:{...}}) com os dados reais. */
-const Spotify = {
-  play(){ DUQUE.setState({spotify:{playing:true}}); runProgress(); DUQUE.activity('SPOTIFY'); },
-  pause(){ DUQUE.setState({spotify:{playing:false}}); clearInterval(sTimer); },
-  next(){ qi=(qi+1)%queue.length; load(); },
-  prev(){ qi=(qi-1+queue.length)%queue.length; load(); }
-};
-function load(){
-  const t=queue[qi];
-  DUQUE.setState({spotify:{track:t.track, artist:t.artist, duration:t.duration, progress:0}});
-  renderSpotify();
-  if(DUQUE.get().spotify.playing) runProgress();
-}
-function runProgress(){
-  clearInterval(sTimer);
-  sTimer=setInterval(()=>{
-    const sp=DUQUE.get().spotify;
-    if(!sp.playing) return;
-    sp.progress += 1;
-    if(sp.progress>=sp.duration) Spotify.next();
-    renderSpotify();
-  },1000);
-}
-const fmt=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
-function renderSpotify(){
-  const sp=DUQUE.get().spotify;
-  $('sTrack').textContent=sp.track;
-  $('sArtist').textContent=sp.artist;
-  $('sStatus').textContent=sp.playing?'Tocando':'Pausado';
-  $('sBar').style.width=(sp.duration? (sp.progress/sp.duration*100):0)+'%';
-  $('sCur').textContent=fmt(sp.progress||0);
-  $('sDur').textContent=fmt(sp.duration||0);
-  $('sIcon').innerHTML = sp.playing
-    ? '<path d="M2 1v11M10 1v11" stroke="currentColor" stroke-width="1"/>'
-    : '<path d="M1 1l10 5.5L1 12V1Z" stroke="currentColor" stroke-width="1"/>';
-  $('sPlay').title = sp.playing?'Pausar':'Tocar';
-}
-$('sPlay').onclick=()=>DUQUE.get().spotify.playing?Spotify.pause():Spotify.play();
-$('sNext').onclick=()=>Spotify.next();
-$('sPrev').onclick=()=>Spotify.prev();
-load();
 
 /* ---------------- comando / backend real ----------------
    O HUD conversa com o servidor Flask, que entrega o texto ao AgentLoop.
    O estado visual continua sendo alimentado pela API /api/estado.
 */
-function say(state, task=''){ DUQUE.setState({state, currentTask:task}); }
-
 let currentSpeech=null;
-let speechBusy=false;
+let speechTimer=null;
 
 function showResponse(text){
   const box=$('response');
@@ -916,52 +873,74 @@ function showResponse(text){
   box.classList.toggle('show', Boolean(text));
 }
 
+/* Libera o estado visual quando a fala termina (ou trava). */
+function endSpeech(){
+  speechBusy=false;
+  clearTimeout(speechTimer); speechTimer=null;
+  audioTarget=0;
+  syncServerState();
+}
+
+/* Voz do navegador como reserva: prefere vozes pt-BR. */
+function pickVoice(){
+  const voices = ('speechSynthesis' in window && window.speechSynthesis.getVoices()) || [];
+  const pt = voices.filter(v=>/^pt[-_]BR/i.test(v.lang||''));
+  const pool = pt.length ? pt : voices.filter(v=>/^pt/i.test(v.lang||''));
+  const male = [/antonio/i, /daniel/i, /male/i, /masculin/i];
+  return pool.find(v=>male.some(r=>r.test(v.name||''))) || pool[0] || null;
+}
+function browserSpeak(txt){
+  try{
+    if(!('speechSynthesis' in window)) return false;
+    const u = new SpeechSynthesisUtterance(txt);
+    u.lang = 'pt-BR';
+    const chosen = pickVoice();
+    if(chosen) u.voice = chosen;
+    u.rate = 1.0;
+    u.volume = 1.0;
+    u.onend = endSpeech;
+    u.onerror = endSpeech;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+    return true;
+  }catch(e){ /* ignore */ }
+  return false;
+}
+
 async function speakResponse(text){
   const value=(text||'').trim();
   if(!value) return;
+  // Com a conversa por voz ativa, o Realtime já fala; falar aqui duplicaria a
+  // voz e o microfone captaria o próprio Duque.
+  if(voiceActive) return;
 
   if(currentSpeech){
     try{ currentSpeech.pause(); currentSpeech.currentTime=0; }catch(e){}
     currentSpeech=null;
   }
+  try{ if('speechSynthesis' in window) window.speechSynthesis.cancel(); }catch(e){}
 
   speechBusy=true;
-  say('speaking','Falando');
+  applyState('falando','Falando');
   audioTarget=.45;
+  // Rede de segurança: se nenhum evento de fim chegar, o HUD não fica preso em "speaking".
+  clearTimeout(speechTimer);
+  speechTimer=setTimeout(endSpeech, Math.min(120000, 10000 + value.length*120));
 
-  // Helper: fallback to browser TTS
-  const browserSpeak = (txt)=>{
-    try{
-      if('speechSynthesis' in window){
-        const voices = window.speechSynthesis.getVoices() || [];
-        const preferred = [/jarvis/i, /david/i, /mark/i, /daniel/i, /male/i, /alloy/i, /br/i];
-        let chosen = null;
-        for(const v of voices){
-          const n = (v.name||v.voiceURI||'').toString();
-          if(preferred.some(r=>r.test(n))){ chosen = v; break; }
-        }
-        if(!chosen && voices.length) chosen = voices.find(v=>/pt-BR|portuguese|brazil/i.test(v.lang||v.name||'')) || voices[0];
-        const u = new SpeechSynthesisUtterance(txt);
-        u.lang = 'pt-BR';
-        if(chosen) u.voice = chosen;
-        u.rate = 1.0;
-        u.volume = 1.0;
-        u.onend = ()=>{ speechBusy=false; audioTarget=0; syncServerState(); };
-        u.onerror = ()=>{ speechBusy=false; audioTarget=0; syncServerState(); };
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(u);
-        return true;
-      }
-    }catch(e){ /* ignore */ }
-    return false;
+  let fellBack=false;
+  const fallback=()=>{
+    if(fellBack) return;           // onerror e catch podem disparar juntos
+    fellBack=true;
+    currentSpeech=null;
+    audioTarget=0;
+    if(!browserSpeak(value)){
+      DUQUE.activity('VOICE ERROR');
+      endSpeech();
+    }
   };
 
   try{
-    const response=await fetch('/api/fala',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({text:value})
-    });
+    const response=await postJSON('/api/fala',{text:value});
     if(!response.ok){
       let message='Falha ao gerar voz.';
       try{ const data=await response.json(); message=data.erro||message; }catch(e){}
@@ -974,38 +953,19 @@ async function speakResponse(text){
     currentSpeech=audioEl;
 
     audioEl.onended=()=>{
-      speechBusy=false;
       currentSpeech=null;
       URL.revokeObjectURL(url);
-      audioTarget=0;
-      syncServerState();
+      endSpeech();
     };
-    audioEl.onerror=async()=>{
-      // If server TTS fails to play, try browser TTS as fallback
+    audioEl.onerror=()=>{
       URL.revokeObjectURL(url);
-      currentSpeech=null;
-      audioTarget=0;
-      const ok = browserSpeak(value);
-      if(!ok){
-        speechBusy=false;
-        DUQUE.activity('VOICE ERROR');
-        syncServerState();
-      }
+      fallback();
     };
 
     await audioEl.play();
   }catch(error){
-    // Server TTS failed: try browser TTS fallback
-    console.warn('TTS server error:', error);
-    const ok = browserSpeak(value);
-    if(!ok){
-      speechBusy=false;
-      currentSpeech=null;
-      audioTarget=0;
-      DUQUE.activity('VOICE ERROR');
-      console.warn('TTS fallback failed');
-      syncServerState();
-    }
+    console.warn('TTS do servidor falhou:', error);
+    fallback();
   }
 }
 
@@ -1014,14 +974,10 @@ async function runCommand(text){
   const input=$('cmd');
   input.disabled=true;
   showResponse('');
-  say('processing','Enviando ao núcleo');
+  applyState('processando','Enviando ao núcleo');
   DUQUE.telemetry([{k:'Comando recebido',v:q.length>26?q.slice(0,26)+'…':q}],3600);
   try{
-    const response=await fetch('/api/comando',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({text:q})
-    });
+    const response=await postJSON('/api/comando',{text:q});
     const data=await response.json();
     if(!response.ok) throw new Error(data.erro||'Falha ao processar comando');
 
@@ -1032,11 +988,11 @@ async function runCommand(text){
     // A resposta textual não espera o TTS. A voz roda em paralelo para
     // manter o Duque responsivo, inclusive quando a síntese demora.
     void speakResponse(answer);
-    DUQUE.telemetry([{k:'Resposta',v:'<em>Pronta</em>'}],2600);
+    DUQUE.telemetry([{k:'Resposta',v:'Pronta',em:true}],2600);
   }catch(error){
     showResponse(error instanceof Error ? error.message : 'Não foi possível falar com o Duque.');
     DUQUE.activity('ERROR');
-    DUQUE.setState({state:'erro',currentTask:'Falha de comunicação'});
+    applyState('erro','Falha de comunicação');
     setTimeout(()=>syncServerState(),900);
   }finally{
     input.disabled=false;
@@ -1058,16 +1014,16 @@ $('cmd').addEventListener('keydown', e=>{
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 (async()=>{
   await wait(900);
-  DUQUE.telemetry([{k:'Núcleo neural',v:'<em>Online</em>'},{k:'Memória',v:'Sincronizada'}],3400);
+  DUQUE.telemetry([{k:'Núcleo neural',v:'Online',em:true},{k:'Memória',v:'Sincronizada'}],3400);
   DUQUE.activity('MEMORY');
   await wait(2600);
   DUQUE.activity('VOICE');
 })();
 
 /* ---------------- ponte para backend ----------------
-   Comandos usam POST /api/comando.
-   Estado visual usa GET /api/estado (sincronizado pelo servidor).
-   O payload visual segue o formato: { state, currentTask, spotify, ... }.
+   Comandos: POST /api/comando · voz: POST /api/fala (sempre com X-Duque-Token).
+   Estado visual, voz ativa e lembretes: GET /api/estado.
+   Presença da aba: EventSource /api/hud/stream.
 ------------------------------------------------------------------ */
 </script>
 </body>

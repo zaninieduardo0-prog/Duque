@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import time
 import unicodedata
 from uuid import uuid4
@@ -34,6 +35,9 @@ class ForgeSandbox:
         self.base_ref = f"{config.remote}/{config.base_branch}"
         self.base_sha = ""
         self.created = False
+        # Mantém o branch local após a limpeza quando ele não pôde ser enviado
+        # (ex.: mexe em .github/) e precisa de revisão humana.
+        self.keep_branch = False
 
     # ciclo de vida -----------------------------------------------------
     def create(self) -> ForgeSandbox:
@@ -48,9 +52,19 @@ class ForgeSandbox:
     def cleanup(self) -> None:
         if not self.created:
             return
-        self.repo.run("worktree", "remove", "--force", str(self.path), check=False)
-        self.repo.run("worktree", "prune", check=False)
-        self.repo.run("branch", "-D", self.branch, check=False)
+        try:
+            self.repo.run("worktree", "remove", "--force", str(self.path), check=False)
+        except GitError:
+            pass
+        if self.path.exists():
+            # Arquivo preso (antivírus, editor aberto) faz o git desistir; apaga na mão.
+            shutil.rmtree(self.path, ignore_errors=True)
+        try:
+            self.repo.run("worktree", "prune", check=False)
+            if not self.keep_branch:
+                self.repo.run("branch", "-D", self.branch, check=False)
+        except GitError:
+            pass
         self.created = False
 
     def __enter__(self) -> ForgeSandbox:

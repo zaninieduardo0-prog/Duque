@@ -1,131 +1,122 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from threading import Lock
+from typing import Any
 
+FAREWELLS = (
+    "até mais duque", "até logo duque", "tchau duque", "pode dormir duque",
+    "até mais, duque", "até logo, duque", "tchau, duque", "pode dormir, duque",
+)
 
-@dataclass(slots=True)
-class RealtimeSessionState:
-    """Estado síncrono mínimo para impedir áudio atrasado entre sessões."""
+# Erros do Realtime que só dizem "não havia resposta para cancelar/criar":
+# acontecem em toda interrupção e não significam que a sessão quebrou.
+BENIGN_ERROR_CODES = frozenset({
+    "response_cancel_not_active",
+    "conversation_already_has_active_response",
+    "input_audio_buffer_commit_empty",
+    "item_truncate_invalid_item_id",
+    "invalid_item_id",
+})
+BENIGN_ERROR_MESSAGES = (
+    "no active response",
+    "already has an active response",
+    "cancellation failed",
+    "buffer too small",
+)
 
-    active: bool = False
-    accepting_input: bool = False
-    shutting_down: bool = False
-    generation: int = 0
-    pending_audio: int = 0
-    current_item: str | None = None
-    _lock: Lock = field(default_factory=Lock, repr=False)
-
-    def start(self) -> int:
-        with self._lock:
-            self.generation += 1
-            self.active = True
-            self.accepting_input = True
-            self.shutting_down = False
-            self.pending_audio = 0
-            self.current_item = None
-            return self.generation
-
-    def begin_shutdown(self) -> int:
-        with self._lock:
-            self.shutting_down = True
-            self.accepting_input = False
-            return self.generation
-
-    def stop(self) -> None:
-        with self._lock:
-            self.active = False
-            self.accepting_input = False
-            self.shutting_down = False
-            self.pending_audio = 0
-            self.current_item = None
-
-    def accepts_audio(self, generation: int) -> bool:
-        with self._lock:
-            return self.active and generation == self.generation and not self.shutting_down
-
-    def accepts_playback(self, generation: int) -> bool:
-        """Permite terminar áudio da sessão mesmo após pedido de encerramento."""
-        with self._lock:
-            return self.active and generation == self.generation
-
-    def add_audio(
-        self,
-        generation: int,
-        item_id: str | None = None,
-        *,
-        allow_shutdown: bool = False,
-    ) -> bool:
-        with self._lock:
-            if not self.active or generation != self.generation:
-                return False
-            if self.shutting_down and not allow_shutdown:
-                return False
-            self.pending_audio += 1
-            if item_id is not None:
-                self.current_item = item_id
-            return True
-
-    def consume_audio(self, generation: int) -> bool:
-        with self._lock:
-            if generation != self.generation:
-                return False
-            if self.pending_audio > 0:
-                self.pending_audio -= 1
-            return True
-
-    def discard_audio(self, generation: int) -> bool:
-        """Descarta áudio enfileirado quando uma resposta é interrompida."""
-        with self._lock:
-            if generation != self.generation:
-                return False
-            self.pending_audio = 0
-            self.current_item = None
-            return True
-
-    def playback_drained(self) -> bool:
-        with self._lock:
-            return self.pending_audio == 0
+# Erros que tornam a sessão inútil. Falhas de transporte (WebSocket caiu) não
+# chegam como evento "error": o SDK as levanta ao iterar a sessão.
+FATAL_ERROR_CODES = frozenset({
+    "session_expired",
+    "invalid_api_key",
+    "insufficient_quota",
+    "model_not_found",
+})
+FATAL_ERROR_TYPES = frozenset({"authentication_error", "permission_error"})
+FATAL_ERROR_MESSAGES = (
+    "session expired",
+    "maximum duration",
+    "connection closed",
+)
 
 
 class PlaybackFence:
-    """Barreira de sessão para callbacks de áudio tardios."""
+    """Barreira de sessão: áudio de uma sessão encerrada nunca toca na próxima.
 
-    def __init__(self, state: RealtimeSessionState | None = None) -> None:
-        self.state = state or RealtimeSessionState()
+    Cada sessão recebe uma geração; callbacks atrasados carregam a geração
+    antiga e são descartados.
+    """
+
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._generation = 0
+        self._active = False
+
+    @property
+    def generation(self) -> int:
+        with self._lock:
+            return self._generation
 
     def new_session(self) -> int:
-        return self.state.start()
+        with self._lock:
+            self._generation += 1
+            self._active = True
+            return self._generation
 
-    def shutdown(self) -> int:
-        return self.state.begin_shutdown()
-
-    def can_enqueue(
-        self,
-        generation: int,
-        item_id: str | None = None,
-        *,
-        allow_shutdown: bool = False,
-    ) -> bool:
-        return self.state.add_audio(
-            generation,
-            item_id,
-            allow_shutdown=allow_shutdown,
-        )
-
-    def can_consume(self, generation: int) -> bool:
-        return self.state.consume_audio(generation)
-
-    def discard_audio(self, generation: int) -> bool:
-        return self.state.discard_audio(generation)
-
-    def stale(self, generation: int, *, allow_shutdown: bool = False) -> bool:
-        if allow_shutdown:
-            return not self.state.accepts_playback(generation)
-        return not self.state.accepts_audio(generation)
-
-    def drained(self) -> bool:
-        return self.state.playback_drained()
+    def accepts(self, generation: int) -> bool:
+        with self._lock:
+            return self._active and generation == self._generation
 
     def close(self) -> None:
-        self.state.stop()
+        with self._lock:
+            self._active = False
+
+
+def is_farewell(text: str) -> bool:
+    normalized = " ".join((text or "").casefold().split())
+    return any(phrase in normalized for phrase in FAREWELLS)
+
+
+def _field(value: Any, name: str) -> Any:
+    if isinstance(value, dict):
+        return value.get(name)
+    return getattr(value, name, None)
+
+
+def error_details(error: Any) -> tuple[str, str, str]:
+    """Extrai (tipo, código, mensagem) de um erro do Realtime, aninhado ou não."""
+    kind = code = message = ""
+    current = error
+    for _ in range(4):
+        if current is None or isinstance(current, (str, bytes)):
+            break
+        kind = str(_field(current, "type") or kind)
+        code = str(_field(current, "code") or code)
+        message = str(_field(current, "message") or message)
+        current = _field(current, "error")
+    if not message:
+        message = str(error or "")
+    return kind, code, message
+
+
+def is_benign_error(error: Any) -> bool:
+    _kind, code, message = error_details(error)
+    if code in BENIGN_ERROR_CODES:
+        return True
+    lowered = message.casefold()
+    return any(fragment in lowered for fragment in BENIGN_ERROR_MESSAGES)
+
+
+def is_fatal_error(error: Any) -> bool:
+    """Só erros de sessão/credencial encerram a conversa.
+
+    Os demais (requisição inválida, falha de uma resposta, erro interno do SDK
+    numa ferramenta) afetam um evento, não a sessão.
+    """
+    if is_benign_error(error):
+        return False
+    kind, code, message = error_details(error)
+    if code in FATAL_ERROR_CODES or kind in FATAL_ERROR_TYPES:
+        return True
+    lowered = message.casefold()
+    return any(fragment in lowered for fragment in FATAL_ERROR_MESSAGES)

@@ -19,6 +19,13 @@ dependencies = [
     "anthropic>=0.40",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "pyright"]
+
+[tool.setuptools]
+# Scripts de entrada na raiz do projeto (não são pacotes).
+py-modules = ["duque", "duque_supervisor", "duque_wake", "servidor"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = [
@@ -39,7 +46,9 @@ line-length = 100
 exclude = [".venv", "lixeira"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+# Mesmo conjunto usado pela Forja (forge/quality.py) e pelo CI.
+select = ["E", "F"]
+ignore = ["E501"]
 
 [tool.pyright]
 include = [
@@ -57,6 +66,7 @@ include = [
     "duque_wake.py",
 ]
 exclude = [".venv", "lixeira"]
-pythonVersion = "3.13"
+# Versão mínima suportada (requires-python): o CI checa o que precisa rodar nela.
+pythonVersion = "3.11"
 typeCheckingMode = "basic"
 reportMissingImports = "none"

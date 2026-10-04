@@ -1,3 +1,3 @@
 @echo off
 cd /d "%~dp0"
-start "" "%~dp0Duque.vbs"
+start "" wscript.exe "%~dp0Duque.vbs"

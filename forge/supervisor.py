@@ -7,7 +7,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from .git import Git, GitError
+from .git import NO_WINDOW, Git, GitError
 from .updater import RESTART_EXIT_CODE, read_state, write_state
 
 
@@ -69,7 +69,8 @@ class Supervisor:
 
     @staticmethod
     def _spawn(command: list[str], env: dict[str, str], cwd: Path) -> Process:
-        return subprocess.Popen(command, cwd=str(cwd), env=env)
+        # Sem janela de console: o Duque é iniciado pelo Duque.vbs, em segundo plano.
+        return subprocess.Popen(command, cwd=str(cwd), env=env, creationflags=NO_WINDOW)
 
     def run(self) -> int:
         while True:
@@ -128,9 +129,18 @@ class Supervisor:
                 write_state(self.state_path, status="rollback_skipped")
                 self.log("[SUPERVISOR] não foi possível identificar a versão anterior; mantendo a atual")
                 return
+            dirty = git.dirty_tracked_files()
+            if dirty:
+                # reset --hard apagaria alterações locais: registra e deixa para o Du.
+                write_state(self.state_path, status="rollback_refused", failed=state.get("current"), dirty=dirty[:20])
+                self.log("[SUPERVISOR] rollback recusado: há arquivos alterados: " + ", ".join(dirty[:10]))
+                return
             git.run("reset", "--hard", str(previous))
             write_state(self.state_path, status="rolled_back", current=previous, failed=state.get("current"))
             self.log(f"[SUPERVISOR] nova versão não subiu; voltei para {str(previous)[:10]}")
-        except GitError as exc:
-            write_state(self.state_path, status="rollback_failed", error=str(exc))
+        except (GitError, OSError, subprocess.TimeoutExpired) as exc:
+            try:
+                write_state(self.state_path, status="rollback_failed", error=str(exc))
+            except OSError:
+                pass
             self.log(f"[SUPERVISOR] rollback falhou: {exc}")

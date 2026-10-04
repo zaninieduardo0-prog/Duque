@@ -16,6 +16,16 @@ class FileChange:
     path: str
 
 
+def touches_workflows(changes: list[FileChange]) -> bool:
+    """Mudanças em .github/ não podem nem ser enviadas: o CI rodaria o workflow alterado."""
+    return any(change.path.replace("\\", "/").startswith(".github/") for change in changes)
+
+
+def _is_test(path: str) -> bool:
+    name = path.rsplit("/", 1)[-1]
+    return path.startswith("tests/") or "/tests/" in path or name.endswith("_test.py")
+
+
 def check_changes(changes: list[FileChange], protected: tuple[str, ...]) -> GuardVerdict:
     """Decide se um conjunto de alterações pode ser aplicado sem aprovação humana."""
     reasons: list[str] = []
@@ -25,6 +35,10 @@ def check_changes(changes: list[FileChange], protected: tuple[str, ...]) -> Guar
             if fnmatch(path, pattern):
                 reasons.append(f"altera arquivo protegido: {path}")
                 break
-        if change.status.startswith("D") and (path.startswith("tests/") or path.endswith("_test.py")):
-            reasons.append(f"remove teste: {path}")
+        if _is_test(path):
+            # Testes novos são bem-vindos; mexer nos existentes pode enfraquecê-los.
+            if change.status.startswith("D"):
+                reasons.append(f"remove teste: {path}")
+            elif not change.status.startswith("A"):
+                reasons.append(f"altera teste existente: {path}")
     return GuardVerdict(not reasons, reasons)

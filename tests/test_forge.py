@@ -9,9 +9,10 @@ from brain.providers.anthropic_provider import ClaudeAdapter, to_anthropic_messa
 from forge.config import ForgeConfig, parse_github_slug
 from forge.developer import Developer, SandboxTools
 from forge.forge import Forge, ForgeStatus
-from forge.github import CIStatus, PullRequest
+from forge.github import CIStatus, GitHubClient, PullRequest
 from forge.guard import FileChange, check_changes
-from forge.quality import QualityGate
+from forge.quality import QualityGate, sandbox_env
+from forge.service import ForgeService
 from forge.supervisor import Supervisor
 from forge.updater import RESTART_EXIT_CODE, Updater, read_state, write_state
 from tests.helpers import ScriptedModel, TempDirTestCase
@@ -176,7 +177,8 @@ class ForgeFlowTests(GitRepoTestCase):
 
     def test_ci_failure_triggers_fix_round(self) -> None:
         host = FakeHost(["failure", "success"])
-        forge, model, _ = self.forge(ADD_MUL + [act("show_diff"), done("revisado após CI")], host=host)
+        fix = act("edit_file", path="calc.py", old="    return a * b\n", new="    return a * b  # revisado\n")
+        forge, model, _ = self.forge(ADD_MUL + [fix, done("revisado após CI")], host=host)
         report = forge.run("adicionar multiplicação")
 
         self.assertEqual(report.status, ForgeStatus.MERGED, "\n".join(report.log))
@@ -228,6 +230,69 @@ class ForgeFlowTests(GitRepoTestCase):
         self.assertIn("multiplica", self.remote_main_file("calc.py"))
 
 
+    def test_workflow_changes_are_never_pushed(self) -> None:
+        forge, _model, host = self.forge([
+            act("write_file", path=".github/workflows/x.yml", content="name: x\n"),
+            act("write_file", path="tests/test_mul.py", content=MUL_TEST.replace("multiplica", "soma").replace("6", "5")),
+            done("mexi no CI"),
+        ])
+        report = forge.run("mexer no CI")
+
+        self.assertEqual(report.status, ForgeStatus.AWAITING_APPROVAL, "\n".join(report.log))
+        self.assertEqual(host.pulls, [])
+        self.assertNotIn(report.branch, git(self.remote, "branch", "--list"))
+        # o branch fica na instalação local para revisão humana
+        self.assertIn(report.branch, git(self.live, "branch", "--list"))
+
+    def test_same_failed_sha_is_not_rechecked(self) -> None:
+        host = FakeHost(["failure", "success"])
+        forge, _model, _ = self.forge(ADD_MUL + [act("list_files"), done("nada mudou")], host=host, max_rounds=2)
+        report = forge.run("adicionar multiplicação")
+
+        self.assertEqual(report.status, ForgeStatus.FAILED, "\n".join(report.log))
+        self.assertEqual(len(host.checked), 1)
+
+    def test_modifying_existing_test_needs_approval(self) -> None:
+        forge, _model, host = self.forge([
+            act("write_file", path="tests/test_calc.py", content=CALC_TEST.replace("5)", "5)  # revisado")),
+            done("ajustei teste"),
+        ])
+        report = forge.run("ajustar teste")
+        self.assertEqual(report.status, ForgeStatus.AWAITING_APPROVAL, "\n".join(report.log))
+        self.assertTrue(any("altera teste existente" in reason for reason in report.approval_reasons))
+        self.assertEqual(host.checked, [])
+
+
+class ForgeServiceTests(unittest.TestCase):
+    def test_worker_restarts_after_idle_exit(self) -> None:
+        import threading
+
+        ran: list[str] = []
+        finished = threading.Event()
+
+        class StubForge:
+            progress = None
+
+            def run(self, goal: str):
+                ran.append(goal)
+                finished.set()
+                from forge.forge import ForgeReport
+                return ForgeReport(id="x", goal=goal, status=ForgeStatus.NO_CHANGES)
+
+        service = ForgeService(StubForge())  # type: ignore[arg-type]
+        service.submit("um")
+        self.assertTrue(finished.wait(5))
+        # simula o worker que saiu por ociosidade
+        thread = service._thread
+        if thread is not None:
+            with service._worker_lock:
+                service._thread = None
+        finished.clear()
+        service.submit("dois")
+        self.assertTrue(finished.wait(5))
+        self.assertEqual(ran, ["um", "dois"])
+
+
 class SandboxToolsTests(TempDirTestCase):
     def setUp(self) -> None:
         super().setUp()
@@ -245,6 +310,16 @@ class SandboxToolsTests(TempDirTestCase):
         with self.assertRaises(PermissionError):
             self.tools.write_file("../fora.py", "x")
 
+    def test_git_internals_are_refused(self) -> None:
+        (self.root / ".git").mkdir()
+        with self.assertRaises(PermissionError):
+            self.tools.write_file(".git/hooks/pre-commit", "x")
+
+    def test_interface_is_visible(self) -> None:
+        (self.root / "interface").mkdir()
+        (self.root / "interface" / "index.html").write_text("<p>x = 1</p>\n", encoding="utf-8")
+        self.assertIn("interface/index.html", self.tools.list_files()["files"])
+
     def test_search_and_list_skip_internal_dirs(self) -> None:
         (self.root / "duque_data").mkdir()
         (self.root / "duque_data" / "b.py").write_text("x = 1\n", encoding="utf-8")
@@ -259,6 +334,44 @@ class GuardAndConfigTests(unittest.TestCase):
         for change in (FileChange("M", "core/security.py"), FileChange("M", "forge/forge.py"), FileChange("M", ".github/workflows/ci.yml"), FileChange("D", "tests/test_core.py")):
             with self.subTest(change=change):
                 self.assertFalse(check_changes([change], protected).auto_merge_allowed)
+
+    def test_guard_protects_test_configuration(self) -> None:
+        protected = ForgeConfig(Path("."), Path(".")).protected
+        for path in ("pytest.ini", "setup.cfg", "tox.ini", "conftest.py", "tests/conftest.py", "a/b/conftest.py",
+                     "sitecustomize.py", "usercustomize.py", ".gitignore", ".gitattributes"):
+            with self.subTest(path=path):
+                self.assertFalse(check_changes([FileChange("A", path)], protected).auto_merge_allowed)
+        self.assertFalse(check_changes([FileChange("M", "tests/test_core.py")], protected).auto_merge_allowed)
+
+    def test_quality_env_strips_secrets(self) -> None:
+        base = {
+            "PATH": "/bin", "OPENAI_API_KEY": "k", "ANTHROPIC_API_KEY": "k", "GITHUB_TOKEN": "t",
+            "DUQUE_GITHUB_TOKEN": "t", "DUQUE_FORGE_DIR": "/forja", "DUQUE_WORKSPACE_ROOT": "/ao-vivo",
+        }
+        env = sandbox_env(Path("/sandbox"), base)
+        for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GITHUB_TOKEN", "DUQUE_GITHUB_TOKEN", "DUQUE_FORGE_DIR"):
+            self.assertNotIn(key, env)
+        self.assertEqual(env["DUQUE_WORKSPACE_ROOT"], str(Path("/sandbox")))
+        self.assertEqual(env["PATH"], "/bin")
+        self.assertEqual(env["GIT_TERMINAL_PROMPT"], "0")
+
+    def test_strict_gate_fails_without_tool(self) -> None:
+        gate = QualityGate(("ruff",), strict=True)
+        gate._tool_command = lambda name: None  # type: ignore[method-assign]
+        self.assertFalse(gate.run(Path(".")).passed)
+
+    def test_checks_without_access_are_final(self) -> None:
+        import urllib.error
+
+        client = GitHubClient("dono/repo", sleep=lambda _s: None)
+
+        def forbidden(*_args, **_kwargs):
+            raise urllib.error.HTTPError("https://api.github.com", 403, "Forbidden", None, None)  # type: ignore[arg-type]
+
+        client._request = forbidden  # type: ignore[method-assign]
+        status = client.wait_for_checks("abc", timeout=100, poll=1, grace=50)
+        self.assertEqual(status.state, "none")
+        self.assertIn("403", status.reason)
 
     def test_parse_github_slug(self) -> None:
         self.assertEqual(parse_github_slug("https://github.com/zaninieduardo0-prog/Duque.git"), "zaninieduardo0-prog/Duque")
@@ -333,7 +446,11 @@ class UpdaterTests(GitRepoTestCase):
         result = self.updater().apply()
         self.assertEqual(result.status, "updated", result.message)
         self.assertEqual(git(self.live, "rev-parse", "HEAD"), target)
-        state = read_state(self.live / "duque_data" / "update_state.json")
+        state_path = self.live / "duque_data" / "update_state.json"
+        # sem reinício garantido, o supervisor não deve colocar a versão em observação
+        self.assertEqual(read_state(state_path)["status"], "updated")
+        self.updater().mark_pending_restart(result)
+        state = read_state(state_path)
         self.assertEqual(state["status"], "pending_restart")
         self.assertEqual(state["current"], target)
 
@@ -342,6 +459,14 @@ class UpdaterTests(GitRepoTestCase):
         self.push_from_other({"calc.py": "def soma(a, b):\n    return a - b\n"})
         result = self.updater().apply()
         self.assertEqual(result.status, "rolled_back", result.message)
+        self.assertEqual(git(self.live, "rev-parse", "HEAD"), previous)
+
+    def test_does_not_reapply_failed_version(self) -> None:
+        previous = git(self.live, "rev-parse", "HEAD")
+        self.push_from_other({"calc.py": "def soma(a, b):\n    return a - b\n"})
+        self.assertEqual(self.updater().apply().status, "rolled_back")
+        result = self.updater().apply()
+        self.assertEqual(result.status, "refused", result.message)
         self.assertEqual(git(self.live, "rev-parse", "HEAD"), previous)
 
     def test_never_discards_local_changes(self) -> None:
@@ -418,6 +543,21 @@ class SupervisorTests(GitRepoTestCase):
 
         self.assertEqual(git(self.live, "rev-parse", "HEAD"), previous)
         self.assertEqual(read_state(state_path)["status"], "rolled_back")
+
+    def test_rollback_refuses_dirty_tree(self) -> None:
+        previous = git(self.live, "rev-parse", "HEAD")
+        (self.live / "calc.py").write_text(CALC + MUL, encoding="utf-8")
+        git(self.live, "commit", "-am", "nova versão")
+        current = git(self.live, "rev-parse", "HEAD")
+        (self.live / "calc.py").write_text(CALC + MUL + "# edição do Du\n", encoding="utf-8")
+        state_path = self.live / "duque_data" / "update_state.json"
+        write_state(state_path, status="pending_restart", previous=previous, current=current)
+
+        self.supervisor([FakeProcess(1, alive_checks=100), FakeProcess(0)], []).run()
+
+        self.assertEqual(git(self.live, "rev-parse", "HEAD"), current)
+        self.assertIn("edição do Du", (self.live / "calc.py").read_text(encoding="utf-8"))
+        self.assertEqual(read_state(state_path)["status"], "rollback_refused")
 
     def test_stops_after_repeated_crashes(self) -> None:
         processes = [FakeProcess(1) for _ in range(5)]

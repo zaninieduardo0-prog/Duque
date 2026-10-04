@@ -41,14 +41,17 @@ class ForgeService:
         self._current: dict[str, Any] | None = None
         self._history: list[dict[str, Any]] = []
         self._thread: threading.Thread | None = None
+        # Protege a decisão "existe worker?" contra o worker que está saindo.
+        self._worker_lock = threading.Lock()
         forge.progress = self._on_progress
 
     def submit(self, goal: str) -> dict[str, Any]:
         if not isinstance(goal, str) or not goal.strip():
             raise ValueError("objetivo da Forja não pode ser vazio")
         job = {"id": uuid4().hex[:8], "goal": goal.strip(), "state": "queued", "queued_at": time.time()}
-        self._queue.put(job)
-        self._ensure_worker()
+        with self._worker_lock:
+            self._queue.put(job)
+            self._ensure_worker()
         return dict(job, position=self._queue.qsize())
 
     def status(self) -> dict[str, Any]:
@@ -71,7 +74,13 @@ class ForgeService:
             entry["update"] = update.status
             entry["update_message"] = update.message
             if update.status == "updated":
-                entry["restarting"] = self.restart()
+                restarting = self.restart()
+                entry["restarting"] = restarting
+                if restarting:
+                    # O reinício é adiado alguns segundos: dá tempo de marcar a observação.
+                    self.updater.mark_pending_restart(update)
+                else:
+                    entry["update_message"] += " (reinicie o Duque para usar a nova versão)"
 
         with self._lock:
             self._history.append(entry)
@@ -81,7 +90,8 @@ class ForgeService:
 
     # internos ------------------------------------------------------------
     def _ensure_worker(self) -> None:
-        if self._thread and self._thread.is_alive():
+        """Chamado com ``_worker_lock``: o worker só sai com a fila vazia sob o mesmo lock."""
+        if self._thread is not None and self._thread.is_alive():
             return
         self._thread = threading.Thread(target=self._worker, name="duque-forja", daemon=True)
         self._thread.start()
@@ -91,7 +101,11 @@ class ForgeService:
             try:
                 job = self._queue.get(timeout=5)
             except queue.Empty:
-                return
+                with self._worker_lock:
+                    if self._queue.empty():
+                        self._thread = None
+                        return
+                continue
             try:
                 self.run_job(job)
             except Exception as exc:

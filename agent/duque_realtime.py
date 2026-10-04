@@ -38,15 +38,15 @@ PERSONALIDADE
 
 
 def _build_agent() -> RealtimeAgent:
-    """Cria o agente de voz sem depender de estado global do servidor."""
+    """Cria o agente de voz sem depender de estado global do servidor.
+
+    DUQUE_VOICE_INSTRUCTIONS substitui o prompt padrão sem editar o código.
+    """
+    custom = os.getenv("DUQUE_VOICE_INSTRUCTIONS", "").strip()
     return RealtimeAgent(
         name="Duque",
-        instructions=DUQUE_REALTIME_INSTRUCTIONS,
+        instructions=custom or DUQUE_REALTIME_INSTRUCTIONS,
     )
 
 
 duque_realtime = _build_agent()
-
-# Mantém a identidade fácil de ajustar pelo runtime sem duplicar o prompt.
-if os.getenv("DUQUE_VOICE_INSTRUCTIONS"):
-    duque_realtime.instructions = os.getenv("DUQUE_VOICE_INSTRUCTIONS", "").strip() or DUQUE_REALTIME_INSTRUCTIONS

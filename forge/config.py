@@ -15,6 +15,18 @@ DEFAULT_PROTECTED = (
     "Duque.vbs",
     "iniciar_duque.bat",
     "pyproject.toml",
+    # configuração que muda como os testes rodam (ou o que é ignorado)
+    "pytest.ini",
+    "setup.cfg",
+    "tox.ini",
+    "conftest.py",
+    "*/conftest.py",
+    "sitecustomize.py",
+    "*/sitecustomize.py",
+    "usercustomize.py",
+    "*/usercustomize.py",
+    ".gitignore",
+    ".gitattributes",
 )
 
 
@@ -48,7 +60,7 @@ class ForgeConfig:
     ci_timeout_seconds: int = 1200
     ci_poll_seconds: int = 20
     ci_grace_seconds: int = 180
-    checks: tuple[str, ...] = ("compile", "pytest", "ruff")
+    checks: tuple[str, ...] = ("compile", "imports", "pytest", "ruff")
     github_slug: str | None = None
     github_token: str | None = field(default=None, repr=False)
 
@@ -58,7 +70,7 @@ class ForgeConfig:
         forge_dir = Path(os.getenv("DUQUE_FORGE_DIR", str(root / "duque_data" / "forja"))).resolve()
         checks = tuple(
             item.strip()
-            for item in os.getenv("DUQUE_FORGE_CHECKS", "compile,pytest,ruff").split(",")
+            for item in os.getenv("DUQUE_FORGE_CHECKS", "compile,imports,pytest,ruff").split(",")
             if item.strip()
         )
         return cls(

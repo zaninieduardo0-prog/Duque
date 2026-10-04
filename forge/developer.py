@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +15,10 @@ from core.executor import Executor
 from core.tasks import TaskManager
 
 from .quality import SKIP_DIRS, QualityGate
+
+# O agente enxerga tudo que é do projeto (inclusive interface/), menos
+# histórico do Git, ambientes, caches e dados locais.
+HIDDEN_DIRS = frozenset(SKIP_DIRS | {".pytest_cache", ".ruff_cache", ".mypy_cache"})
 
 DEVELOPER_SYSTEM = (
     "Você é o engenheiro de software do Duque, trabalhando na Forja: uma cópia isolada do próprio "
@@ -44,17 +49,31 @@ class SandboxTools:
     """Ferramentas do agente programador, todas presas ao diretório da Forja."""
 
     def __init__(self, root: Path, gate: QualityGate, diff: Callable[[], str]) -> None:
-        self.workspace = Workspace(root)
+        # A Forja trabalha numa cópia isolada: aqui alterar o código do Duque é o objetivo.
+        self.workspace = Workspace(root, allow_self_modification=True)
         self.gate = gate
         self._diff = diff
 
-    def list_files(self, path: str = ".") -> dict[str, Any]:
+    def _writable(self, path: str) -> str:
+        resolved = self.workspace.resolve(path)
+        if ".git" in resolved.relative_to(self.workspace.root).parts:
+            raise PermissionError("Alterar arquivos internos do Git não é permitido")
+        return path
+
+    def _files(self, path: str = ".") -> list[str]:
         base = self.workspace.resolve(path)
         files: list[str] = []
-        for item in sorted(base.rglob("*")):
-            relative = item.relative_to(self.workspace.root)
-            if item.is_file() and not (set(relative.parts) & SKIP_DIRS) and relative.parts[0] != ".git":
-                files.append(relative.as_posix())
+        for current, dirs, names in os.walk(base):
+            dirs[:] = sorted(name for name in dirs if name not in HIDDEN_DIRS)
+            for name in sorted(names):
+                if name == ".git":
+                    continue  # numa worktree, .git é um arquivo
+                files.append((Path(current) / name).relative_to(self.workspace.root).as_posix())
+        files.sort()
+        return files
+
+    def list_files(self, path: str = ".") -> dict[str, Any]:
+        files = self._files(path)
         return {"files": files[:500], "total": len(files)}
 
     def read_file(self, path: str) -> dict[str, Any]:
@@ -67,7 +86,7 @@ class SandboxTools:
         return {path: self.read_file(path)["content"] for path in paths[:12]}
 
     def write_file(self, path: str, content: str) -> dict[str, Any]:
-        result = self.workspace.write(path, content)
+        result = self.workspace.write(self._writable(path), content)
         return {"path": path, "created": result.created, "changed": result.changed}
 
     def edit_file(self, path: str, old: str, new: str) -> dict[str, Any]:
@@ -75,11 +94,11 @@ class SandboxTools:
         count = current.count(old)
         if count != 1:
             return {"success": False, "error": f"o trecho 'old' aparece {count} vez(es) em {path}; precisa ser único e exato"}
-        self.workspace.write(path, current.replace(old, new, 1))
+        self.workspace.write(self._writable(path), current.replace(old, new, 1))
         return {"path": path, "changed": old != new}
 
     def delete_file(self, path: str) -> dict[str, Any]:
-        self.workspace.delete(path)
+        self.workspace.delete(self._writable(path))
         return {"path": path, "deleted": True}
 
     def search_code(self, pattern: str, path: str = ".") -> dict[str, Any]:
@@ -88,7 +107,7 @@ class SandboxTools:
         except re.error as exc:
             return {"success": False, "error": f"regex inválida: {exc}"}
         matches: list[str] = []
-        for file in self.list_files(path)["files"]:
+        for file in self._files(path):
             if not file.endswith((".py", ".md", ".toml", ".yml", ".yaml", ".html", ".txt", ".json")):
                 continue
             text = (self.workspace.root / file).read_text(encoding="utf-8", errors="replace")
@@ -157,7 +176,7 @@ class Developer:
             )
         task = self.tasks.create(f"[forja] {goal}"[:200], mode="forge")
         self.tasks.start(task.id)
-        result = loop.run(AgentContext(goal=objective, task_id=task.id), confirmed=True)
+        result = loop.run(AgentContext(goal=objective, task_id=task.id))
         if result.success:
             self.tasks.complete(task.id, result.message)
         else:

@@ -8,7 +8,7 @@ root = fso.GetParentFolderName(WScript.ScriptFullName)
 pythonw = root & "\.venv\Scripts\pythonw.exe"
 
 If Not fso.FileExists(pythonw) Then
-    MsgBox "Python da .venv não foi encontrado em:" & vbCrLf & pythonw, vbCritical, "Duque"
+    MsgBox "Python da .venv nao foi encontrado em:" & vbCrLf & pythonw, vbCritical, "Duque"
     WScript.Quit 1
 End If
 
