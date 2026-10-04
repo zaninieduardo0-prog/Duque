@@ -11,6 +11,15 @@ echo.
 echo [2/3] Cerebro local (Ollama)...
 where ollama >nul 2>nul
 if errorlevel 1 (
+    where winget >nul 2>nul
+    if errorlevel 1 (
+        echo.
+        echo O Ollama ainda nao esta instalado e este Windows nao tem o winget.
+        echo Instale na mao: abra https://ollama.com/download, baixe o "OllamaSetup.exe",
+        echo instale ^(Avancar, Avancar...^) e depois rode este arquivo de novo.
+        pause
+        exit /b 0
+    )
     echo Ollama nao encontrado. Instalando pelo winget...
     winget install -e --id Ollama.Ollama --accept-package-agreements --accept-source-agreements
     echo.
