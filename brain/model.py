@@ -77,13 +77,14 @@ class OllamaModel(ModelAdapter):
 
     def respond(self, messages: list[dict[str, str]], **kwargs: Any) -> ModelResponse:
         import json
+        import os
         import urllib.request
 
         payload = {
             "model": self.model,
             "messages": messages,
             "stream": False,
-            "keep_alive": "30m",  # mantém o modelo na memória: a próxima resposta não paga o carregamento
+            "keep_alive": os.getenv("DUQUE_LOCAL_KEEP_ALIVE", "5m"),  # tempo na memória; o modelo de 3B ocupa ~2 GB
             "options": {"temperature": 0.3, "num_ctx": 2048},
         }
         request = urllib.request.Request(
