@@ -186,15 +186,8 @@ class ComputerTools:
         if key in CHROME_NAMES and windows and self.controller.open_chrome():
             return {**result, "message": "Abri o Chrome no seu perfil."}
 
-        web = WEB_FALLBACK.get(key)
-        protocol = PROTOCOLS.get(key)
-        if windows and protocol and web and not protocol_registered(protocol):
-            self.controller.open_url(web)
-            return {
-                **result, "url": web, "web": True,
-                "message": f"O app do {name} não está instalado; abri a versão web no Chrome.",
-            }
-
+        # Primeiro: se o app já está aberto, só traz a janela (nunca abre outro,
+        # nem a versão web).
         processes = PROCESS_NAMES.get(key)
         if windows and processes:
             # Já aberto: traz a janela para a frente em vez de abrir uma segunda.
@@ -213,6 +206,15 @@ class ComputerTools:
                     **result, "already_running": True, "verified": True,
                     "message": f"O {name} já estava aberto" + ("; trouxe para a frente." if focused else "."),
                 }
+
+        web = WEB_FALLBACK.get(key)
+        protocol = PROTOCOLS.get(key)
+        if windows and protocol and web and not protocol_registered(protocol):
+            self.controller.open_url(web)
+            return {
+                **result, "url": web, "web": True,
+                "message": f"O app do {name} não está instalado; abri a versão web no Chrome.",
+            }
 
         self.controller.launch(command)
         if windows and processes:
