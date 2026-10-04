@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -8,6 +9,7 @@ from .security import SecurityPolicy
 from .tasks import Task, TaskManager
 
 Tool = Callable[..., Any]
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -80,13 +82,15 @@ class Executor:
         confirmed: bool = False,
         manage_task: bool = True,
     ) -> ExecutionResult:
-        policy = self.security.assess(tool_name)
-        if policy.confirmation_required and not confirmed:
-            return ExecutionResult(False, error=f"Ação '{tool_name}' exige confirmação", confirmation_required=True)
-
+        # Ferramenta inexistente não pede confirmação: antes o Du confirmava e só
+        # então descobria que a ação nem existia.
         tool = self.tools.get(tool_name)
         if tool is None:
             return ExecutionResult(False, error=f"Ferramenta não registrada: {tool_name}")
+
+        policy = self.security.assess(tool_name)
+        if policy.confirmation_required and not confirmed:
+            return ExecutionResult(False, error=f"Ação '{tool_name}' exige confirmação", confirmation_required=True)
 
         if self.pause is not None:
             self.pause.checkpoint(
@@ -100,7 +104,11 @@ class Executor:
         before = None
         if self.verification is not None and tool_name in self.verified_tools:
             self._emit(EventType.OBSERVATION_STARTED, task_id=task.id, tool=tool_name, phase="before")
-            before = self.verification.snapshot()
+            try:
+                before = self.verification.snapshot()
+            except Exception as exc:
+                # Sem a captura de tela a ação ainda roda; só fica sem verificação.
+                LOGGER.warning("Captura antes de %s falhou: %s", tool_name, exc)
             self._emit(EventType.OBSERVATION_FINISHED, task_id=task.id, tool=tool_name, phase="before")
 
         try:
@@ -122,7 +130,13 @@ class Executor:
         verification_service = self.verification
         if before is not None and verification_service is not None:
             self._emit(EventType.VERIFICATION_STARTED, task_id=task.id, tool=tool_name)
-            verification = verification_service.verify_change(before)
+            try:
+                verification = verification_service.verify_change(before)
+            except Exception as exc:
+                # A ação já aconteceu: falhar aqui deixava a tarefa em "running" e a
+                # autocorreção repetia a ação (cliques/janelas em dobro).
+                LOGGER.warning("Verificação depois de %s falhou: %s", tool_name, exc)
+        if verification is not None:
             self._emit(EventType.VERIFICATION_FINISHED, task_id=task.id, tool=tool_name, status=verification.status.value, changed=verification.changed, confidence=verification.confidence)
             if not verification.changed:
                 error = f"Ação executada, mas a verificação não detectou mudança: {verification.reason}"
@@ -133,20 +147,3 @@ class Executor:
         if manage_task:
             self.tasks.complete(task.id, value)
         return ExecutionResult(True, value=value, verification=verification)
-
-    def execute_task(self, task: Task, steps: list[tuple[str, dict[str, Any] | None]], *, confirmed: bool = False) -> list[ExecutionResult]:
-        self.tasks.start(task.id)
-        results: list[ExecutionResult] = []
-
-        if not steps:
-            self.tasks.fail(task.id, "O plano não contém etapas executáveis")
-            return results
-
-        for tool_name, arguments in steps:
-            result = self.execute_step(task, tool_name, arguments, confirmed=confirmed, manage_task=False)
-            results.append(result)
-            if not result.success:
-                self.tasks.fail(task.id, result.error or "Falha na execução")
-                return results
-        self.tasks.complete(task.id, [result.value for result in results])
-        return results

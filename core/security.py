@@ -26,15 +26,19 @@ class SecurityPolicy:
         "close_app": RiskLevel.MEDIUM,
         "is_app_running": RiskLevel.LOW,
         "open_url": RiskLevel.LOW,
-        "open_path": RiskLevel.MEDIUM,
+        # Abrir um caminho qualquer equivale a executar (.exe, .bat, .lnk...).
+        "open_path": RiskLevel.HIGH,
         "web_search": RiskLevel.LOW,
         "google_search": RiskLevel.LOW,
         "open_search_result": RiskLevel.LOW,
         "read_file": RiskLevel.LOW,
+        "read_many_files": RiskLevel.LOW,
+        "inspect_workspace": RiskLevel.LOW,
         "list_files": RiskLevel.LOW,
         "write_file": RiskLevel.MEDIUM,
         "delete_file": RiskLevel.HIGH,
-        "run_python": RiskLevel.MEDIUM,
+        # Executa código arbitrário (o modelo pode escrevê-lo antes com write_file).
+        "run_python": RiskLevel.HIGH,
         "ui_click": RiskLevel.MEDIUM,
         "screen_click_text": RiskLevel.MEDIUM,
         "ui_type_text": RiskLevel.MEDIUM,
@@ -94,13 +98,17 @@ class SecurityPolicy:
         "day_summary": RiskLevel.LOW,
         "set_voice": RiskLevel.LOW,
         "list_voices": RiskLevel.LOW,
-        "git_pull": RiskLevel.MEDIUM,
+        # Atualiza o código da instalação ao vivo (o caminho seguro é a Forja).
+        "git_pull": RiskLevel.HIGH,
         "git_fetch": RiskLevel.LOW,
         "git_log": RiskLevel.LOW,
+        "git_status": RiskLevel.LOW,
+        "git_diff": RiskLevel.LOW,
         "system_info": RiskLevel.LOW,
         "environment": RiskLevel.LOW,
         "list_directory": RiskLevel.LOW,
-        "read_any_file": RiskLevel.LOW,
+        # Lê qualquer arquivo do PC (inclusive credenciais); fica registrado como médio.
+        "read_any_file": RiskLevel.MEDIUM,
         "write_any_file": RiskLevel.HIGH,
         "delete_any_file": RiskLevel.HIGH,
         "copy_path": RiskLevel.HIGH,
@@ -115,14 +123,22 @@ class SecurityPolicy:
         "chrome_profiles": RiskLevel.LOW,
         "youtube_play": RiskLevel.LOW,
         "notepad_write": RiskLevel.LOW,
+        "compose_text": RiskLevel.LOW,
         "whatsapp_send": RiskLevel.MEDIUM,
     }
 
+    def __init__(self, default: RiskLevel = RiskLevel.MEDIUM) -> None:
+        # Risco de uma ferramenta sem classificação explícita. O padrão continua
+        # MEDIUM (sem confirmação) por compatibilidade; o AgentLoop deve usar
+        # SecurityPolicy(default=RiskLevel.HIGH) para que uma ferramenta nova
+        # nunca nasça liberada por esquecimento.
+        self.default = default
+
+    def known(self, action: str) -> bool:
+        return action in self._DEFAULTS
+
     def assess(self, action: str) -> ActionPolicy:
-        # Ferramentas registradas que ainda não possuem uma classificação
-        # explícita recebem risco médio. A confirmação fica reservada às
-        # ações realmente classificadas como HIGH/CRITICAL.
-        risk = self._DEFAULTS.get(action, RiskLevel.MEDIUM)
+        risk = self._DEFAULTS.get(action, self.default)
         return ActionPolicy(
             action=action,
             risk=risk,

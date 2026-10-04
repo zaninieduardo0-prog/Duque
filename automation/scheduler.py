@@ -14,6 +14,9 @@ from memory.database import MemoryDatabase
 
 LOGGER = logging.getLogger(__name__)
 
+# Repetição mínima: um "a cada 0,1 s" vindo do modelo abria janelas sem parar.
+MIN_REPEAT_SECONDS = 60.0
+
 
 @dataclass(slots=True)
 class ScheduledJob:
@@ -27,14 +30,19 @@ class ScheduledJob:
     created_at: float = field(default_factory=time.time)
     last_run_at: float | None = None
     run_count: int = 0
+    # Preenchidos a cada disparo (não persistem): horário que estava marcado e o atraso.
+    scheduled_for: float | None = None
+    late_seconds: float = 0.0
 
 
 class Scheduler:
     """Agendador persistente; jobs sobrevivem ao restart e carregam uma intenção serializável."""
 
-    def __init__(self, database: MemoryDatabase | None = None, poll_interval: float = 0.5, executor: Callable[[ScheduledJob], Any] | None = None) -> None:
+    def __init__(self, database: MemoryDatabase | None = None, poll_interval: float = 0.5, executor: Callable[[ScheduledJob], Any] | None = None, *, startup_delay: float = 3.0) -> None:
         self.database = database or MemoryDatabase()
         self.poll_interval = max(0.1, poll_interval)
+        # Os atrasados do boot só rodam depois que o servidor/HUD terminaram de subir.
+        self.startup_delay = max(0.0, startup_delay)
         self.executor = executor
         self._jobs: dict[str, ScheduledJob] = {}
         self._lock = threading.RLock()
@@ -48,7 +56,8 @@ class Scheduler:
                 metadata = json.loads(row["metadata"] or "{}")
                 self._jobs[row["id"]] = ScheduledJob(
                     description=row["description"], id=row["id"], run_at=row["run_at"],
-                    repeat_seconds=row["repeat_seconds"], enabled=bool(row["enabled"]),
+                    repeat_seconds=max(MIN_REPEAT_SECONDS, float(row["repeat_seconds"])) if row["repeat_seconds"] else None,
+                    enabled=bool(row["enabled"]),
                     metadata=metadata, created_at=row["created_at"],
                     last_run_at=row["last_run_at"], run_count=row["run_count"],
                 )
@@ -57,7 +66,8 @@ class Scheduler:
 
     def add(self, description: str, run_at: float | datetime, callback: Callable[[], Any] | None = None, *, repeat_seconds: float | None = None, **metadata: Any) -> ScheduledJob:
         timestamp = run_at.timestamp() if isinstance(run_at, datetime) else float(run_at)
-        job = ScheduledJob(description, timestamp, callback, repeat_seconds=max(0.1, repeat_seconds) if repeat_seconds else None, metadata=metadata)
+        repeat = max(MIN_REPEAT_SECONDS, float(repeat_seconds)) if repeat_seconds else None
+        job = ScheduledJob(description, timestamp, callback, repeat_seconds=repeat, metadata=metadata)
         with self._lock:
             self._jobs[job.id] = job
             self._save(job)
@@ -97,9 +107,10 @@ class Scheduler:
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
+        # Antes os jobs atrasados rodavam aqui, de forma síncrona, ainda dentro do
+        # import do servidor (antes dos assinantes de eventos existirem).
         self._thread = threading.Thread(target=self._run, name="DuqueScheduler", daemon=True)
         self._thread.start()
-        self.run_due()
 
     def stop(self) -> None:
         self._stop.set()
@@ -116,17 +127,31 @@ class Scheduler:
         return len(due)
 
     def _run(self) -> None:
-        while not self._stop.wait(self.poll_interval):
-            self.run_due()
+        if self._stop.wait(self.startup_delay):
+            return
+        while True:
+            try:
+                self.run_due()
+            except Exception:
+                # Um erro (ex.: banco ocupado) não pode matar a agenda para sempre.
+                LOGGER.exception("Falha no ciclo da agenda")
+            if self._stop.wait(self.poll_interval):
+                return
 
     def _execute(self, job: ScheduledJob) -> None:
         with self._lock:
             if not job.enabled or job.run_at > time.time():
                 return
-            job.last_run_at = time.time()
+            now = time.time()
+            job.scheduled_for = job.run_at
+            job.late_seconds = max(0.0, now - job.run_at)
+            job.last_run_at = now
             job.run_count += 1
             if job.repeat_seconds:
-                job.run_at = job.last_run_at + job.repeat_seconds
+                # Próximo horário na grade original (sem deriva): um job perdido com o
+                # TELEX desligado dispara uma vez só, não uma vez por intervalo perdido.
+                missed = int((now - job.run_at) // job.repeat_seconds) + 1
+                job.run_at = job.run_at + missed * job.repeat_seconds
             else:
                 job.enabled = False
             self._save(job)
