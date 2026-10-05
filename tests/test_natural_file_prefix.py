@@ -10,4 +10,4 @@ def test_glued_du_prefix_routes_desktop_file_request() -> None:
     step = plan.steps[0]
     assert step.kind == StepKind.TOOL
     assert step.tool == "write_desktop_file"
-    assert step.arguments == {"filename": "teste.txt", "content": '"123"'}
+    assert step.arguments == {"filename": "teste.txt", "content": "123"}
