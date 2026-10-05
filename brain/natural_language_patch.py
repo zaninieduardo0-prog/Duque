@@ -23,10 +23,23 @@ def _safe_filename(filename: str) -> str | None:
     return value
 
 
+def _strip_assistant_prefix(text: str) -> str:
+    """Remove formas comuns de chamar o assistente, inclusive 'Ducrie'/'DuDuque...' sem espaço."""
+    value = text.strip()
+    return re.sub(
+        r"^(?:duque|du)[,!:;\s.-]*(?=(?:crie|criar|cria|escreva|escrever|salve|salvar)\b)",
+        "",
+        value,
+        count=1,
+        flags=re.IGNORECASE,
+    ).strip()
+
+
 def _natural_file_plan(planner: Any, goal: str, available_tools: set[str] | None):
     from .planner import Plan, PlanStep, StepKind
 
-    text = goal.strip()
+    text = _strip_assistant_prefix(goal)
+
     def available(name: str) -> bool:
         return available_tools is None or name in available_tools
 
@@ -53,7 +66,7 @@ def _natural_file_plan(planner: Any, goal: str, available_tools: set[str] | None
             filename = _safe_filename(match.group(1)); content = _clean_control_tail(match.group(2))
             if filename and content:
                 path = Path.home() / folder / filename
-                return Plan(goal, [PlanStep(f"Criar {filename} em {folder}", StepKind.TOOL, "write_any_file", {"path": str(path), "content": content})])
+                return Plan(goal, [PlanStep(f"Criar {filename} em {folder}",StepKind.TOOL,"write_any_file",{"path": str(path), "content": content})])
 
     match = re.search(
         r"\b(?:leia|ler|abra|verifique|verifica)\s+(?:o\s+)?(?:arquivo\s+)?(?:chamado\s+)?[\"'“]?([^\"'”\s]+)[\"'”]?\s+(?:na|no|em)\s+(?:área de trabalho|area de trabalho|desktop)\b",
@@ -62,7 +75,7 @@ def _natural_file_plan(planner: Any, goal: str, available_tools: set[str] | None
     if match and available("read_any_file"):
         filename = _safe_filename(match.group(1))
         if filename:
-            return Plan(goal, [PlanStep(f"Ler {filename} na área de trabalho", StepKind.TOOL, "read_any_file", {"path": str(Path.home() / "Desktop" / filename)})])
+            return Plan(goal, [PlanStep(f"Ler {filename} na área de trabalho",StepKind.TOOL,"read_any_file",{"path": str(Path.home() / "Desktop" / filename)})])
     return None
 
 
