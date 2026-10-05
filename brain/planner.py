@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Any
 
 from computer.apps import find_app_in_text
+from .natural_language_patch import _natural_file_plan
 
 _UNITS = {"segundo": 1, "segundos": 1, "minuto": 60, "minutos": 60, "hora": 3600, "horas": 3600}
 _DURATION = re.compile(r"(\d+(?:[.,]\d+)?)\s*(segundos?|minutos?|horas?)")
@@ -32,7 +33,7 @@ class Plan:
 
 
 # Pedido de mensagem no WhatsApp: verbo de envio/escrita + mensagem/WhatsApp, ou "procure X no WhatsApp ... mande".
-from computer.whatsapp_flow import MESSAGE_REQUEST as WHATSAPP_ACTION  # noqa: E402  (mesmo regex do roteador)
+from computer.whatsapp_flow import MESSAGE_REQUEST as WHATSAPP_ACTION  # noqa: E402
 
 
 class Planner:
@@ -157,6 +158,12 @@ class Planner:
             return Plan(goal, [PlanStep(f"Pesquisar: {query}", StepKind.TOOL, tool, {"query": query})])
 
         if intent == "file_operation":
+            # Casos naturais precisam ser resolvidos antes das regras antigas.
+            # Isso evita depender de uma inicialização implícita via sitecustomize.
+            natural_plan = _natural_file_plan(self, goal, available_tools)
+            if natural_plan is not None:
+                return natural_plan
+
             lowered = goal.casefold()
             folder_plan = self._folder_or_search_plan(goal, tool_available)
             if folder_plan is not None:
@@ -246,7 +253,6 @@ class Planner:
 
     @staticmethod
     def search_query(goal: str) -> str:
-        """Tira o pedido em volta e deixa só o que pesquisar."""
         text = goal.strip()
         match = re.search(r"\b(?:pesquis[ae]r?|procur[ae]r?|busc[ae]r?)\b\s*(?:no google|na internet|na web|sobre|por)?\s*[:,]?\s*(.+)$", text, flags=re.IGNORECASE)
         if match:
@@ -258,215 +264,6 @@ class Planner:
     def parse_duration(text: str) -> float | None:
         """Soma durações como "1 hora e 30 minutos" em segundos."""
         total = 0.0
-        for amount, unit in _DURATION.findall(text.casefold()):
-            total += float(amount.replace(",", ".")) * _UNITS[unit]
+        for value, unit in _DURATION.findall(text.casefold()):
+            total += float(value.replace(",", ".")) * _UNITS[unit]
         return total or None
-
-    @staticmethod
-    def _folder_or_search_plan(goal: str, tool_available) -> Plan | None:
-        """"abre a pasta downloads" e "procura arquivos chamados X" no computador do Du."""
-        from computer.assistant_tools import KNOWN_FOLDERS
-
-        lowered = " ".join(goal.casefold().split())
-        if re.search(r"\b(?:abr[ae]|abrir|mostr[ae])\b", lowered) and "pasta" in lowered and tool_available("open_folder"):
-            for name in sorted(KNOWN_FOLDERS, key=len, reverse=True):
-                if re.search(rf"\b{re.escape(name)}\b", lowered):
-                    return Plan(goal, [PlanStep(f"Abrir a pasta {name}", StepKind.TOOL, "open_folder", {"name": name})])
-        if re.search(r"\b(?:procur[ae]|procurar|encontr[ae]|encontrar|ach[ae]|localiz[ae])\b", lowered) and "arquivo" in lowered and tool_available("find_files"):
-            quoted = re.search(r"[\"'“]([^\"'”]+)[\"'”]", goal)
-            named = re.search(r"(?:chamad[oa]s?|com o nome|nomead[oa]s?|de nome)\s+(.+?)(?:\s+na pasta.*)?[?.!]*$", goal, flags=re.IGNORECASE)
-            name = (quoted.group(1) if quoted else named.group(1) if named else "").strip()
-            if name:
-                return Plan(goal, [PlanStep(f"Procurar arquivos: {name}", StepKind.TOOL, "find_files", {"name": name})])
-        return None
-
-    @staticmethod
-    def _shortcut_plan(goal: str, lowered: str, single) -> Plan | None:
-        social = Planner._social_plan(goal, lowered, single)
-        if social is not None:
-            return social
-        if re.search(r"bloque(?:ie|ia|ar)", lowered):
-            return single("Bloquear a tela", "lock_screen", {})
-        if re.search(r"\btela\b|o que você (?:vê|ve)|o que voce (?:vê|ve)", lowered):
-            return single("Olhar a tela", "describe_screen", {"question": goal})
-        if "foco" in lowered or "pomodoro" in lowered:
-            if re.search(r"\b(?:sair|sai|encerr\w*|termin\w*|desativ\w*|deslig\w*)\b|\bpar[ae] (?:o |do )?(?:modo )?foco\b", lowered):
-                return single("Encerrar o modo foco", "focus_mode", {"action": "stop"})
-            minutes = (Planner.parse_duration(goal) or 25 * 60) / 60
-            return single("Ativar o modo foco", "focus_mode", {"action": "start", "minutes": minutes})
-        if "lembrete" in lowered or "agenda" in lowered or "agendado" in lowered or "marcado" in lowered:
-            if re.search(r"cancel(?:a|e|ar)", lowered):
-                number = re.search(r"\b(\d+)\b", lowered)
-                return single("Cancelar lembrete", "reminder_cancel", {"index": int(number.group(1)) if number else 0})
-            return single("Ver a agenda", "reminders_list", {})
-        notepad = Planner._notepad_request(goal)
-        if notepad is not None:
-            return single("Escrever no Bloco de Notas", "notepad_write", {"request": notepad})
-        play = r"(?:toca|toque|tocar|coloca|coloque|bota|ponha|p[oõ]e|reproduz[ai]?|reproduzir|play)"
-        verbs = r"(?:toca|toque|tocar|coloca|coloque|bota|ponha|p[oõ]e|reproduz[ai]?|reproduzir|play|abre|abra|abrir|pesquise|pesquisa|procure|procura|busque|busca|ache|acha)"
-        for service in ("youtube", "spotify"):
-            match = re.search(rf"({verbs})\s+(?:a |o |uma |um )?(.+?)\s+no {service}\b", goal, flags=re.IGNORECASE)
-            if match:
-                query = match.group(2).strip(" \"'")
-                if service == "youtube" and re.fullmatch(play, match.group(1), flags=re.IGNORECASE):
-                    return single("Tocar no YouTube", "youtube_play", {"query": query})
-                return single(f"Abrir {service}", service, {"query": query})
-        match = re.search(r"(?:como (?:chego|chegar|vou)|rota|mapa)\s+(?:para|até|ate|em|no|na|ao|à|de|do|da)\s+(.+?)[?.!]*$", goal, flags=re.IGNORECASE)
-        if match:
-            return single("Abrir o mapa", "maps", {"destination": match.group(1).strip()})
-        if re.search(r"(?:computador|pc|notebook|sistema|cpu|memória|memoria|bateria)", lowered) and not re.search(r"cop(?:ie|ia|iar)", lowered):
-            return single("Ver o estado do computador", "system_status", {})
-        match = re.search(r"cop(?:ie|ia|iar)\s+[\"“'](.+?)[\"”'](?:\s|$)", goal, flags=re.IGNORECASE)
-        if match:
-            return single("Copiar texto", "clipboard_write", {"text": match.group(1)})
-        if re.search(r"(?:área|area) de transfer", lowered):
-            return single("Ler a área de transferência", "clipboard_read", {})
-        if re.search(r"bloque(?:ie|ia|ar)", lowered):
-            return single("Bloquear a tela", "lock_screen", {})
-        if re.search(r"cancel(?:a|e|ar)", lowered):
-            return single("Cancelar timers", "timer_cancel", {})
-        if "timer" in lowered:
-            return single("Listar timers", "timers_list", {})
-        return None
-
-    @staticmethod
-    def _notepad_request(goal: str) -> str | None:
-        """O que escrever no Bloco de Notas ("escreva no bloco de notas: X", "escreva X no bloco de notas")."""
-        text = re.sub(r"^\s*(?:telex|duque)[\s,!.:-]+", "", goal.strip(), flags=re.IGNORECASE)
-        if not re.search(r"\b(?:bloco de notas|notepad)\b", text, flags=re.IGNORECASE):
-            return None
-        match = re.match(
-            r"^(?:por favor[,]?\s+)?(?:escrev[ae]|escrever|digit[ae]|digitar|anot[ae]|cri[ae]|criar|fa[çc]a|fazer)\s+(?:no|na)\s+(?:bloco de notas|notepad)[\s:,-]*(.+)$",
-            text, flags=re.IGNORECASE | re.DOTALL,
-        )
-        if match:
-            return match.group(1).strip(" \"“”")
-        match = re.match(
-            r"^(?:por favor[,]?\s+)?(?:escrev[ae]|escrever|digit[ae]|digitar|cri[ae]|criar|fa[çc]a|fazer|componh[ao]|redij[ao])\s+(.+?)\s+(?:no|na)\s+(?:bloco de notas|notepad)\b.*$",
-            text, flags=re.IGNORECASE | re.DOTALL,
-        )
-        if match:
-            return match.group(1).strip(" \"“”:")
-        return None
-
-    @staticmethod
-    def _social_plan(goal: str, lowered: str, single) -> Plan | None:
-        """WhatsApp, contatos, rotinas e resumo do dia."""
-        text = goal.strip()
-        if "voz" in lowered or "vozes" in lowered:
-            from .voice_style import VOICES
-
-            chosen = next((name for name in VOICES if re.search(rf"\b{name}\b", lowered)), None)
-            if chosen and re.search(r"\b(?:mud|troc|us|coloqu?|alter|escolh)\w*", lowered):
-                return single("Trocar a voz", "set_voice", {"name": chosen})
-            return single("Listar vozes", "list_voices", {})
-        if WHATSAPP_ACTION.search(lowered):
-            from computer.whatsapp_flow import parse_request
-
-            request = parse_request(text)
-            if request is not None:
-                # Abre a conversa certa (confere pela tela), escreve e envia se ele pediu.
-                arguments: dict[str, Any] = {
-                    "contact": request.contact, "text": request.text, "hint": request.hint, "send": request.send,
-                }
-                if request.profile:
-                    arguments["profile"] = request.profile
-                return single("Mensagem no WhatsApp", "whatsapp_send", arguments)
-        if re.search(r"\b(?:mand[ae]|envi[ae]|escrev[ae])\b[^.?!]*\b(?:mensagem|msg|zap|whatsapp)\b", lowered):
-            match = re.search(
-                r"\b(?:para|pro|pra|ao|à)\s+(?:o |a )?(.+?)(?:\s+(?:no|pelo) (?:whatsapp|zap))?(?:\s+(?:dizendo(?: que)?|falando(?: que)?|escrito|com o texto|que)\s+|\s*:\s*)(.+)$",
-                text, flags=re.IGNORECASE,
-            )
-            if match:
-                contact = re.sub(r"\s+(?:no|pelo) (?:whatsapp|zap)$", "", match.group(1), flags=re.IGNORECASE).strip()
-                return single("Preparar mensagem no WhatsApp", "whatsapp_message", {"contact": contact, "text": match.group(2).strip()})
-            body = re.search(r"(?:dizendo|falando|escrito|com o texto|:)\s*(.+)$", text, flags=re.IGNORECASE)
-            if body:
-                return single("Preparar mensagem no WhatsApp", "whatsapp_message", {"contact": "", "text": body.group(1).strip()})
-            return None
-        if "meus contatos" in lowered:
-            return single("Listar contatos", "contacts_list", {})
-        if "contato" in lowered:
-            match = re.search(r"contato\s+(.+?)\s+(\+?\d[\d\s().-]{8,})\s*$", text, flags=re.IGNORECASE)
-            if match:
-                return single("Salvar contato", "contact_save", {"name": match.group(1).strip(), "phone": match.group(2).strip()})
-            return None
-        if "minhas rotinas" in lowered:
-            return single("Listar rotinas", "routines_list", {})
-        if "rotina" in lowered:
-            if re.search(r"\b(?:cri[ae]|salv[ae]|nova)\b", lowered):
-                match = re.search(r"rotina\s+([\wÀ-ú]+)\s*(?:com|:|-|=|que faz|que)?\s*(.+)$", text, flags=re.IGNORECASE)
-                if match:
-                    return single("Salvar rotina", "routine_save", {"name": match.group(1), "commands": match.group(2)})
-                return None
-            name = re.search(r"rotina\s+(?:de\s+|do\s+|da\s+)?([\wÀ-ú]+)", text, flags=re.IGNORECASE)
-            if not name:
-                return None
-            if re.search(r"\b(?:apag|exclu|remov)\w*", lowered):
-                return single("Apagar rotina", "routine_delete", {"name": name.group(1)})
-            return single("Rodar rotina", "routine_run", {"name": name.group(1)})
-        mode = re.search(r"modo\s+([\wÀ-ú]+)\s*$", lowered)
-        if mode and mode.group(1) != "foco":
-            return single("Rodar rotina", "routine_run", {"name": mode.group(1)})
-        if re.search(r"resumo do (?:meu )?dia|como foi (?:o )?meu dia|o que (?:eu )?fiz hoje", lowered):
-            return single("Resumo do dia", "day_summary", {})
-        return None
-
-    def _assistant_plan(self, goal: str, intent: str, tool_available) -> Plan | None:
-        """Planos determinísticos para as ferramentas do dia a dia."""
-        lowered = " ".join(goal.casefold().split())
-
-        def single(description: str, tool: str, arguments: dict[str, Any]) -> Plan | None:
-            if not tool_available(tool):
-                return None
-            return Plan(goal, [PlanStep(description, StepKind.TOOL, tool, arguments)])
-
-        if intent == "shortcut":
-            return self._shortcut_plan(goal, lowered, single)
-        if intent == "time":
-            return single("Consultar data e hora", "current_time", {})
-        if intent == "weather":
-            match = re.search(r"\b(?:em|de|para)\s+([a-zà-ú][a-zà-ú\s]+?)(?:\?|$|\s+(?:hoje|agora|amanhã|amanha))", lowered)
-            city = match.group(1).strip() if match and match.group(1).strip() not in {"hoje", "agora"} else ""
-            return single("Consultar o clima", "weather", {"city": city} if city else {})
-        if intent == "media":
-            if any(word in lowered for word in ("próxima", "proxima", "pula")):
-                action = "next"
-            elif any(word in lowered for word in ("anterior", "volta a")):
-                action = "previous"
-            else:
-                action = "play_pause"
-            return single("Controlar a mídia", "media", {"action": action})
-        if intent == "note":
-            if any(word in lowered for word in ("minhas notas", "minhas anotações", "minhas anotacoes", "leia as notas", "sabe sobre mim", "lembra de mim")):
-                return single("Listar notas", "notes_list", {})
-            text = re.sub(r"^(?:duque[,!]?\s+)?(?:anote|anota|faça uma nota|faz uma nota|lembre|lembra|guarde|guarda|memorize|memoriza)\s*(?:que|:)?\s*", "", goal.strip(), flags=re.IGNORECASE)
-            return single("Guardar nota", "note_add", {"text": text or goal})
-        if intent == "calc":
-            expression = re.sub(r"^(?:duque[,!]?\s+)?(?:quanto é|quanto e|calcule|calcula)\s*", "", goal.strip(), flags=re.IGNORECASE).rstrip("?! ")
-            return single("Calcular", "calculate", {"expression": expression})
-        if intent == "reminder":
-            seconds = self.parse_duration(goal)
-            if seconds:
-                label = re.sub(r"\b(?:em|daqui a|daqui)\s+\d+.*$", "", goal, flags=re.IGNORECASE)
-                label = re.sub(r"^(?:duque[,!]?\s+)?(?:me lembre|me lembra|me avise|me avisa|crie um timer|cria um timer|timer)\s*(?:de|para|que)?\s*", "", label.strip(), flags=re.IGNORECASE)
-                arguments: dict[str, Any] = {"seconds": seconds}
-                if label.strip(" .,!?"):
-                    arguments["label"] = label.strip(" .,!?")
-                return single("Criar timer", "timer_set", arguments)
-            from .when import parse_when
-
-            when = parse_when(goal)
-            if when is not None:
-                return single("Agendar lembrete", "reminder_at", {"when": goal, "text": when.rest})
-            return None
-        if intent == "system":
-            if any(word in lowered for word in ("aumente o volume", "aumentar o volume", "aumenta o volume", "sobe o volume")):
-                return single("Aumentar volume", "volume", {"direction": "up"})
-            if any(word in lowered for word in ("diminua o volume", "diminuir o volume", "diminui o volume", "abaixa o volume", "abaixe o volume")):
-                return single("Diminuir volume", "volume", {"direction": "down"})
-            if any(word in lowered for word in ("mute", "mutar", "desative o som", "ative o som", "silencie")):
-                return single("Alternar mudo", "volume", {"direction": "mute"})
-            if any(word in lowered for word in ("bloqueie", "bloquear", "bloqueia")) and "tela" in lowered:
-                return single("Bloquear a tela", "lock_screen", {})
-        return None
