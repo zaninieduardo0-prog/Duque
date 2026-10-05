@@ -19,6 +19,14 @@ def _wants_short_confirmation(text: str) -> bool:
     ))
 
 
+def _sequence_succeeded(text: str) -> bool:
+    normalized = " ".join((text or "").casefold().split())
+    return not re.search(
+        r"\b(?:na etapa|não consegui|nao consegui|não consigo|nao consigo|pulei a etapa)\b",
+        normalized,
+    )
+
+
 def install() -> None:
     from .agent_loop import AgentLoop, AgentResult
 
@@ -30,7 +38,12 @@ def install() -> None:
     def handle_sequence(self: Any, steps: list[str], *, confirmed: bool, max_attempts: int):
         # O método original continua responsável por executar e verificar tudo.
         result = original(self, steps, confirmed=confirmed, max_attempts=max_attempts)
-        if result.execution is not None and result.execution.success and _wants_short_confirmation(" ".join(steps)):
+        if (
+            result.execution is not None
+            and result.execution.success
+            and _wants_short_confirmation(" ".join(steps))
+            and _sequence_succeeded(result.text)
+        ):
             return AgentResult("Tarefa finalizada.", result.task_id, result.execution, result.attempts)
         return result
 
