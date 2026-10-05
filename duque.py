@@ -28,6 +28,45 @@ if sys.platform.startswith("win"):
     except Exception:
         pass
 
+
+_SINGLE_INSTANCE_HANDLE = None
+_SINGLE_INSTANCE_NAME = "Local\\Duque_TELEX_SingleInstance"
+
+
+def acquire_single_instance() -> bool:
+    """Impede duas instâncias do núcleo de rodarem ao mesmo tempo no Windows.
+
+    A checagem HTTP sozinha tem uma condição de corrida: duas inicializações
+    simultâneas podem verificar /status antes de qualquer uma abrir a porta.
+    O mutex nomeado fecha essa brecha e também protege contra múltiplos
+    lançadores (PowerShell, VBS, supervisor ou atalho do Windows).
+    """
+    global _SINGLE_INSTANCE_HANDLE
+    if not sys.platform.startswith("win"):
+        return True
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+        kernel32.CreateMutexW.restype = wintypes.HANDLE
+        kernel32.GetLastError.restype = wintypes.DWORD
+        handle = kernel32.CreateMutexW(None, True, _SINGLE_INSTANCE_NAME)
+        if not handle:
+            return False
+        ERROR_ALREADY_EXISTS = 183
+        if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
+            kernel32.CloseHandle(handle)
+            return False
+        _SINGLE_INSTANCE_HANDLE = handle
+        return True
+    except Exception:
+        # Se a API de mutex não estiver disponível, mantém o comportamento
+        # anterior baseado em /status em vez de impedir a inicialização.
+        return True
+
+
 os.environ.setdefault("DUQUE_WORKSPACE_ROOT", str(ROOT))
 os.environ.setdefault("DUQUE_AUTONOMOUS_AGENT", "1")
 os.environ.setdefault("DUQUE_PITCH", "-2.0")
@@ -142,6 +181,12 @@ def keep_process_alive() -> None:
 
 
 def main() -> None:
+    # O mutex vem antes do servidor e antes das threads para impedir qualquer
+    # duplicação de núcleo mesmo quando dois lançadores iniciam quase juntos.
+    if not acquire_single_instance():
+        print("[DUQUE] Instância já ativa; encerrando esta inicialização duplicada.", flush=True)
+        return
+
     # Se o servidor já está ativo, esta é uma segunda tentativa de inicialização.
     # Não importamos o servidor/agente novamente para evitar duplicar scheduler e estado.
     if server_online():
