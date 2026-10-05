@@ -23,6 +23,15 @@ class ToolSchemaRegistry:
 
     def __init__(self) -> None:
         self._schemas: dict[str, ToolSpec] = {}
+        # Ferramenta segura e delimitada à Área de Trabalho. O registro aqui
+        # garante que o Planner possa usá-la mesmo antes do catálogo operacional
+        # do AgentLoop ser preenchido.
+        self.register(ToolSpec(
+            "write_desktop_file",
+            "Cria um arquivo somente na Área de Trabalho",
+            ("filename", "content"),
+            {"filename": str, "content": str},
+        ))
 
     def register(self, spec: ToolSpec) -> None:
         self._schemas[spec.name] = spec
