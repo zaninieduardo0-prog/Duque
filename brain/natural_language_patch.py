@@ -25,12 +25,21 @@ def _clean_control_tail(text: str) -> str:
     return value.strip(" \"“”'")
 
 
+def _safe_filename(filename: str) -> str | None:
+    """Aceita apenas um nome de arquivo, nunca um caminho disfarçado."""
+    value = filename.strip().strip(" \"“”'")
+    if not value or value in {".", ".."}:
+        return None
+    if Path(value).name != value or "/" in value or "\\" in value:
+        return None
+    return value
+
+
 def _natural_file_plan(planner: Any, goal: str, available_tools: set[str] | None):
     """Retorna um Plan para pedidos de arquivo em linguagem natural."""
     from .planner import Plan, PlanStep, StepKind
 
     text = goal.strip()
-    lowered = " ".join(text.casefold().split())
 
     def available(name: str) -> bool:
         return available_tools is None or name in available_tools
@@ -46,7 +55,7 @@ def _natural_file_plan(planner: Any, goal: str, available_tools: set[str] | None
         flags=re.IGNORECASE | re.DOTALL,
     )
     if match:
-        filename = match.group(1).strip()
+        filename = _safe_filename(match.group(1))
         content = _clean_control_tail(match.group(2))
         if filename and content and available("write_any_file"):
             path = Path.home() / "Desktop" / filename
@@ -80,7 +89,7 @@ def _natural_file_plan(planner: Any, goal: str, available_tools: set[str] | None
             flags=re.IGNORECASE | re.DOTALL,
         )
         if match and available("write_any_file"):
-            filename = match.group(1).strip()
+            filename = _safe_filename(match.group(1))
             content = _clean_control_tail(match.group(2))
             if filename and content:
                 path = Path.home() / folder / filename
@@ -103,17 +112,18 @@ def _natural_file_plan(planner: Any, goal: str, available_tools: set[str] | None
         flags=re.IGNORECASE,
     )
     if match and available("read_any_file"):
-        filename = match.group(1).strip()
-        path = Path.home() / "Desktop" / filename
-        return Plan(
-            goal,
-            [PlanStep(
-                f"Ler {filename} na área de trabalho",
-                StepKind.TOOL,
-                "read_any_file",
-                {"path": str(path)},
-            )],
-        )
+        filename = _safe_filename(match.group(1))
+        if filename:
+            path = Path.home() / "Desktop" / filename
+            return Plan(
+                goal,
+                [PlanStep(
+                    f"Ler {filename} na área de trabalho",
+                    StepKind.TOOL,
+                    "read_any_file",
+                    {"path": str(path)},
+                )],
+            )
 
     return None
 
