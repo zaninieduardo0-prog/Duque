@@ -22,8 +22,10 @@ def _safe_filename(filename: str) -> str | None:
 
 def _strip_assistant_prefix(text: str) -> str:
     value = text.strip()
+    # A interface pode acrescentar "Du" mais de uma vez (ex.: "DuDu leia...").
+    # Removemos qualquer quantidade de prefixos antes de interpretar o comando.
     return re.sub(
-        r"^(?:duque|du)[,!:;\s.-]*(?=(?:crie|criar|cria|escreva|escrever|salve|salvar)\b)",
+        r"^(?:(?:duque|du)[,!:;\s.-]*)+(?=(?:crie|criar|cria|escreva|escrever|salve|salvar|leia|ler|abra|verifique|verifica)\b)",
         "",
         value,
         count=1,
@@ -49,22 +51,9 @@ def _natural_file_plan(planner: Any, goal: str, available_tools: set[str] | None
         content = _clean_control_tail(match.group(2))
         if filename and content and available("write_file"):
             path = str(Path.home() / "Desktop" / filename)
-            return Plan(
-                goal,
-                [PlanStep(
-                    f"Criar {filename} na área de trabalho",
-                    StepKind.TOOL,
-                    "write_file",
-                    {"path": path, "content": content},
-                )],
-            )
+            return Plan(goal, [PlanStep(f"Criar {filename} na área de trabalho", StepKind.TOOL, "write_file", {"path": path, "content": content})])
 
-    folders = {
-        "documentos": "Documents",
-        "documents": "Documents",
-        "downloads": "Downloads",
-        "download": "Downloads",
-    }
+    folders = {"documentos": "Documents", "documents": "Documents", "downloads": "Downloads", "download": "Downloads"}
     for spoken, folder in folders.items():
         match = re.search(
             rf"\b(?:crie|criar|cria|escreva|escrever|salve|salvar)\s+(?:um|uma|o|a)?\s*arquivo\s+(?:chamado\s+|de nome\s+)?[\"'“]?([^\"'”\s]+)[\"'”]?\s+(?:na|no|em)\s+{re.escape(spoken)}\s+(?:contendo|com conteúdo|com conteudo|com o conteúdo|com o conteudo)\s+(.+)$",
@@ -75,15 +64,7 @@ def _natural_file_plan(planner: Any, goal: str, available_tools: set[str] | None
             filename = _safe_filename(match.group(1))
             content = _clean_control_tail(match.group(2))
             if filename and content:
-                return Plan(
-                    goal,
-                    [PlanStep(
-                        f"Criar {filename} em {folder}",
-                        StepKind.TOOL,
-                        "write_file",
-                        {"path": str(Path.home() / folder / filename), "content": content},
-                    )],
-                )
+                return Plan(goal, [PlanStep(f"Criar {filename} em {folder}", StepKind.TOOL, "write_file", {"path": str(Path.home() / folder / filename), "content": content})])
 
     match = re.search(
         r"\b(?:leia|ler|abra|verifique|verifica)\s+(?:o\s+)?(?:arquivo\s+)?(?:chamado\s+)?[\"'“]?([^\"'”\s]+)[\"'”]?\s+(?:na|no|em)\s+(?:área de trabalho|area de trabalho|desktop)\b",
@@ -93,15 +74,7 @@ def _natural_file_plan(planner: Any, goal: str, available_tools: set[str] | None
     if match and available("read_file"):
         filename = _safe_filename(match.group(1))
         if filename:
-            return Plan(
-                goal,
-                [PlanStep(
-                    f"Ler {filename} na área de trabalho",
-                    StepKind.TOOL,
-                    "read_file",
-                    {"path": str(Path.home() / "Desktop" / filename)},
-                )],
-            )
+            return Plan(goal, [PlanStep(f"Ler {filename} na área de trabalho", StepKind.TOOL, "read_file", {"path": str(Path.home() / "Desktop" / filename)})])
     return None
 
 
