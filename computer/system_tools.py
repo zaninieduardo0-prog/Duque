@@ -32,8 +32,6 @@ class SystemTools:
     def environment(self, name: str | None = None) -> dict[str, Any]:
         if name:
             return {"name": name, "value": os.getenv(name)}
-        # Não despejar chaves, tokens ou credenciais do ambiente no contexto do agente.
-        # Variáveis individuais continuam consultáveis quando explicitamente pedidas.
         sensitive_markers = ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASS", "AUTH", "CREDENTIAL")
         variables = {
             key: value
@@ -70,13 +68,7 @@ class SystemTools:
         except UnicodeDecodeError:
             content = data.decode("utf-8", errors="replace")
             encoding = "utf-8-replaced"
-        return {
-            "path": str(target),
-            "content": content,
-            "encoding": encoding,
-            "bytes": len(data),
-            "truncated": truncated,
-        }
+        return {"path": str(target), "content": content, "encoding": encoding, "bytes": len(data), "truncated": truncated}
 
     def write_any_file(self, path: str, content: str) -> dict[str, Any]:
         target = Path(path).expanduser().resolve()
@@ -84,12 +76,22 @@ class SystemTools:
         existed = target.exists()
         old = target.read_text(encoding="utf-8") if existed and target.is_file() else None
         target.write_text(content, encoding="utf-8")
-        return {
-            "path": str(target),
-            "created": not existed,
-            "changed": old != content,
-            "bytes": len(content.encode("utf-8")),
-        }
+        return {"path": str(target), "created": not existed, "changed": old != content, "bytes": len(content.encode("utf-8"))}
+
+    def write_desktop_file(self, filename: str, content: str) -> dict[str, Any]:
+        """Cria um único arquivo diretamente na Área de Trabalho, sem aceitar caminhos."""
+        name = str(filename).strip().strip(' \\"“”\'')
+        if not name or name in {".", ".."} or Path(name).name != name or "/" in name or "\\" in name:
+            raise ValueError("nome de arquivo inválido")
+        desktop = Path.home() / "Desktop"
+        target = (desktop / name).resolve()
+        if target.parent != desktop.resolve():
+            raise ValueError("caminho fora da Área de Trabalho")
+        desktop.mkdir(parents=True, exist_ok=True)
+        existed = target.exists()
+        old = target.read_text(encoding="utf-8") if existed and target.is_file() else None
+        target.write_text(str(content), encoding="utf-8")
+        return {"path": str(target), "created": not existed, "changed": old != content, "bytes": len(str(content).encode("utf-8"))}
 
     def delete_any_file(self, path: str) -> dict[str, Any]:
         target = Path(path).expanduser().resolve()
@@ -127,54 +129,20 @@ class SystemTools:
         if not command:
             raise ValueError("command não pode ser vazio")
         limit = max(1, min(int(timeout), 600))
-        if platform.system() == "Windows":
-            args = ["cmd.exe", "/d", "/s", "/c", command]
-        else:
-            args = ["/bin/sh", "-lc", command]
-        completed = subprocess.run(
-            args,
-            cwd=str(Path.cwd()),
-            capture_output=True,
-            text=True,
-            timeout=limit,
-            shell=False,
-        )
-        return {
-            "command": command,
-            "return_code": completed.returncode,
-            "stdout": completed.stdout,
-            "stderr": completed.stderr,
-            "success": completed.returncode == 0,
-        }
+        args = ["cmd.exe", "/d", "/s", "/c", command] if platform.system() == "Windows" else ["/bin/sh", "-lc", command]
+        completed = subprocess.run(args, cwd=str(Path.cwd()), capture_output=True, text=True, timeout=limit, shell=False)
+        return {"command": command, "return_code": completed.returncode, "stdout": completed.stdout, "stderr": completed.stderr, "success": completed.returncode == 0}
 
     def list_processes(self) -> dict[str, Any]:
         if platform.system() == "Windows":
-            completed = subprocess.run(
-                ["tasklist", "/FO", "CSV", "/NH"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                shell=False,
-            )
+            completed = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True, timeout=30, shell=False)
             rows = []
             for line in completed.stdout.splitlines():
                 parts = [part.strip('"') for part in line.split('","')]
                 if len(parts) >= 5:
-                    rows.append({
-                        "name": parts[0],
-                        "pid": parts[1],
-                        "session": parts[2],
-                        "session_number": parts[3],
-                        "memory": parts[4],
-                    })
+                    rows.append({"name": parts[0], "pid": parts[1], "session": parts[2], "session_number": parts[3], "memory": parts[4]})
             return {"processes": rows, "count": len(rows)}
-        completed = subprocess.run(
-            ["ps", "-eo", "pid=,comm=,args="],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            shell=False,
-        )
+        completed = subprocess.run(["ps", "-eo", "pid=,comm=,args="], capture_output=True, text=True, timeout=30, shell=False)
         rows = []
         for line in completed.stdout.splitlines():
             parts = line.strip().split(None, 2)
@@ -186,21 +154,9 @@ class SystemTools:
         pid = int(pid)
         if pid <= 0:
             raise ValueError("pid inválido")
-        if platform.system() == "Windows":
-            args = ["taskkill", "/PID", str(pid)]
-            if force:
-                args.append("/F")
-        else:
-            args = ["kill", "-9" if force else "-15", str(pid)]
+        args = ["taskkill", "/PID", str(pid)] + (["/F"] if force else []) if platform.system() == "Windows" else ["kill", "-9" if force else "-15", str(pid)]
         completed = subprocess.run(args, capture_output=True, text=True, timeout=30, shell=False)
-        return {
-            "pid": pid,
-            "force": force,
-            "return_code": completed.returncode,
-            "stdout": completed.stdout,
-            "stderr": completed.stderr,
-            "success": completed.returncode == 0,
-        }
+        return {"pid": pid, "force": force, "return_code": completed.returncode, "stdout": completed.stdout, "stderr": completed.stderr, "success": completed.returncode == 0}
 
     def register(self, executor: Any) -> None:
         executor.register("system_info", self.system_info)
@@ -208,6 +164,7 @@ class SystemTools:
         executor.register("list_directory", self.list_directory)
         executor.register("read_any_file", self.read_any_file)
         executor.register("write_any_file", self.write_any_file)
+        executor.register("write_desktop_file", self.write_desktop_file)
         executor.register("delete_any_file", self.delete_any_file)
         executor.register("copy_path", self.copy_path)
         executor.register("move_path", self.move_path)
