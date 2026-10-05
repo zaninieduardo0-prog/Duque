@@ -82,6 +82,15 @@ class NotepadWriter:
     def notepad_write(self, request: str, literal: bool = False) -> dict[str, Any]:
         """``literal=True``: grava o texto como veio (já criado por outra etapa), sem pedir ao modelo."""
         request = (request or "").strip()
+        # Instruções de controle pertencem ao plano, não ao conteúdo solicitado.
+        request = re.split(
+            r"(?:\.|;)\s*(?:pare|parar|pare por aí|pare por ai|não faça mais nada|"
+            r"nao faça mais nada|não faça nenhuma outra ação|nao faça nenhuma outra acao|"
+            r"e me informe|e me diga)\b",
+            request,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0].strip().strip(" \"“”'")
         if not request:
             return {"success": False, "error": "Não sei o que escrever no Bloco de Notas."}
         composed = not literal and needs_composing(request) and self.compose is not None
