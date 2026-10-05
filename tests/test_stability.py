@@ -39,6 +39,8 @@ class StabilityResponseTests(unittest.TestCase):
 
         self.assertTrue(stability._wants_short_confirmation("faça tudo e apenas me confirme quando terminar"))
         self.assertFalse(stability._wants_short_confirmation("faça tudo e me explique o resultado"))
+        self.assertTrue(stability._sequence_succeeded("Tarefa concluída com sucesso."))
+        self.assertFalse(stability._sequence_succeeded("Na etapa 2 não consegui executar a ação."))
 
     def test_sitecustomize_can_be_loaded_without_side_effect_error(self) -> None:
         with mock.patch.dict("sys.modules", {}, clear=False):
