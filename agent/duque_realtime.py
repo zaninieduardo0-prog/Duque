@@ -12,18 +12,13 @@ from core.voice_bridge import bridge
 
 @function_tool
 async def executar_no_duque(pedido: str) -> str:
-    """Executa um pedido usando o cérebro e as ferramentas do TELEX (mais de 100).
+    """Executa um pedido no computador do Du pelo núcleo do TELEX.
 
-    Use para TUDO que exige agir no computador ou buscar um dado. Ele sabe, entre outras coisas:
-    abrir qualquer app instalado (Menu Iniciar), sites e pastas; listar, focar, minimizar,
-    maximizar, encaixar e fechar janelas; abrir páginas das Configurações do Windows (Wi-Fi,
-    Bluetooth, som, tela...), brilho, Wi-Fi, estado do PC e captura de tela; criar, ler, renomear,
-    compactar e organizar arquivos e pastas; ler o texto de sites, listar links e baixar arquivos;
-    pesquisar na web, clima, hora, contas, notas, timers, lembretes e rotinas; música, volume,
-    YouTube e Spotify; Bloco de Notas; WhatsApp para PESSOAS E GRUPOS (enviar, deixar escrito e
-    ler as últimas mensagens); rascunhos de e-mail (Gmail/Outlook), eventos na agenda do Google e
-    compartilhar textos; ver a tela e clicar/digitar quando não há atalho pronto; e melhorias no
-    próprio código (Forja).
+    Use para TUDO que exige agir no computador ou buscar um dado: WhatsApp (enviar, ler e abrir
+    conversas de pessoas e grupos, sempre pelo WhatsApp Web), abrir e usar sites, pesquisar no
+    Google, abrir e fechar programas, Bloco de Notas, arquivos, lembretes, timers, clima, volume,
+    música, rascunhos de e-mail e eventos de agenda; e, quando nada disso serve, ver a tela e
+    clicar/digitar.
     Nunca diga ao Du que não existe ferramenta para uma ação no computador: chame esta função e
     deixe o TELEX tentar (se não der, ele explica o motivo real).
     Pedidos com várias etapas ("abra X e faça Y", "crie um poema no bloco de notas e mande no grupo
