@@ -168,6 +168,11 @@ _CARRY_FILE = re.compile(
 )
 
 # Etapa que só faz sentido se a anterior deu certo ("toque lá", "feche ele", "salve isso").
+# "...e apenas me confirme" / "só me diga quando terminar": resposta final curta.
+_SHORT_CONFIRMATION = re.compile(
+    r"\b(?:apenas|s[oó]|somente)\s+(?:me\s+)?(?:confirme|informe|diga)\b",
+    re.IGNORECASE,
+)
 _DEPENDS_ON_PREVIOUS = re.compile(r"\b(?:l[aá]|nele|nela|neles|nelas|ali|a[ií]|isso|ele|ela|o mesmo)\b", re.IGNORECASE)
 
 
@@ -1535,6 +1540,8 @@ class AgentLoop:
         final = failed_result or last
         if final is None:
             return AgentResult(report or "Nada para fazer.")
+        if not problems and final.execution is not None and final.execution.success and _SHORT_CONFIRMATION.search(" ".join(steps)):
+            report = "Tarefa finalizada."  # "faça tudo e só me confirme": sem relatar etapa por etapa
         return AgentResult(report, final.task_id, final.execution, final.attempts)
 
     def _carry_action(self, step: str) -> tuple[str, dict[str, Any]] | None:

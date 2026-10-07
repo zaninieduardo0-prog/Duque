@@ -86,13 +86,7 @@ class SystemTools:
         except UnicodeDecodeError:
             content = data.decode("utf-8", errors="replace")
             encoding = "utf-8-replaced"
-        return {
-            "path": str(target),
-            "content": content,
-            "encoding": encoding,
-            "bytes": len(data),
-            "truncated": truncated,
-        }
+        return {"path": str(target), "content": content, "encoding": encoding, "bytes": len(data), "truncated": truncated}
 
     def write_any_file(self, path: str, content: str) -> dict[str, Any]:
         target = Path(path).expanduser().resolve()
@@ -184,13 +178,7 @@ class SystemTools:
             for line in completed.stdout.splitlines():
                 parts = [part.strip('"') for part in line.split('","')]
                 if len(parts) >= 5:
-                    rows.append({
-                        "name": parts[0],
-                        "pid": parts[1],
-                        "session": parts[2],
-                        "session_number": parts[3],
-                        "memory": parts[4],
-                    })
+                    rows.append({"name": parts[0], "pid": parts[1], "session": parts[2], "session_number": parts[3], "memory": parts[4]})
             return {"processes": rows, "count": len(rows)}
         completed = run_quiet(["ps", "-eo", "pid=,comm=,args="], timeout=30, encoding="utf-8")
         rows = []

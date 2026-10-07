@@ -7,6 +7,8 @@ from typing import Any
 
 from computer.apps import find_app_in_text
 
+from .natural_files import natural_file_plan
+
 _UNITS = {"segundo": 1, "segundos": 1, "minuto": 60, "minutos": 60, "hora": 3600, "horas": 3600}
 _DURATION = re.compile(r"(\d+(?:[.,]\d+)?)\s*(segundos?|minutos?|horas?)")
 
@@ -164,6 +166,9 @@ class Planner:
             return Plan(goal, [PlanStep(f"Pesquisar: {query}", StepKind.TOOL, tool, {"query": query})])
 
         if intent == "file_operation":
+            natural = natural_file_plan(goal, available_tools)
+            if natural is not None:
+                return natural  # "crie teste.txt na área de trabalho contendo 123"
             lowered = goal.casefold()
             folder_plan = self._folder_or_search_plan(goal, tool_available)
             if folder_plan is not None:

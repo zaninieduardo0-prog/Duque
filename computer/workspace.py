@@ -47,19 +47,33 @@ class FileResult:
 
 
 class Workspace:
-    """Acesso a arquivos limitado a um diretório de trabalho explícito."""
+    """Acesso ao workspace e a pastas pessoais explicitamente permitidas."""
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root).expanduser().resolve()
         self.root.mkdir(parents=True, exist_ok=True)
+        # Pastas pessoais reais (no Windows podem estar no OneDrive).
+        from .file_tools import known_folder
+
+        self.allowed_roots = {self.root}
+        for alias in ("Desktop", "Documents", "Downloads", "Pictures", "Videos", "Music"):
+            folder = known_folder(alias.casefold()) or Path.home() / alias
+            self.allowed_roots.add(folder.expanduser().resolve())
+
+    @staticmethod
+    def _inside(candidate: Path, root: Path) -> bool:
+        try:
+            candidate.relative_to(root)
+            return True
+        except ValueError:
+            return False
 
     def resolve(self, relative_path: str | Path) -> Path:
-        candidate = (self.root / relative_path).resolve()
-        try:
-            candidate.relative_to(self.root)
-        except ValueError as exc:
-            raise PermissionError("Caminho fora do workspace") from exc
-        return candidate
+        raw = Path(relative_path).expanduser()
+        candidate = raw.resolve() if raw.is_absolute() else (self.root / raw).resolve()
+        if any(self._inside(candidate, allowed) for allowed in self.allowed_roots):
+            return candidate
+        raise PermissionError("Caminho fora do workspace e das pastas pessoais permitidas")
 
     def _resolve(self, relative_path: str | Path) -> Path:
         return self.resolve(relative_path)
@@ -85,14 +99,22 @@ class Workspace:
         path.unlink()
         return FileResult(str(path), changed=True)
 
-    def list_files(self, limit: int = 5000) -> list[str]:
-        """Arquivos do workspace, sem .git/.venv/caches (que travavam e enchiam o contexto)."""
+    def list_files(self, path: str | Path = ".", limit: int = 5000) -> list[str]:
+        """Arquivos de uma pasta permitida, sem .git/.venv/caches (que travavam e enchiam o contexto).
+
+        Dentro do workspace os caminhos são relativos; nas pastas pessoais, absolutos.
+        """
+        base = self.resolve(path)
+        if base.is_file():
+            return [str(base)]
+        inside = self._inside(base, self.root)
         found: list[str] = []
-        for current, dirs, files in os.walk(self.root):
+        for current, dirs, files in os.walk(base):
             dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not d.endswith(".egg-info"))
-            base = Path(current)
+            folder = Path(current)
             for name in sorted(files):
-                found.append(str((base / name).relative_to(self.root)))
+                item = folder / name
+                found.append(str(item.relative_to(self.root)) if inside else str(item))
                 if len(found) >= limit:
                     return sorted(found)
         return sorted(found)
