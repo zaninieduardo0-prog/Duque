@@ -16,7 +16,8 @@ dependencies = [
     "sounddevice>=0.5",
     "pvrecorder>=1.2",
     "pedalboard>=0.9",
-    "anthropic>=0.40",
+    "anthropic>=1.11",
+    "playwright>=1.45",
     "pillow>=10",
     "vosk>=0.3.45",
 ]
@@ -32,6 +33,7 @@ include = [
     "forge*",
     "memory*",
     "voice*",
+    "telex*",
 ]
 exclude = ["interface*", "tests*", "lixeira*", ".venv*"]
 namespaces = true
@@ -53,6 +55,7 @@ include = [
     "forge",
     "memory",
     "voice",
+    "telex",
     "duque.py",
     "duque_supervisor.py",
     "diagnostico.py",

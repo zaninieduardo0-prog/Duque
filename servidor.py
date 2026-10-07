@@ -13,7 +13,8 @@ from urllib.parse import urlparse
 from flask import Flask, jsonify, request, Response
 from openai import OpenAI
 
-from brain.agent_loop import AgentLoop
+from brain.agent_loop import AgentLoop, AgentResult
+from core.executor import ExecutionResult
 from core.events import Event, EventType
 from brain.voice_style import SAMPLE as VOICE_SAMPLE
 from brain.voice_style import TTS_INSTRUCTIONS, TTS_SPEED, VOICES, current_voice, set_voice
@@ -183,9 +184,39 @@ def _safe_handle_event(event: Event) -> None:
 agent.engine.events.subscribe(None, _safe_handle_event)
 
 
+# Núcleo novo (pasta telex/): uma IA com ferramentas confiáveis (WhatsApp Web e
+# sites pelo navegador do TELEX). DUQUE_NUCLEO=antigo volta ao cérebro anterior.
+NUCLEO_NOVO = os.getenv("DUQUE_NUCLEO", "novo").strip().casefold() != "antigo"
+_telex = None
+
+
+def _telex_agent():
+    global _telex
+    if _telex is None:
+        from telex.agent import TelexAgent
+
+        _telex = TelexAgent(legacy_tools=agent.executor.tools.get)
+    return _telex
+
+
+def processar(texto: str, canal: str = "texto", registrar: bool = True) -> AgentResult:
+    """Ponto único dos pedidos (HUD e voz)."""
+    if not NUCLEO_NOVO:
+        return agent.handle(texto, channel=canal, record=registrar)
+    with agent._handle_lock:  # nunca junto com uma tarefa agendada
+        if registrar:
+            agent.conversation.add("user", texto, canal)
+        resposta = _telex_agent().handle(texto)
+        if registrar:
+            agent.conversation.add("assistant", resposta.text, canal)
+    execucao = ExecutionResult(success=not resposta.failed, value={"ferramentas": resposta.tools_used},
+                               error=resposta.text if resposta.failed else None)
+    return AgentResult(resposta.text, None, execucao, max(1, resposta.steps))
+
+
 def _execute_for_voice(pedido: str) -> str:
     """Ferramenta da voz: executa pelo mesmo cérebro, sem duplicar o turno na conversa."""
-    return agent.handle(pedido, channel="voz", record=False).text
+    return processar(pedido, canal="voz", registrar=False).text
 
 
 bridge.attach_core(
@@ -480,7 +511,7 @@ def executar_comando():
         with state_lock:
             estado_duque["modo"] = "texto"
 
-        resultado = agent.handle(texto.strip(), channel=canal, record=registrar)
+        resultado = processar(texto.strip(), canal=canal, registrar=registrar)
 
         with state_lock:
             estado_duque["resposta"] = resultado.text or ""

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>WhatsApp</title></head>
+<body>
+<!-- Imitação mínima da estrutura do WhatsApp Web, para testar o TELEX sem internet. -->
+<div id="app">
+  <div id="side">
+    <div contenteditable="true" role="textbox" aria-label="Pesquisar ou começar uma nova conversa" id="search"></div>
+    <div id="pane-side" aria-label="Lista de conversas"></div>
+  </div>
+  <div id="main" style="display:none">
+    <header><span id="chat-title" title=""></span></header>
+    <div id="messages"></div>
+    <footer><div contenteditable="true" role="textbox" aria-label="Digite uma mensagem" id="compose"></div></footer>
+  </div>
+</div>
+<script>
+const chats = {
+  "João Silva": [["[09:10, 07/10/2026] João Silva: ", "Bom dia!"]],
+  "Joana": [],
+  "Grupo Teste": [["[10:00, 07/10/2026] Du: ", "testando o grupo"]],
+  "Família Zanini": [],
+};
+const pane = document.getElementById('pane-side');
+const search = document.getElementById('search');
+const main = document.getElementById('main');
+function render(filter) {
+  pane.innerHTML = '';
+  for (const name of Object.keys(chats)) {
+    const plain = (t) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    if (filter && !plain(name).includes(plain(filter))) continue;
+    const row = document.createElement('div');
+    row.setAttribute('role', 'listitem');
+    const span = document.createElement('span');
+    span.title = name; span.textContent = name;
+    span.addEventListener('click', () => open(name));
+    row.appendChild(span);
+    const preview = document.createElement('div');
+    const last = chats[name][chats[name].length - 1];
+    preview.textContent = last ? last[1] : '';
+    row.appendChild(preview);
+    pane.appendChild(row);
+  }
+}
+let current = null;
+function open(name) {
+  current = name;
+  main.style.display = 'block';
+  const title = document.getElementById('chat-title');
+  title.title = name; title.textContent = name;
+  const box = document.getElementById('messages');
+  box.innerHTML = '';
+  for (const [meta, text] of chats[name]) {
+    const div = document.createElement('div');
+    const out = meta.includes('] Du: ');
+    div.className = out ? 'message-out' : 'message-in';
+    const inner = document.createElement('div');
+    inner.setAttribute('data-pre-plain-text', meta);
+    inner.textContent = text;
+    div.appendChild(inner);
+    box.appendChild(div);
+  }
+}
+search.addEventListener('input', () => setTimeout(() => render(search.innerText.trim()), 150));
+document.getElementById('compose').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    const text = event.target.innerText.trim();
+    if (text && current) { chats[current].push(['[11:00, 07/10/2026] Du: ', text]); open(current); }
+    event.target.innerText = '';
+  }
+});
+render('');
+</script>
+</body>
+</html>

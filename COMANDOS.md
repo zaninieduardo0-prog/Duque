@@ -275,18 +275,35 @@ setx DUQUE_VOICE_IDLE "60"
 setx DUQUE_VAD_INTERRUPT "0"
 ```
 
-## Autonomia ampliada (novas ferramentas)
-Fale do jeito normal; estes são exemplos do que agora funciona:
+## Núcleo novo (uma IA no comando)
 
-| Área | Exemplos |
-|---|---|
-| WhatsApp (pessoas **e grupos**) | "escreva um poema no bloco de notas e envie para o grupo Teste no WhatsApp", "manda no grupo Família dizendo que chego às 8", "lê as últimas mensagens do grupo do trabalho" |
-| E-mail e agenda (rascunho, você confere e envia/salva) | "faça um resumo e mande por e-mail para ana@exemplo.com", "marque reunião com o João amanhã às 15h" |
-| Texto criado → destino | "crie um poema e copie isso", "crie uma carta e salve num arquivo chamado carta" |
-| Janelas | "quais janelas estão abertas?", "traz o Excel para a frente", "minimiza o Chrome", "coloca o VS Code na esquerda", "mostra a área de trabalho" |
-| Qualquer app instalado | "abre o Excel", "abre o OBS" (procura no Menu Iniciar), "quais apps eu tenho com 'adobe'?" |
-| Configurações do Windows | "abre as configurações de Bluetooth", "coloca o brilho em 60", "como está o Wi-Fi?", "tira um print e salva" |
-| Arquivos | "o que eu baixei por último?", "cria a pasta Projetos em documentos", "compacta esses arquivos", "manda esse arquivo para a lixeira" (pede confirmação) |
-| Web | "lê esse site e me resume: <link>", "baixa esse PDF: <link>", "esse site está no ar?" |
+Todo pedido (texto ou voz) vai para **uma IA só** com ferramentas confiáveis,
+na pasta `telex/`. O WhatsApp e os sites rodam num **Chrome próprio do TELEX**
+(perfil em `duque_data\navegador`), controlado por código: ele digita no campo
+certo, lê a página sem OCR e confere cada envio.
 
-Quando não houver atalho pronto, o TELEX tenta pela tela (olha, clica e digita) em vez de dizer que não tem ferramenta.
+### Primeira vez
+
+1. Atualize e rode `.\preparar_duque.bat` (instala o Playwright e o SDK do Claude).
+2. Inicie o TELEX e peça: **"TELEX, abre o WhatsApp"**. Vai abrir uma janela do
+   Chrome do TELEX com o QR code: no celular, WhatsApp → Aparelhos conectados →
+   Conectar aparelho. **Só uma vez**; o login fica salvo.
+3. Teste: "TELEX, manda um oi no grupo Teste", "TELEX, lê as últimas mensagens
+   do João", "TELEX, abre o site do G1", "TELEX, pesquisa a previsão do tempo".
+
+Deixe a janela do Chrome do TELEX aberta (pode minimizar). Ela é separada do
+seu Chrome: os dois funcionam ao mesmo tempo.
+
+### Qual IA comanda
+
+- Automático: **Claude** se existir `ANTHROPIC_API_KEY`; senão, **OpenAI**.
+- Forçar: `setx TELEX_IA "claude"` ou `setx TELEX_IA "openai"` (reinicie o TELEX).
+- A chave do Claude é da API (console.anthropic.com → API Keys, com créditos
+  pré-pagos); a assinatura do claude.ai **não** vale para a API.
+- A voz (ouvir e falar) continua na OpenAI Realtime; só o "cérebro" muda.
+
+### Se algo der errado
+
+- Voltar ao cérebro antigo na hora: `setx DUQUE_NUCLEO "antigo"` e reinicie.
+- Voltar ao novo: `setx DUQUE_NUCLEO "novo"`.
+- Mande as últimas linhas `[TELEX]` do arquivo `duque.log` (na pasta do Duque) para o Claude.
