@@ -146,7 +146,7 @@ class VoiceFlowTests(unittest.TestCase):
     def test_local_wake_call(self) -> None:
         self.assertEqual(decide(classify("telex"), False, False), ("call", None))
         self.assertEqual(decide(classify("telex que horas são"), False, False), ("call", None))
-        self.assertEqual(decide(classify("boa tarde telex"), False, False), ("wake", "Boa tarde, TELEX."))
+        self.assertEqual(decide(classify("boa tarde telex"), False, False), ("call", None))
         self.assertEqual(decide(classify("telex"), False, True), ("none", None))  # em pausa
 
     @unittest.skipUnless(importlib.util.find_spec("numpy") is not None and importlib.util.find_spec("sounddevice") is not None

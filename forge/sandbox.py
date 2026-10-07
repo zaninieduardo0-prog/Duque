@@ -34,6 +34,8 @@ class ForgeSandbox:
         self.base_ref = f"{config.remote}/{config.base_branch}"
         self.base_sha = ""
         self.created = False
+        # Commit aguardando aprovação sem ter sido enviado: o branch local fica.
+        self.keep_branch = False
 
     # ciclo de vida -----------------------------------------------------
     def create(self) -> ForgeSandbox:
@@ -41,6 +43,7 @@ class ForgeSandbox:
         self.repo.run("fetch", self.config.remote, self.config.base_branch)
         self.base_sha = self.repo.out("rev-parse", self.base_ref)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.repo.run("worktree", "prune", check=False)  # restos de execuções que caíram
         self.repo.run("worktree", "add", "-b", self.branch, str(self.path), self.base_sha)
         self.created = True
         return self
@@ -48,9 +51,26 @@ class ForgeSandbox:
     def cleanup(self) -> None:
         if not self.created:
             return
-        self.repo.run("worktree", "remove", "--force", str(self.path), check=False)
-        self.repo.run("worktree", "prune", check=False)
-        self.repo.run("branch", "-D", self.branch, check=False)
+        for args in (("worktree", "remove", "--force", str(self.path)), ("worktree", "prune")):
+            try:
+                self.repo.run(*args, check=False)
+            except GitError:
+                pass
+        if self.path.exists():
+            # Arquivo preso (antivírus, editor aberto) impedia o "worktree remove":
+            # as cópias se acumulavam em duque_data/forja/work.
+            import shutil
+
+            shutil.rmtree(self.path, ignore_errors=True)
+            try:
+                self.repo.run("worktree", "prune", check=False)
+            except GitError:
+                pass
+        if not self.keep_branch:
+            try:
+                self.repo.run("branch", "-D", self.branch, check=False)
+            except GitError:
+                pass
         self.created = False
 
     def __enter__(self) -> ForgeSandbox:

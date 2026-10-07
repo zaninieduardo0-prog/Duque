@@ -1,8 +1,40 @@
 from __future__ import annotations
 
+import json
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, cast
+
+
+def extract_json_object(text: str) -> Any:
+    """JSON da resposta de um modelo: aceita cercas ```json e texto em volta ("Claro! {...}").
+
+    Devolve o valor do JSON inteiro quando ele é válido; senão, o primeiro objeto
+    {...} que parseia dentro do texto; senão, None.
+    """
+    cleaned = (text or "").strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(cleaned):
+        if char == "{":
+            try:
+                value, _end = decoder.raw_decode(cleaned[index:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                return value
+    return None
 
 
 @dataclass(slots=True)
@@ -31,21 +63,35 @@ class NullModel(ModelAdapter):
 class OpenAIResponsesModel(ModelAdapter):
     """Adapter opcional para a Responses API; a chave fica somente no ambiente."""
 
-    def __init__(self, model: str | None = None, api_key: str | None = None) -> None:
+    def __init__(self, model: str | None = None, api_key: str | None = None, timeout: float | None = None) -> None:
         import os
         # Use a lower-latency default model; can be overridden with DUQUE_MODEL env var
         self.model = model or os.getenv("DUQUE_MODEL", "gpt-4o-mini")
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
             raise RuntimeError("OPENAI_API_KEY não configurada")
+        # Sem timeout, uma rede ruim deixava o TELEX "pensando" para sempre (o SDK espera até 10 min).
+        try:
+            default_timeout = float(os.getenv("DUQUE_MODEL_TIMEOUT", "60"))
+        except ValueError:
+            default_timeout = 60.0
+        self.timeout = timeout if timeout is not None else default_timeout
+        self._client: Any = None
+        self._client_lock = threading.Lock()
+
+    def _get_client(self) -> Any:
+        """Um cliente só (conexões reaproveitadas), criado na primeira chamada."""
+        with self._client_lock:
+            if self._client is None:
+                try:
+                    from openai import OpenAI
+                except ImportError as exc:
+                    raise RuntimeError("Pacote openai não instalado") from exc
+                self._client = OpenAI(api_key=self.api_key, timeout=self.timeout, max_retries=1)
+            return self._client
 
     def respond(self, messages: list[dict[str, str]], **kwargs: Any) -> ModelResponse:
-        try:
-            from openai import OpenAI
-        except ImportError as exc:
-            raise RuntimeError("Pacote openai não instalado") from exc
-
-        client = OpenAI(api_key=self.api_key)
+        client = self._get_client()
         response = client.responses.create(model=self.model, input=cast(Any, messages), **kwargs)
         text = getattr(response, "output_text", "") or ""
         return ModelResponse(text=text, raw=response)
@@ -60,7 +106,12 @@ class OllamaModel(ModelAdapter):
         self.model = model or os.getenv("DUQUE_LOCAL_MODEL", "qwen2.5:3b")
         host = host or os.getenv("OLLAMA_HOST") or "http://127.0.0.1:11434"
         self.host = (host if "://" in host else f"http://{host}").rstrip("/")
-        self.timeout = timeout if timeout is not None else float(os.getenv("DUQUE_LOCAL_TIMEOUT", "120"))
+        if timeout is None:
+            try:
+                timeout = float(os.getenv("DUQUE_LOCAL_TIMEOUT", "120"))
+            except ValueError:
+                timeout = 120.0
+        self.timeout = timeout
 
     def available(self) -> bool:
         """O Ollama está no ar e o modelo escolhido já foi baixado?"""
@@ -114,21 +165,24 @@ class ChainModel(ModelAdapter):
         self.cooldown = cooldown
         self._clock = clock or time.monotonic
         self._blocked_until: dict[int, float] = {}
+        self._lock = threading.Lock()
         self.last_error: str | None = None
 
     def respond(self, messages: list[dict[str, str]], **kwargs: Any) -> ModelResponse:
         now = self._clock()
-        candidates = [
-            (index, model) for index, model in enumerate(self.models) if self._blocked_until.get(index, 0.0) <= now
-        ] or list(enumerate(self.models))
+        with self._lock:
+            candidates = [
+                (index, model) for index, model in enumerate(self.models) if self._blocked_until.get(index, 0.0) <= now
+            ] or list(enumerate(self.models))
         error: Exception | None = None
         for index, model in candidates:
             try:
                 return model.respond(messages, **kwargs)
             except Exception as exc:
                 error = exc
-                self.last_error = f"{type(model).__name__}: {type(exc).__name__}: {exc}"
-                self._blocked_until[index] = self._clock() + self.cooldown
+                with self._lock:
+                    self.last_error = f"{type(model).__name__}: {type(exc).__name__}: {exc}"
+                    self._blocked_until[index] = self._clock() + self.cooldown
         assert error is not None
         raise error
 

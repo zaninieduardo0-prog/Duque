@@ -5,18 +5,49 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from threading import RLock
+import time
+from threading import Lock, RLock
 from typing import Any
+
+# Um lock por arquivo, compartilhado entre instâncias: o AgentLoop abre o mesmo
+# banco por TaskManager() e por Memory(); com locks separados as duas threads
+# gravavam ao mesmo tempo e o SQLite respondia "database is locked".
+_LOCKS: dict[str, RLock] = {}
+_LOCKS_GUARD = Lock()
+
+# Quanto tempo guardar o histórico operacional (turnos brutos, tarefas
+# encerradas, agendamentos desligados). Anotações, contatos, rotinas e a
+# conversa recente nunca são apagados por aqui.
+RETENTION_DAYS = 30
+
+
+def _shared_lock(path: Path) -> RLock:
+    key = str(path.resolve())
+    with _LOCKS_GUARD:
+        lock = _LOCKS.get(key)
+        if lock is None:
+            lock = _LOCKS[key] = RLock()
+        return lock
+
+
+def _like(text: str) -> str:
+    """Busca literal: % e _ digitados pelo Du não viram curingas."""
+    return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
 class MemoryDatabase:
     """Persistência SQLite local para memória, tarefas e agendamentos."""
 
-    def __init__(self, path: str | Path = "duque_data/memory.db") -> None:
+    def __init__(self, path: str | Path = "duque_data/memory.db", *, retention_days: float | None = RETENTION_DAYS) -> None:
         self.path = Path(path).expanduser()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = RLock()
+        self._lock = _shared_lock(self.path)
         self._initialize()
+        if retention_days:
+            try:
+                self.prune(retention_days)
+            except sqlite3.Error:
+                pass
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -25,7 +56,8 @@ class MemoryDatabase:
         `with sqlite3.connect(...)` sozinho só controla a transação e deixa a
         conexão aberta; no Windows isso mantém o arquivo travado.
         """
-        connection = sqlite3.connect(self.path, check_same_thread=False)
+        # timeout: espera o outro processo/thread soltar o arquivo em vez de falhar na hora.
+        connection = sqlite3.connect(self.path, timeout=15, check_same_thread=False)
         connection.row_factory = sqlite3.Row
         try:
             with connection:
@@ -34,7 +66,12 @@ class MemoryDatabase:
             connection.close()
 
     def _initialize(self) -> None:
-        with self._connect() as db:
+        with self._lock, self._connect() as db:
+            try:
+                # WAL: leituras (HUD a cada segundo) não bloqueiam as gravações.
+                db.execute("PRAGMA journal_mode=WAL")
+            except sqlite3.Error:
+                pass
             db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS memories (
@@ -101,8 +138,8 @@ class MemoryDatabase:
             clauses.append("layer=?")
             params.append(layer)
         if query:
-            clauses.append("(key LIKE ? OR value LIKE ?)")
-            pattern = f"%{query}%"
+            clauses.append("(key LIKE ? ESCAPE '\\' OR value LIKE ? ESCAPE '\\')")
+            pattern = _like(query)
             params.extend([pattern, pattern])
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._lock, self._connect() as db:
@@ -160,3 +197,23 @@ class MemoryDatabase:
         with self._lock, self._connect() as db:
             cursor = db.execute("DELETE FROM scheduled_jobs WHERE id=?", (job_id,))
             return cursor.rowcount > 0
+
+    def prune(self, days: float = RETENTION_DAYS, *, now: float | None = None) -> int:
+        """Apaga histórico antigo que só crescia: turnos brutos, tarefas encerradas e agendamentos desligados."""
+        cutoff = (time.time() if now is None else now) - days * 86400
+        removed = 0
+        with self._lock, self._connect() as db:
+            removed += db.execute(
+                "DELETE FROM memories WHERE updated_at < ? AND ((layer='conversation' AND key LIKE 'turn:%')"
+                " OR (layer='operational' AND (key LIKE 'task:%' OR key LIKE 'forge:%' OR key LIKE 'hud:%')))",
+                (cutoff,),
+            ).rowcount
+            removed += db.execute(
+                "DELETE FROM tasks WHERE status IN ('completed', 'failed', 'cancelled') AND COALESCE(finished_at, created_at) < ?",
+                (cutoff,),
+            ).rowcount
+            removed += db.execute(
+                "DELETE FROM scheduled_jobs WHERE enabled=0 AND COALESCE(last_run_at, created_at) < ?",
+                (cutoff,),
+            ).rowcount
+        return removed

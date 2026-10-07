@@ -1,14 +1,25 @@
 name: Duque Quality Gate
 
+# Workflow único (o antigo ci.yml repetia um pedaço deste e gerava checks em dobro
+# para a Forja esperar). Os mesmos passos rodam na verificação local da Forja.
 on:
   push:
     branches: ["main", "duque/**"]
   pull_request:
     branches: ["main"]
 
+permissions:
+  contents: read
+  checks: write
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,16 +34,16 @@ jobs:
       - name: Import runtime modules
         env:
           PYTHONPATH: ${{ github.workspace }}
-        run: python -c "import servidor; import duque_wake_v3"
+        run: python -c "import servidor; import duque_wake_v2"
       - name: Compile Python
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m compileall -q .
       - name: Run Ruff
-        run: ruff check automation brain computer core forge memory voice agent tests servidor.py duque.py duque_supervisor.py diagnostico.py duque_wake_v2.py duque_wake_v3.py --select E,F --ignore E501
+        run: ruff check . --select E,F --ignore E501
       - name: Run tests
         env:
           PYTHONPATH: ${{ github.workspace }}
-        run: python -m pytest -q tests
+        run: python -m pytest -q -p no:cacheprovider tests
       - name: Run Pyright
         run: python .github/scripts/pyright_annotate.py

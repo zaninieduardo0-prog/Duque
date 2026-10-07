@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .model import ModelAdapter
+from .model import ModelAdapter, extract_json_object
 from .planner import Plan, PlanStep, StepKind
 from .tool_schema import ToolSchemaRegistry
 
@@ -18,7 +18,10 @@ class ModelPlanner:
         '"kind" pode ser think, tool ou respond. Use apenas ferramentas fornecidas. '
         "Use ferramentas só quando o pedido exigir uma ação no computador ou um dado que você não "
         'tem (hora, clima, arquivos...). Cumprimentos, conversa e perguntas de conhecimento geral '
-        'não usam ferramentas: devolva apenas uma etapa "respond".'
+        'não usam ferramentas: devolva apenas uma etapa "respond". '
+        "Pedidos com várias ações viram várias etapas em ordem. Nunca responda que não existe "
+        "ferramenta para uma ação no computador: combine as ferramentas disponíveis (abrir app/site, "
+        "describe_screen, click_on, ui_type_text, ui_hotkey, wait) para fazer pela tela."
     )
 
     def __init__(self, model: ModelAdapter, schemas: ToolSchemaRegistry) -> None:
@@ -38,18 +41,10 @@ class ModelPlanner:
                 {"role": "user", "content": prompt},
             ]
         )
-        cleaned = response.text.strip()
-        if cleaned.startswith("```"):
-            lines = cleaned.splitlines()
-            if lines and lines[0].strip().startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            cleaned = "\n".join(lines).strip()
-        try:
-            payload: dict[str, Any] = json.loads(cleaned)
-        except json.JSONDecodeError as exc:
-            raise ValueError("O modelo retornou um plano que não é JSON válido") from exc
+        # Modelos pequenos às vezes cercam o JSON com texto ("Claro! {...}"): aceita o objeto.
+        payload: Any = extract_json_object(response.text)
+        if payload is None:
+            raise ValueError("O modelo retornou um plano que não é JSON válido")
         if not isinstance(payload, dict):
             raise ValueError("Plano do modelo deve ser um objeto JSON")
         raw_steps = payload.get("steps")

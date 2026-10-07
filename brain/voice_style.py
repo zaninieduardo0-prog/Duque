@@ -37,7 +37,14 @@ TTS_INSTRUCTIONS = (
     "Nada de pausas entre as frases, nada de dicção pausada de locutor, nada de tom teatral, solene ou robótico. "
     "Não leia símbolos, emojis nem formatação."
 )
-TTS_SPEED = float(os.getenv("DUQUE_TTS_SPEED", "1.12"))
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, "") or default)
+    except ValueError:
+        return default  # valor inválido no setx não pode derrubar a importação do TELEX
+
+
+TTS_SPEED = _env_float("DUQUE_TTS_SPEED", 1.12)
 
 # Mesmo estilo para a conversa por voz (vai nas instruções do Realtime).
 VOICE_DELIVERY = (

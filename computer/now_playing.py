@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import csv
 import io
-import subprocess
 import sys
+import threading
 import time
 from typing import Any, Callable
 
@@ -41,13 +41,11 @@ def parse_spotify(titles: list[str], running: bool) -> dict[str, Any]:
 
 
 def _tasklist() -> tuple[str, bool]:
-    completed = subprocess.run(
-        ["tasklist", "/v", "/fo", "csv", "/nh", "/fi", "imagename eq spotify.exe"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        shell=False,
-    )
+    from ._proc import run_quiet
+
+    # Sem janela (o HUD pergunta a cada poucos segundos) e na página OEM: lido
+    # como ANSI, "Legião Urbana" virava "Legi‡o Urbana".
+    completed = run_quiet(["tasklist", "/v", "/fo", "csv", "/nh", "/fi", "imagename eq spotify.exe"], timeout=10)
     output = completed.stdout
     running = "spotify.exe" in output.casefold()
     return output, running
@@ -59,8 +57,14 @@ class NowPlaying:
         self.cache_seconds = cache_seconds
         self._cached: dict[str, Any] | None = None
         self._at = 0.0
+        self._lock = threading.Lock()
 
     def get(self) -> dict[str, Any]:
+        # Um tasklist /v por vez: várias abas do HUD perguntando juntas empilhavam processos.
+        with self._lock:
+            return self._get()
+
+    def _get(self) -> dict[str, Any]:
         now = time.monotonic()
         if self._cached is not None and now - self._at < self.cache_seconds:
             return self._cached

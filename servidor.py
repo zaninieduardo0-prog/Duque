@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
+import os
+import re
+import time
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
 from typing import Any
+from urllib.parse import urlparse
 
 from flask import Flask, jsonify, request, Response
 from openai import OpenAI
@@ -15,16 +20,52 @@ from brain.voice_style import TTS_INSTRUCTIONS, TTS_SPEED, VOICES, current_voice
 from core.emergency import describe as describe_pause
 from core.emergency import is_pause_command, is_resume_command, is_shutdown_command, shutdown_soon
 from core.voice_bridge import bridge
+from core.security import RiskLevel, SecurityPolicy
 from core.state import DuqueState
 from core.tasks import TaskStatus
+from memory.memory import MemoryLayer
 from voice import local_tts
 from voice.gate import addressed, is_sleep
 
 app = Flask(__name__)
 
 agent = AgentLoop()
-openai_client = OpenAI() if __import__('os').getenv('OPENAI_API_KEY') else None
+# Ferramenta sem risco definido em core/security.py pede confirmação (antes
+# nascia liberada por esquecimento). Todas as atuais estão classificadas.
+agent.executor.security = SecurityPolicy(default=RiskLevel.HIGH)
+# Tarefas agendadas e pedidos (HUD, voz) usam o mesmo cérebro: nunca ao mesmo tempo.
+agent.scheduled_runner.lock = agent._handle_lock
+openai_client = OpenAI() if os.getenv("OPENAI_API_KEY") else None
 state_lock = Lock()
+
+INTERFACE = Path(__file__).resolve().parent / "interface" / "index.html"
+
+# Só o próprio PC conversa com o TELEX. Sem isto, qualquer página aberta no
+# navegador (ou um domínio que aponte para 127.0.0.1, "DNS rebinding") podia
+# mandar comandos — inclusive um "sim" para uma ação de alto risco pendente.
+_HOSTS_LOCAIS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _host_local(valor: str | None) -> bool:
+    if not valor:
+        return False
+    host = urlparse(valor if "//" in valor else f"//{valor}").hostname or ""
+    return host.casefold() in _HOSTS_LOCAIS
+
+
+@app.before_request
+def _somente_local():
+    if not _host_local(request.host):
+        return jsonify({"erro": "Host não permitido."}), 403
+    origem = request.headers.get("Origin")
+    if origem is not None and request.method not in {"GET", "HEAD", "OPTIONS"} and not _host_local(origem):
+        return jsonify({"erro": "Origem não permitida."}), 403
+    # Navegadores marcam pedidos vindos de outros sites; só a abertura do HUD
+    # ("/") pode vir de fora (um link/favorito). Clientes Python não mandam o cabeçalho.
+    site = request.headers.get("Sec-Fetch-Site", "").casefold()
+    if site in {"cross-site", "same-site"} and not (request.method == "GET" and request.path == "/"):
+        return jsonify({"erro": "Pedido de outro site bloqueado."}), 403
+    return None
 
 estado_duque = {
     "estado": "standby",
@@ -121,19 +162,7 @@ def _handle_event(event: Event) -> None:
         return
 
     if event.type == EventType.RESPONSE_STARTED:
-        # Forçar transição visual para SPEAKING mesmo que o estado atual tenha sido
-        # alterado por outro evento (evita InvalidTransition quando race ocorrer).
-        try:
-            _set_state(
-                DuqueState.SPEAKING,
-                atividade="Gerando resposta",
-            )
-        except Exception:
-            _set_state(
-                DuqueState.SPEAKING,
-                atividade="Gerando resposta",
-                force=True,
-            )
+        _set_state(DuqueState.SPEAKING, atividade="Gerando resposta")
         return
 
     if event.type == EventType.RESPONSE_FINISHED:
@@ -179,20 +208,27 @@ def atualizar_estado(
         target = DuqueState(estado)
     except ValueError:
         return False
+    try:
+        coerencia = None if coerencia is None else int(coerencia)
+    except (TypeError, ValueError):
+        coerencia = None
 
     current = agent.engine.state.snapshot()
     _set_state(
         target,
-        tarefa=current.task if tarefa is None else tarefa,
-        atividade=current.activity if atividade is None else atividade,
+        tarefa=current.task if tarefa is None else str(tarefa)[:200],
+        atividade=current.activity if atividade is None else str(atividade)[:200],
         coerencia=current.coherence if coerencia is None else coerencia,
     )
+    if modo in {"texto", "voz"}:
+        with state_lock:
+            estado_duque["modo"] = modo
     return True
 
 
 @app.route("/")
 def inicio():
-    caminho = Path("interface/index.html")
+    caminho = INTERFACE
 
     if not caminho.exists():
         return Response(
@@ -209,13 +245,19 @@ def inicio():
 
 
 _local_speaker: Any = None
+_local_speaker_lock = Lock()
+
+
+def _voz_local_forcada() -> bool:
+    return os.getenv("DUQUE_VOICE", "auto").strip().casefold() == "local"
 
 
 def _falar_local(texto: str) -> Response | None:
     """Fala do HUD com a voz local (Piper ou Windows), em WAV; None se não houver voz local."""
     global _local_speaker
-    if _local_speaker is None:
-        _local_speaker = local_tts.load(print) or False
+    with _local_speaker_lock:  # duas falas ao mesmo tempo não carregam o modelo duas vezes
+        if _local_speaker is None:
+            _local_speaker = local_tts.load(print) or False
     if not _local_speaker:
         return None
     try:
@@ -237,8 +279,7 @@ def falar_em_streaming():
     texto = (request.args.get("text") or "").strip()
     if not texto:
         return jsonify({"erro": "O texto para fala não pode ser vazio."}), 400
-    use_local = __import__("os").getenv("DUQUE_VOICE", "auto").strip().casefold() == "local"
-    if openai_client is None or use_local:
+    if openai_client is None or _voz_local_forcada():
         local = _falar_local(texto)
         if local is not None:
             return local
@@ -285,7 +326,7 @@ def gerar_fala():
     if not isinstance(texto, str) or not texto.strip():
         return jsonify({"erro": "O texto para fala não pode ser vazio."}), 400
 
-    if openai_client is None or __import__("os").getenv("DUQUE_VOICE", "auto").strip().casefold() == "local":
+    if openai_client is None or _voz_local_forcada():
         local = _falar_local(texto.strip())
         if local is not None:
             return local
@@ -334,9 +375,7 @@ def _versao_atual() -> str:
     return f"{commit or 'local'}-{int(_INICIO)}"
 
 
-import time as _time  # noqa: E402
-
-_INICIO = _time.time()
+_INICIO = time.time()
 _VERSAO: dict[str, str] = {}
 
 
@@ -380,6 +419,27 @@ def alterar_estado():
     return obter_estado()
 
 
+_ID_COMANDO = re.compile(r"[A-Za-z0-9_-]{8,64}")
+_comandos_lock = Lock()
+
+
+def _comando_repetido(comando_id: Any) -> bool:
+    """O HUD reenvia um comando quando a conexão cai; o mesmo id nunca roda duas vezes.
+
+    Sem isto, um pedido que já tinha sido executado (e derrubado/reiniciado o
+    servidor no meio da resposta) era executado de novo: janelas e abas em dobro.
+    Fica no banco para valer também depois de um reinício.
+    """
+    if not isinstance(comando_id, str) or not _ID_COMANDO.fullmatch(comando_id):
+        return False
+    chave = f"hud:cmd:{comando_id}"
+    with _comandos_lock:
+        if agent.memory.recall(MemoryLayer.OPERATIONAL, chave) is not None:
+            return True
+        agent.memory.remember(MemoryLayer.OPERATIONAL, chave, time.time())
+    return False
+
+
 @app.route("/api/comando", methods=["POST"])
 def executar_comando():
     dados = request.get_json(silent=True) or {}
@@ -389,6 +449,9 @@ def executar_comando():
 
     if not isinstance(texto, str) or not texto.strip():
         return jsonify({"erro": "O comando não pode ser vazio."}), 400
+
+    if _comando_repetido(dados.get("id")):
+        return jsonify({"ok": True, "duplicado": True, "text": "", "resposta": ""})
 
     # Pausa de emergência, retomada e "Repousar, Telex" valem sempre e não
     # passam pelo cérebro (que pode estar parado esperando a retomada).
@@ -402,6 +465,8 @@ def executar_comando():
         agent.conversation.add("user", texto.strip(), "texto")
         if bridge.send_to_voice(texto.strip()):
             return jsonify({"ok": True, "via": "voz", "text": "", "resposta": ""})
+        # A fala do usuário já foi registrada acima; não registrar de novo.
+        registrar = False
 
     try:
         # Estado visual: um comando novo sempre pode começar, mesmo vindo de
@@ -421,19 +486,11 @@ def executar_comando():
             estado_duque["resposta"] = resultado.text or ""
 
         if agent._pending_confirmation is not None:
-            try:
-                _set_state(
-                    DuqueState.SPEAKING,
-                    tarefa="Aguardando confirmação",
-                    atividade="Confirmação necessária",
-                )
-            except Exception:
-                _set_state(
-                    DuqueState.SPEAKING,
-                    tarefa="Aguardando confirmação",
-                    atividade="Confirmação necessária",
-                    force=True,
-                )
+            _set_state(
+                DuqueState.SPEAKING,
+                tarefa="Aguardando confirmação",
+                atividade="Confirmação necessária",
+            )
         elif resultado.execution is not None and not resultado.execution.success:
             _set_state(
                 DuqueState.ERROR,
@@ -482,22 +539,38 @@ def executar_comando():
 
 
 now_playing = agent.now_playing
-_ultima_saudacao = {"em": 0.0}
+_SAUDACAO_CHAVE = "hud:saudacao"
+
+
+def _ultima_saudacao_salva() -> float:
+    try:
+        return float(agent.memory.recall(MemoryLayer.OPERATIONAL, _SAUDACAO_CHAVE, 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+# Lida do banco: cada reinício (Forja, queda) recarrega o HUD, que pede a
+# saudação de novo; antes ela era repetida a cada reinício.
+_ultima_saudacao = {"em": _ultima_saudacao_salva()}
+_saudacao_lock = Lock()
 
 
 @app.route("/api/saudacao", methods=["POST"])
 def saudacao():
     """Resumo de início (hora, clima, pendências). No máximo uma vez a cada 30 min."""
-    import os
-    import time
-
     if os.getenv("DUQUE_GREETING", "1").casefold() in {"0", "false", "off", "no", "nao", "não"}:
         return jsonify({"ok": False, "motivo": "desativada"})
-    agora = time.time()
-    if agora - _ultima_saudacao["em"] < 1800:
-        return jsonify({"ok": False, "motivo": "recente"})
-    _ultima_saudacao["em"] = agora
-    texto = agent.greeting()
+    with _saudacao_lock:  # dois HUDs abertos não saúdam duas vezes
+        agora = time.time()
+        if agora - _ultima_saudacao["em"] < 1800:
+            return jsonify({"ok": False, "motivo": "recente"})
+        _ultima_saudacao["em"] = agora
+    agent.memory.remember(MemoryLayer.OPERATIONAL, _SAUDACAO_CHAVE, agora)
+    try:
+        texto = agent.greeting()
+    except Exception as exc:
+        print(f"[SAUDAÇÃO] falhou: {type(exc).__name__}: {exc}", flush=True)
+        return jsonify({"ok": False, "motivo": "erro"})
     agent.announce(texto)
     return jsonify({"ok": True, "text": texto})
 
@@ -528,6 +601,32 @@ def memoria_adicionar():
 def memoria_apagar(indice: int):
     resultado = agent.assistant_tools.note_delete(indice)
     return jsonify(resultado), (404 if resultado.get("success") is False else 200)
+
+
+_clima_cache: dict[str, Any] = {"em": 0.0, "dados": None}
+_clima_lock = Lock()
+
+
+@app.route("/api/clima", methods=["GET"])
+def clima():
+    """Clima do painel do HUD na cidade do DUQUE_CITY (cache de 10 min)."""
+    with _clima_lock:
+        if _clima_cache["dados"] is not None and time.time() - _clima_cache["em"] < 600:
+            return jsonify(_clima_cache["dados"])
+        try:
+            resultado = agent.assistant_tools.weather()
+        except Exception as exc:
+            return jsonify({"erro": f"{type(exc).__name__}: {exc}"}), 503
+        if resultado.get("success") is False:
+            return jsonify({"erro": resultado.get("error", "sem clima")}), 503
+        atual = resultado.get("current") or {}
+        dados = {
+            "cidade": resultado.get("city"),
+            "temperatura": atual.get("temperature_2m"),
+            "codigo": atual.get("weather_code"),
+        }
+        _clima_cache.update(em=time.time(), dados=dados)
+        return jsonify(dados)
 
 
 @app.route("/api/midia", methods=["GET"])
@@ -593,15 +692,23 @@ def conversa():
 @app.route("/api/conversa", methods=["POST"])
 def registrar_conversa():
     dados = request.get_json(silent=True) or {}
-    turno = agent.conversation.add(str(dados.get("role", "")), str(dados.get("text", "")), str(dados.get("canal", "voz")))
+    # Canal fechado: um "aviso" vindo de fora seria lido em voz alta pelo HUD.
+    canal = str(dados.get("canal", "voz")) if dados.get("canal", "voz") in {"texto", "voz"} else "voz"
+    turno = agent.conversation.add(str(dados.get("role", "")), str(dados.get("text", "")), canal)
     if turno is None:
         return jsonify({"erro": "Turno inválido."}), 400
     return jsonify({"ok": True, "id": turno.id})
 
 
 def _avisar(texto: str) -> None:
-    """Fala do TELEX que entra na conversa (o HUD lê em voz alta)."""
+    """Fala do TELEX que entra na conversa (o HUD lê em voz alta).
+
+    Com a conversa de voz ativa o HUD fica calado (para não falar junto com a
+    voz); então a própria sessão de voz fala o aviso.
+    """
     agent.conversation.add("assistant", texto, "aviso")
+    if bridge.voice_active:
+        bridge.announce(texto)
 
 
 def _pausar(origem: str = "hud") -> dict[str, Any]:
@@ -686,8 +793,6 @@ def emergencia():
 @app.route("/api/tarefas", methods=["GET"])
 def tarefas():
     """Painel de trabalhos longos do HUD: Forja, tarefas rodando e a pausa."""
-    import time
-
     agora = time.time()
     rodando = []
     for tarefa in agent.tasks.list(TaskStatus.RUNNING)[-5:]:
@@ -731,6 +836,56 @@ def estado_compatibilidade(novo_estado: str):
 
     atualizar_estado(novo_estado)
     return obter_estado()
+
+
+# Presença do HUD ---------------------------------------------------------------
+# Cada aba do HUD mantém uma conexão SSE aberta (EventSource continua conectado
+# mesmo com a aba em segundo plano, ao contrário dos timers). O launcher e a voz
+# só abrem uma interface nova quando nenhuma está conectada: antes cada início,
+# reinício (Forja, queda) ou segunda abertura criava mais uma aba.
+_hud_lock = Lock()
+_hud = {"conectados": 0, "visto": 0.0}
+HUD_PING_SECONDS = 5.0
+
+
+def hud_conectados() -> int:
+    with _hud_lock:
+        return _hud["conectados"]
+
+
+def _hud_eventos(ping: float = HUD_PING_SECONDS, limite: int | None = None):
+    with _hud_lock:
+        _hud["conectados"] += 1
+        _hud["visto"] = time.time()
+    try:
+        yield "retry: 3000\n\n"
+        enviados = 0
+        while limite is None or enviados < limite:
+            with _hud_lock:
+                _hud["visto"] = time.time()
+            dados = json.dumps({"versao": _VERSAO.get("v", ""), "inicio": _INICIO})
+            yield f"event: ping\ndata: {dados}\n\n"
+            enviados += 1
+            # Uma aba fechada só é notada na próxima escrita: ping curto.
+            time.sleep(ping)
+    finally:
+        with _hud_lock:
+            _hud["conectados"] = max(0, _hud["conectados"] - 1)
+
+
+@app.route("/api/hud/stream", methods=["GET"])
+def hud_stream():
+    return Response(
+        _hud_eventos(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.route("/api/hud", methods=["GET"])
+def hud_status():
+    with _hud_lock:
+        return jsonify({"conectados": _hud["conectados"], "visto": _hud["visto"] or None})
 
 
 @app.route("/status", methods=["GET"])

@@ -69,12 +69,31 @@ class Supervisor:
 
     @staticmethod
     def _spawn(command: list[str], env: dict[str, str], cwd: Path) -> Process:
-        return subprocess.Popen(command, cwd=str(cwd), env=env)
+        return subprocess.Popen(command, cwd=str(cwd), env=env, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+    def _crashed(self, code: int | None) -> bool:
+        """Conta uma queda; True se foram quedas demais e o supervisor deve parar."""
+        now = self.clock()
+        self.crashes = [moment for moment in self.crashes if now - moment < self.crash_window] + [now]
+        self.log(f"[SUPERVISOR] Duque caiu com código {code} ({len(self.crashes)}x)")
+        if len(self.crashes) >= self.max_crashes:
+            self.log("[SUPERVISOR] quedas demais em pouco tempo; parando")
+            return True
+        self.sleep(min(30, 2 ** len(self.crashes)))
+        return False
 
     def run(self) -> int:
         while True:
             env = dict(os.environ, DUQUE_SUPERVISED="1")
-            process = self.spawn(self.command, env, self.root)
+            try:
+                process = self.spawn(self.command, env, self.root)
+            except OSError as exc:
+                # Python da .venv sumiu, antivírus bloqueou...: antes isto derrubava
+                # o supervisor sem deixar rastro (ele roda sem janela).
+                self.log(f"[SUPERVISOR] não consegui iniciar o Duque: {exc}")
+                if self._crashed(None):
+                    return 1
+                continue
             state = read_state(self.state_path)
 
             if state.get("status") == "pending_restart":
@@ -94,13 +113,8 @@ class Supervisor:
                 self.log("[SUPERVISOR] Duque encerrado normalmente")
                 return 0
 
-            now = self.clock()
-            self.crashes = [moment for moment in self.crashes if now - moment < self.crash_window] + [now]
-            self.log(f"[SUPERVISOR] Duque caiu com código {code} ({len(self.crashes)}x)")
-            if len(self.crashes) >= self.max_crashes:
-                self.log("[SUPERVISOR] quedas demais em pouco tempo; parando")
+            if self._crashed(code):
                 return code
-            self.sleep(min(30, 2 ** len(self.crashes)))
 
     def _wait_healthy(self, process: Process) -> bool:
         deadline = self.clock() + self.probation_seconds
@@ -112,25 +126,37 @@ class Supervisor:
             self.sleep(2)
         return False
 
-    def _stop(self, process: Process) -> None:
-        if process.poll() is None:
+    def _stop(self, process: Process, grace: float = 15.0) -> None:
+        """Encerra o processo; se ele não sair em ``grace`` segundos, mata (antes o
+        wait() sem prazo podia travar o supervisor para sempre)."""
+        if process.poll() is not None:
+            return
+        try:
             process.terminate()
+        except OSError:
+            pass
+        deadline = self.clock() + grace
+        while process.poll() is None and self.clock() < deadline:
+            self.sleep(0.5)
+        if process.poll() is None:
             try:
-                process.wait()
-            except Exception:
                 process.kill()
+            except OSError:
+                pass
 
     def _rollback(self, state: dict[str, Any]) -> None:
         previous = state.get("previous")
         git = Git(self.root)
         try:
             if not previous or git.head() != state.get("current"):
-                write_state(self.state_path, status="rollback_skipped")
+                write_state(self.state_path, status="rollback_skipped", failed=state.get("current"))
                 self.log("[SUPERVISOR] não foi possível identificar a versão anterior; mantendo a atual")
                 return
-            git.run("reset", "--hard", str(previous))
+            # --keep: volta o commit sem descartar edições locais do Du (com --hard
+            # elas sumiam). Se houver conflito, o git recusa e nada é perdido.
+            git.run("reset", "--keep", str(previous))
             write_state(self.state_path, status="rolled_back", current=previous, failed=state.get("current"))
             self.log(f"[SUPERVISOR] nova versão não subiu; voltei para {str(previous)[:10]}")
-        except GitError as exc:
-            write_state(self.state_path, status="rollback_failed", error=str(exc))
+        except (GitError, OSError) as exc:
+            write_state(self.state_path, status="rollback_failed", error=str(exc), failed=state.get("current"))
             self.log(f"[SUPERVISOR] rollback falhou: {exc}")

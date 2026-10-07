@@ -61,6 +61,8 @@ class Routines:
         self.available_tools = available_tools
         self.router = IntentRouter()
         self.planner = Planner()
+        # Rotinas rodando agora: "rotina a: modo a" (ou a → b → a) virava recursão infinita.
+        self._running: list[str] = []
 
     # armazenamento -----------------------------------------------------------
     def _load(self) -> dict[str, dict[str, Any]]:
@@ -94,6 +96,8 @@ class Routines:
             return {"success": False, "error": "A rotina precisa de um nome."}
         parts = split_commands(commands)
         steps, unknown = self.compile(parts)
+        if any(step["tool"] == "routine_run" and normalize_name(str(step["arguments"].get("name", ""))) == key for step in steps):
+            return {"success": False, "error": f"A rotina '{key}' não pode rodar ela mesma."}
         if not steps:
             return {"success": False, "error": "Não reconheci nenhum comando: " + "; ".join(unknown or parts)}
         routines = self._load()
@@ -111,11 +115,17 @@ class Routines:
         if routine is None:
             names = ", ".join(sorted(routines)) or "nenhuma"
             return {"success": False, "error": f"Não conheço a rotina '{name}'. Rotinas: {names}."}
+        if key in self._running:
+            return {"success": False, "error": f"A rotina '{key}' chama ela mesma; não vou rodar em círculo."}
         done: list[str] = []
         failed: list[str] = []
-        for step in routine.get("steps", []):
-            ok, detail = self.run_step(str(step["tool"]), dict(step.get("arguments") or {}))
-            (done if ok else failed).append(detail)
+        self._running.append(key)
+        try:
+            for step in routine.get("steps", []):
+                ok, detail = self.run_step(str(step["tool"]), dict(step.get("arguments") or {}))
+                (done if ok else failed).append(detail)
+        finally:
+            self._running.remove(key)
         if not done:
             return {"success": False, "error": f"A rotina '{key}' falhou: " + "; ".join(failed)}
         message = f"Modo {key} ativado."

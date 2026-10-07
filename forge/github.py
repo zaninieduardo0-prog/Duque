@@ -60,9 +60,11 @@ class GitHubClient:
             return None
         try:
             data = self._request("POST", f"/repos/{self.slug}/pulls", {"title": title, "head": head, "base": base, "body": body})
-        except urllib.error.HTTPError:
+            return PullRequest(int(data["number"]), str(data["html_url"]))
+        except (OSError, ValueError, KeyError, TypeError):
+            # Sem rede, timeout, resposta estranha: sem PR (o branch já foi enviado).
+            # HTTPError/URLError/TimeoutError são OSError.
             return None
-        return PullRequest(int(data["number"]), str(data["html_url"]))
 
     def commit_checks(self, sha: str) -> CIStatus:
         if not self.slug:
@@ -81,7 +83,7 @@ class GitHubClient:
             failures.append(f"check '{run.get('name')}' terminou como {run.get('conclusion')}")
             try:
                 annotations = self._request("GET", f"/repos/{self.slug}/check-runs/{run['id']}/annotations?per_page=50")
-            except (urllib.error.URLError, KeyError):
+            except (OSError, ValueError, KeyError):
                 continue
             for item in annotations or []:
                 message = str(item.get("message", ""))
@@ -97,7 +99,9 @@ class GitHubClient:
         while waited <= timeout:
             try:
                 status = self.commit_checks(sha)
-            except urllib.error.URLError:
+            except (OSError, ValueError):
+                # Rede instável/timeout de leitura (TimeoutError não é URLError) ou
+                # JSON inválido: tenta de novo na próxima consulta.
                 status = CIStatus("pending")
             if status.state in {"success", "failure"}:
                 return status

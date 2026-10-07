@@ -990,7 +990,7 @@ function updateDock(dt){
   });
   NODES=nodes;
   const L=$('dlabel');
-  if(best){ L.innerHTML=best.a.name+(best.a.last?`<em>${best.a.last}</em>`:''); L.style.opacity=Math.min(1,(best.h-.5)*2.5); L.style.transform=`translate(${X0+best.a.s+16}px,${best.a.cy-14}px)`; }
+  if(best){ L.innerHTML=esc(best.a.name)+(best.a.last?`<em>${esc(best.a.last)}</em>`:''); /* título da música vem do Spotify: nunca HTML cru */ L.style.opacity=Math.min(1,(best.h-.5)*2.5); L.style.transform=`translate(${X0+best.a.s+16}px,${best.a.cy-14}px)`; }
   else L.style.opacity=0;
 }
 addEventListener('pointermove',e=>{ dmouse={x:e.clientX,y:e.clientY}; });
@@ -1002,14 +1002,18 @@ addApp({id:'youtube',name:'YouTube',icon:'youtube',url:'https://www.youtube.com'
 addApp({id:'chrome',name:'Chrome',icon:'chrome',url:'https://www.google.com'});
 async function openApp(a){
   DUQUE.telemetry([{k:'Abrindo',v:esc(a.name)}],2600);
+  let r;
   try{
-    const r=await fetch('/api/abrir',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({app:a.id})});
-    const d=await r.json();
-    if(!r.ok) throw new Error(d.erro||'falhou');
-    setAppLast(a.id, d.web ? 'versão web' : 'aberto');
+    r=await fetch('/api/abrir',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({app:a.id})});
   }catch(e){
-    if(a.url) window.open(a.url,'_blank','noopener');   // servidor fora do ar: abre aqui mesmo
+    // Só com o servidor fora do ar abre aqui mesmo. Antes um erro do servidor
+    // (que pode já ter aberto o app) também abria a versão web: duas janelas.
+    if(a.url) window.open(a.url,'_blank','noopener');
+    return;
   }
+  let d={}; try{ d=await r.json(); }catch(e){}
+  if(!r.ok){ DUQUE.telemetry([{k:'Abrir',v:esc(d.erro||'falhou')}],3200); return; }
+  setAppLast(a.id, d.web ? 'versão web' : 'aberto');
 }
 window.__addApp=addApp; window.__rmApp=removeApp; window.__appAct=(id,t)=>{ setAppLast(id,t); reactApp(id); };
 
@@ -1058,14 +1062,21 @@ window.__tel=(items,ms=4200)=>{
 const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const short=(s,n=28)=>s.length>n?s.slice(0,n)+'…':s;
 
-/* ---------------- clima (Piracicaba) ---------------- */
+/* ---------------- clima (cidade do DUQUE_CITY, pelo servidor) ---------------- */
+let weatherBusy=false;
 async function weather(){
+  if(weatherBusy) return;   // pedidos sobrepostos não trocam a cidade fora de ordem
+  weatherBusy=true;
   try{
-    const r=await fetch('https://api.open-meteo.com/v1/forecast?latitude=-22.7253&longitude=-47.6492&current=temperature_2m,weather_code&timezone=auto');
-    const j=await r.json(), temp=Math.round(j.current.temperature_2m), sky=skyText(j.current.weather_code);
-    DUQUE.get().temperature=temp; DUQUE.get().sky=sky;
-    $('temp').textContent=temp+'°C'; $('sky').textContent=sky;
+    // Antes as coordenadas de Piracicaba ficavam fixas aqui, mesmo com outra DUQUE_CITY.
+    const r=await fetch('/api/clima',{cache:'no-store'});
+    const j=await r.json();
+    if(!r.ok || j.temperatura==null) throw new Error(j.erro||'sem clima');
+    const temp=Math.round(j.temperatura), sky=skyText(j.codigo);
+    DUQUE.get().temperature=temp; DUQUE.get().sky=sky; if(j.cidade) DUQUE.get().city=j.cidade;
+    $('temp').textContent=temp+'°C'; $('sky').textContent=sky; if(j.cidade) $('city').textContent=j.cidade;
   }catch(e){ $('temp').textContent='--°C'; $('sky').textContent='Sem sinal'; }
+  finally{ weatherBusy=false; }
 }
 function skyText(c){ if(c===0) return 'Céu limpo'; if(c<=3) return 'Nuvens'; if(c<=48) return 'Névoa'; if(c<=67) return 'Chuva'; if(c<=77) return 'Neve'; if(c<=82) return 'Pancadas'; return 'Tempestade'; }
 weather(); setInterval(weather,15*60*1000);
@@ -1121,7 +1132,7 @@ function setOffline(v){
   document.body.classList.toggle('offline', v);
 }
 async function syncServerState(){
-  if(serverSyncBusy || speechBusy) return;
+  if(serverSyncBusy) return;
   serverSyncBusy=true;
   try{
     const r=await fetch('/api/estado',{cache:'no-store'});
@@ -1130,7 +1141,14 @@ async function syncServerState(){
     setOffline(false);
     if(!d || !d.estado) return;
     const task=d.tarefa||d.atividade||'';
-    DUQUE.setState({state:d.estado, currentTask:task});
+    let estado=d.estado;
+    // Enquanto o HUD fala, "standby" do servidor não apaga o "Falando" (antes a
+    // sincronização inteira parava e, se a fala travasse, o HUD congelava).
+    if(speechBusy && (estado==='standby'||estado==='dormindo')) estado='speaking';
+    // Um "erro" antigo do servidor não fica na tela para sempre.
+    if(estado==='erro' && d.ultima_atualizacao && Date.now()-new Date(d.ultima_atualizacao).getTime()>6000) estado='standby';
+    if(speechBusy && estado==='speaking'){ DUQUE.setState({state:estado}); }
+    else DUQUE.setState({state:estado, currentTask:task});
     $('sysState').textContent = d.estado==='standby' ? 'Online' : 'Engajado';
     if(d.estado==='executando' && task!==lastExecTask){
       lastExecTask=task;
@@ -1151,6 +1169,15 @@ function showResponse(text){
   box.textContent=text||'';
   box.classList.toggle('show', Boolean(text));
 }
+/* Vigia da fala: um áudio que não começou ou travou não deixa speechBusy preso
+   (isso parava a reconexão de versão e o estado do HUD). */
+var speechSince=0;
+setInterval(()=>{
+  if(!speechBusy) return;
+  const el=currentSpeech, synth=('speechSynthesis' in window)&&window.speechSynthesis.speaking;
+  const idle=!synth && (!el || el.ended || (el.paused && Date.now()-speechSince>20000));
+  if(idle || Date.now()-speechSince>180000) stopLocalSpeech();
+},1000);
 function stopLocalSpeech(){
   if(currentSpeech){ try{ currentSpeech.pause(); currentSpeech.currentTime=0; }catch(e){} currentSpeech=null; }
   try{ if('speechSynthesis' in window) window.speechSynthesis.cancel(); }catch(e){}
@@ -1171,8 +1198,9 @@ function browserSpeak(txt){
 async function speakResponse(text, voz){
   const value=(text||'').trim();
   if(!value) return;
+  if(!speakerTab) return;   // outra aba do HUD já fala: sem voz em dobro
   stopLocalSpeech();
-  speechBusy=true;
+  speechBusy=true; speechSince=Date.now();
   say('speaking','Falando');
   // Streaming: o áudio começa a tocar enquanto ainda está chegando do servidor.
   const params=new URLSearchParams({text:value});
@@ -1193,6 +1221,7 @@ async function speakResponse(text, voz){
     // Navegador bloqueou o som (ainda sem clique na página): descarta, não enfileira.
     if(error && error.name==='NotAllowedError'){ done(); return; }
     console.warn('Fala do HUD falhou:', error);
+    if(currentSpeech===el && el.paused) done();
   }
 }
 
@@ -1214,11 +1243,14 @@ async function runCommand(text){
   // Se o núcleo estiver reiniciando (atualização, queda), a mensagem não se perde:
   // o HUD tenta de novo por até 90 s e envia assim que ele voltar.
   const deadline=Date.now()+90000;
+  // Mesmo id em todas as tentativas: se a resposta se perdeu mas o pedido já
+  // tinha chegado, o servidor não executa de novo (janelas/abas em dobro).
+  const cmdId=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g,'');
   try{
     for(let attempt=0;;attempt++){
       let r;
       try{
-        r=await fetch('/api/comando',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:q})});
+        r=await fetch('/api/comando',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:q,id:cmdId})});
       }catch(network){
         if(Date.now()>deadline) throw new Error('O TELEX não respondeu. Ele pode estar reiniciando; tente de novo em instantes.');
         setOffline(true);
@@ -1254,6 +1286,22 @@ $('cmd').addEventListener('keydown',e=>{
 });
 $('cmd').addEventListener('focus',()=>spawnWave(.35));
 window.Duque={ submit, setState:p=>DUQUE.setState(p), handle };
+
+/* ---------------- presença do HUD + uma aba só falando ----------------
+   A conexão SSE diz ao servidor que há um HUD aberto: o launcher e a voz não
+   abrem outra aba. Com duas abas abertas, só a que tem a trava fala. */
+var speakerTab=!(navigator.locks && navigator.locks.request);
+if(!speakerTab){
+  navigator.locks.request('telex-hud-fala',()=>{ speakerTab=true; return new Promise(()=>{}); }).catch(()=>{ speakerTab=true; });
+}
+let hudStream=null;
+function connectPresence(){
+  if(!('EventSource' in window)) return;
+  try{ if(hudStream) hudStream.close(); }catch(e){}
+  hudStream=new EventSource('/api/hud/stream');
+  hudStream.onerror=()=>{ if(hudStream && hudStream.readyState===2) setTimeout(connectPresence,3000); };
+}
+connectPresence();
 
 /* ---------------- conversa única (texto + voz) ---------------- */
 let lastTurn=0, convBusy=false, voiceActive=false, convPrimed=false;
@@ -1464,7 +1512,7 @@ async function loadVoices(){
   }catch(e){}
 }
 let memTimer=null;
-function openMemory(){ $('memPanel').classList.add('on'); loadMemory(); loadVoices(); memTimer=setInterval(loadMemory,1000); }
+function openMemory(){ $('memPanel').classList.add('on'); loadMemory(); loadVoices(); clearInterval(memTimer); memTimer=setInterval(loadMemory,1000); }
 function closeMemory(){ $('memPanel').classList.remove('on'); clearInterval(memTimer); $('cmd').focus(); }
 $('memBtn').onclick=openMemory;
 $('memClose').onclick=closeMemory;

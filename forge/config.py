@@ -12,9 +12,21 @@ DEFAULT_PROTECTED = (
     "forge/*",
     ".github/*",
     "duque_supervisor.py",
-    "Duque.vbs",
-    "iniciar_duque.bat",
+    # Inicializadores (abrem/reiniciam o TELEX no Windows).
+    "*.vbs",
+    "*.bat",
     "pyproject.toml",
+    # Configuração de testes/lint e ganchos do Python: mudar isto é um jeito de
+    # "passar" na verificação sem corrigir nada (pular testes, trocar o pytest...).
+    "*conftest.py",
+    "pytest.ini",
+    "tox.ini",
+    "setup.cfg",
+    "pyrightconfig.json",
+    "*ruff.toml",
+    "*sitecustomize.py",
+    "*usercustomize.py",
+    "*.pth",
 )
 
 
@@ -48,7 +60,7 @@ class ForgeConfig:
     ci_timeout_seconds: int = 1200
     ci_poll_seconds: int = 20
     ci_grace_seconds: int = 180
-    checks: tuple[str, ...] = ("compile", "pytest", "ruff")
+    checks: tuple[str, ...] = ("compile", "pytest", "ruff", "pyright")
     github_slug: str | None = None
     github_token: str | None = field(default=None, repr=False)
 
@@ -58,7 +70,7 @@ class ForgeConfig:
         forge_dir = Path(os.getenv("DUQUE_FORGE_DIR", str(root / "duque_data" / "forja"))).resolve()
         checks = tuple(
             item.strip()
-            for item in os.getenv("DUQUE_FORGE_CHECKS", "compile,pytest,ruff").split(",")
+            for item in os.getenv("DUQUE_FORGE_CHECKS", "compile,pytest,ruff,pyright").split(",")
             if item.strip()
         )
         token = os.getenv("DUQUE_GITHUB_TOKEN") or os.getenv("GITHUB_TOKEN") or None

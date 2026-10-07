@@ -15,14 +15,23 @@ HANDS_FREE = re.compile(r"hands-?free|\bag audio\b", re.IGNORECASE)
 
 
 def pick_wake_device(devices: list[str], env: dict[str, str] | None = None) -> tuple[int, str]:
+    """Índice (na lista do PvRecorder, a mesma do diagnóstico) do microfone da ativação.
+
+    DUQUE_WAKE_MIC (ou DUQUE_MIC) escolhe pelo número; um valor que não é número é
+    ignorado com aviso no motivo (antes derrubava a voz inteira com ValueError).
+    """
     env = dict(os.environ if env is None else env)
     configured = env.get("DUQUE_WAKE_MIC", "").strip() or env.get("DUQUE_MIC", "").strip()
+    note = ""
     if configured:
-        return int(configured), "definido em DUQUE_WAKE_MIC/DUQUE_MIC"
+        try:
+            return int(configured), "definido em DUQUE_WAKE_MIC/DUQUE_MIC"
+        except ValueError:
+            note = f" (DUQUE_WAKE_MIC/DUQUE_MIC={configured!r} não é um número; ignorado)"
     for index, name in enumerate(devices):
         if not HANDS_FREE.search(name):
-            return index, "automático (evitando microfone Bluetooth, que silencia o áudio do fone)"
-    return (0 if devices else -1), "automático (único disponível)"
+            return index, "automático (evitando microfone Bluetooth, que silencia o áudio do fone)" + note
+    return (0 if devices else -1), "automático (único disponível)" + note
 
 
 def match_input_device(wake_name: str, devices: Iterable[dict[str, Any]]) -> int | None:

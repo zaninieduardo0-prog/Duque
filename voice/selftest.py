@@ -63,7 +63,7 @@ def run(seconds: float = 8.0, log: Callable[[str], Any] = lambda _m: None) -> di
         _say(f"  {index}: {name}{marca}", log)
     report["devices"] = devices
     if not devices:
-        _say("[FALHA] nenhum microfone. Conecte/!habilite um e tente de novo.", log)
+        _say("[FALHA] nenhum microfone. Conecte/habilite um e tente de novo.", log)
         return report
 
     try:
@@ -71,10 +71,12 @@ def run(seconds: float = 8.0, log: Callable[[str], Any] = lambda _m: None) -> di
 
         wake_index, motivo = pick_wake_device(devices)
     except Exception:
-        wake_index, motivo = (int(os.getenv("DUQUE_WAKE_MIC", "-1")), "padrão")
+        wake_index, motivo = -1, "padrão do sistema"
+    if wake_index >= len(devices):
+        wake_index, motivo = -1, f"padrão do sistema (o número configurado não existe; há {len(devices)})"
     _say(f"Microfone escolhido: {wake_index} ({motivo})", log)
 
-    # 3) Ativação local ("Bom dia, TELEX" / "Telex")
+    # 3) Ativação local ("TELEX")
     try:
         from voice import local_wake
 
@@ -82,11 +84,11 @@ def run(seconds: float = 8.0, log: Callable[[str], Any] = lambda _m: None) -> di
     except Exception as exc:
         listener = None
         _say(f"[AVISO] ativação local indisponível: {type(exc).__name__}: {exc}", log)
-    _say(f'Ativação "Bom dia, TELEX": {"OK" if listener else "não carregada (só Hey Jarvis)"}', log)
+    _say(f'Ativação "TELEX": {"OK" if listener else "não carregada (só Hey Jarvis)"}', log)
 
     # 4) Grava e mede
     _say("", log)
-    _say(f">> Fale normalmente nos próximos {seconds:.0f} s (ex.: 'Bom dia, TELEX').", log)
+    _say(f">> Fale normalmente nos próximos {seconds:.0f} s (ex.: 'TELEX, que horas são?').", log)
     _say("   A barra deve se mexer quando você fala. Se ficar parada, o microfone", log)
     _say("   está mudo ou é o microfone errado (ajuste com setx DUQUE_WAKE_MIC <n>).", log)
     try:
@@ -134,7 +136,7 @@ def run(seconds: float = 8.0, log: Callable[[str], Any] = lambda _m: None) -> di
     else:
         _say("[OK] o microfone está captando som.", log)
     if listener is not None and not ouviu:
-        _say('[ATENÇÃO] captou som, mas não reconheceu "Bom dia, TELEX"/"Telex".', log)
+        _say('[ATENÇÃO] captou som, mas não reconheceu "TELEX".', log)
         _say("          Fale mais claro/perto, ou me diga — ajusto o reconhecimento.", log)
     report.update({"ok": True, "pico": pico, "media": media, "ouviu": ouviu, "wake_mic": wake_index})
     _say("=" * 56, log)

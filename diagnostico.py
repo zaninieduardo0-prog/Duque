@@ -13,6 +13,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 ROOT = Path(__file__).resolve().parent
 OK, WARN, FAIL = "ok", "aviso", "falha"
@@ -72,7 +73,14 @@ def check_keys(env: dict[str, str] | None = None) -> list[Check]:
     env = dict(os.environ if env is None else env)
     checks = []
     openai_key = env.get("OPENAI_API_KEY", "")
-    checks.append(Check(OK if openai_key else FAIL, "OPENAI_API_KEY", mask(openai_key) if openai_key else "ausente: sem voz e sem conversa com IA"))
+    # Modo 100% local (usar_local.bat, LOCAL.md) funciona sem a chave: só aviso.
+    local = any(env.get(name, "").strip().casefold() == "local" for name in ("DUQUE_VOICE", "DUQUE_BRAIN"))
+    if openai_key:
+        checks.append(Check(OK, "OPENAI_API_KEY", mask(openai_key)))
+    elif local:
+        checks.append(Check(WARN, "OPENAI_API_KEY", "ausente: modo local (Ollama/Piper), sem a OpenAI de reserva"))
+    else:
+        checks.append(Check(FAIL, "OPENAI_API_KEY", "ausente: sem voz e sem conversa com IA (ou use o modo local: usar_local.bat)"))
     anthropic_key = env.get("ANTHROPIC_API_KEY", "")
     checks.append(Check(OK if anthropic_key else WARN, "ANTHROPIC_API_KEY", mask(anthropic_key) if anthropic_key else "ausente: a Forja usará a OpenAI (ou fica desligada)"))
     token = env.get("DUQUE_GITHUB_TOKEN") or env.get("GITHUB_TOKEN") or ""
@@ -80,14 +88,18 @@ def check_keys(env: dict[str, str] | None = None) -> list[Check]:
     return checks
 
 
-def check_wakeword() -> Check:
+def check_wakeword(env: dict[str, str] | None = None) -> Check:
+    env = dict(os.environ if env is None else env)
+    # Desde o ajuste 9 o "Hey Jarvis" vem desligado (só reserva do "TELEX"):
+    # sem o modelo é aviso, a não ser que o Du tenha ligado DUQUE_HEY_JARVIS.
+    wanted = env.get("DUQUE_HEY_JARVIS", "0").casefold() not in {"0", "false", "off", "no", "nao", "não"}
     try:
         import openwakeword
 
         path = Path(str(openwakeword.__file__)).resolve().parent / "resources" / "models" / "hey_jarvis_v0.1.onnx"
         if path.exists():
             return Check(OK, "modelo Hey Jarvis", path.name)
-        return Check(FAIL, "modelo Hey Jarvis", "não baixado: rode  python -c \"import openwakeword.utils as u; u.download_models()\"")
+        return Check(FAIL if wanted else WARN, "modelo Hey Jarvis", "não baixado (reserva): rode  python -c \"import openwakeword.utils as u; u.download_models()\"")
     except Exception as exc:
         return Check(FAIL, "modelo Hey Jarvis", f"{type(exc).__name__}: {exc}")
 
@@ -165,33 +177,49 @@ def run_tests() -> Check:
         importlib.import_module("pytest")
     except Exception:
         command = [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-t", "."]
-    completed = subprocess.run(command, cwd=str(ROOT), capture_output=True, text=True, timeout=900)
+    try:
+        completed = subprocess.run(command, cwd=str(ROOT), capture_output=True, text=True, timeout=900)
+    except subprocess.TimeoutExpired:
+        return Check(FAIL, "testes automáticos", "passaram de 15 minutos")
     tail = (completed.stdout + completed.stderr).strip().splitlines()[-1:] or [""]
     return Check(OK if completed.returncode == 0 else FAIL, "testes automáticos", tail[0])
 
 
 def check_local_wake() -> Check:
-    """Ativação "Bom dia, TELEX" (Vosk, local). Sem ela o TELEX acorda com "Hey Jarvis"."""
+    """Ativação "TELEX" (Vosk, local). Sem ela o TELEX acorda com "Hey Jarvis"."""
     from voice import local_wake
 
     model_dir = local_wake.find_model()
     if model_dir is None:
-        return Check(WARN, "ativação Bom dia, TELEX", "modelo não baixado: rode  python -m voice.local_wake --baixar  (por ora só \"Hey Jarvis\")")
+        return Check(WARN, "ativação TELEX", "modelo não baixado: rode  python -m voice.local_wake --baixar  (por ora só \"Hey Jarvis\")")
     try:
         import vosk  # type: ignore[import-not-found]
 
         vosk.SetLogLevel(-1)
         listener = local_wake.LocalWake(vosk.Model(str(model_dir)), vosk.KaldiRecognizer)
     except Exception as exc:
-        return Check(WARN, "ativação Bom dia, TELEX", f"{type(exc).__name__}: {exc} (por ora só \"Hey Jarvis\")")
-    return Check(OK, "ativação Bom dia, TELEX", f"{model_dir.name}; nome como {', '.join(listener.names)}")
+        return Check(WARN, "ativação TELEX", f"{type(exc).__name__}: {exc} (por ora só \"Hey Jarvis\")")
+    return Check(OK, "ativação TELEX", f"{model_dir.name}; nome como {', '.join(listener.names)}")
+
+
+def _safe(name: str, check: Callable[[], Check | list[Check]]) -> list[Check]:
+    """Uma checagem que quebra (pacote faltando, Windows diferente) não derruba o diagnóstico inteiro."""
+    try:
+        result = check()
+    except Exception as exc:
+        return [Check(FAIL, name, f"{type(exc).__name__}: {exc}")]
+    return result if isinstance(result, list) else [result]
 
 
 def collect(with_tests: bool = False) -> list[Check]:
-    checks = [check_python(), *check_packages(), *check_keys(), check_wakeword(), check_local_wake(), *check_microphones(), check_chrome(), *check_git(), check_port()]
+    steps: list[tuple[str, Callable[[], Check | list[Check]]]] = [
+        ("Python", check_python), ("pacotes", check_packages), ("chaves", check_keys),
+        ("modelo Hey Jarvis", check_wakeword), ("ativação TELEX", check_local_wake),
+        ("microfones", check_microphones), ("Chrome", check_chrome), ("git", check_git), ("porta 5000", check_port),
+    ]
     if with_tests:
-        checks.append(run_tests())
-    return checks
+        steps.append(("testes automáticos", run_tests))
+    return [item for name, check in steps for item in _safe(name, check)]
 
 
 def main(argv: list[str] | None = None) -> int:

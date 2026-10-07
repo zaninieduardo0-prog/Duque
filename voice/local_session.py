@@ -4,7 +4,7 @@
     pensa (AgentLoop: regras + Ollama) → fala (Piper/SAPI)
 
 Segue as mesmas regras da conversa de antes (voice/conversation_flow.py):
-- "Bom dia, TELEX" → "Bom dia, Du. À sua disposição." e escuta 5 s;
+- (a saudação "Bom dia, TELEX" foi removida: a ativação é só pelo nome)
 - "TELEX" sozinho → bipe e escuta 8 s; sem fala, volta ao standby;
 - "TELEX, <pedido>" → faz e responde; depois standby;
 - se a resposta termina em pergunta, a próxima fala vale sem o nome;
@@ -73,6 +73,9 @@ class Deps:
     # Antes/depois de falar: o microfone não pode guardar o que o alto-falante disse.
     mute_mic: Callable[[], None] = lambda: None
     unmute_mic: Callable[[], None] = lambda: None
+    # Comandos de controle ("Telex, pausa tudo"): devolve True se tratou. Sem isto a
+    # pausa de emergência por voz só encerrava a conversa local (caía no "parar").
+    control: Callable[[str], bool] = lambda _text: False
 
 
 @dataclass
@@ -190,6 +193,14 @@ class LocalSession:
                     break
                 window = LISTEN_SECONDS
                 continue
+            try:
+                handled = deps.control(text)
+            except Exception as exc:
+                deps.log(f"[VOZ-LOCAL] comando de controle falhou: {type(exc).__name__}: {exc}")
+                handled = False
+            if handled:
+                reason = "controle"
+                break
             if is_sleep(text):
                 reason = "repousar"
                 break

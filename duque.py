@@ -6,7 +6,6 @@ import sys
 import threading
 import time
 import urllib.request
-import webbrowser
 from pathlib import Path
 
 
@@ -28,45 +27,6 @@ if sys.platform.startswith("win"):
     except Exception:
         pass
 
-
-_SINGLE_INSTANCE_HANDLE = None
-_SINGLE_INSTANCE_NAME = "Local\\Duque_TELEX_SingleInstance"
-
-
-def acquire_single_instance() -> bool:
-    """Impede duas instâncias do núcleo de rodarem ao mesmo tempo no Windows.
-
-    A checagem HTTP sozinha tem uma condição de corrida: duas inicializações
-    simultâneas podem verificar /status antes de qualquer uma abrir a porta.
-    O mutex nomeado fecha essa brecha e também protege contra múltiplos
-    lançadores (PowerShell, VBS, supervisor ou atalho do Windows).
-    """
-    global _SINGLE_INSTANCE_HANDLE
-    if not sys.platform.startswith("win"):
-        return True
-    try:
-        import ctypes
-        from ctypes import wintypes
-
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
-        kernel32.CreateMutexW.restype = wintypes.HANDLE
-        kernel32.GetLastError.restype = wintypes.DWORD
-        handle = kernel32.CreateMutexW(None, True, _SINGLE_INSTANCE_NAME)
-        if not handle:
-            return False
-        ERROR_ALREADY_EXISTS = 183
-        if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
-            kernel32.CloseHandle(handle)
-            return False
-        _SINGLE_INSTANCE_HANDLE = handle
-        return True
-    except Exception:
-        # Se a API de mutex não estiver disponível, mantém o comportamento
-        # anterior baseado em /status em vez de impedir a inicialização.
-        return True
-
-
 os.environ.setdefault("DUQUE_WORKSPACE_ROOT", str(ROOT))
 os.environ.setdefault("DUQUE_AUTONOMOUS_AGENT", "1")
 os.environ.setdefault("DUQUE_PITCH", "-2.0")
@@ -74,6 +34,19 @@ os.environ.setdefault("DUQUE_VOICE_SPEED", "0.96")
 os.environ.setdefault("DUQUE_VOICE_PROCESSING", "0")
 
 LOG_PATH = ROOT / "duque.log"
+LOG_MAX_BYTES = 5 * 1024 * 1024
+
+
+def rotate_log(path: Path = LOG_PATH, max_bytes: int = LOG_MAX_BYTES) -> None:
+    """O duque.log crescia para sempre; acima do limite vira duque.log.1 (só uma cópia)."""
+    try:
+        if path.exists() and path.stat().st_size > max_bytes:
+            path.replace(path.with_name(path.name + ".1"))
+    except OSError:
+        pass  # outro programa com o arquivo aberto (Windows): tenta no próximo início
+
+
+rotate_log()
 LOG_FILE = LOG_PATH.open("a", encoding="utf-8", buffering=1)
 sys.stdout = LOG_FILE
 sys.stderr = LOG_FILE
@@ -120,7 +93,12 @@ def start_hidden() -> bool:
     return os.getenv("DUQUE_START_HIDDEN", "0").casefold() in {"1", "true", "yes", "on", "sim"}
 
 
-def open_interface(wait_server: bool = True) -> None:
+# Tempo para uma aba do HUD que já estava aberta (antes de um reinício pela
+# Forja/supervisor) se reconectar sozinha antes de abrirmos outra.
+HUD_RECONNECT_GRACE = float(os.getenv("DUQUE_HUD_GRACE", "8") or 8)
+
+
+def open_interface(wait_server: bool = True, grace: float = HUD_RECONNECT_GRACE) -> None:
     # Iniciou com o Windows em modo oculto: não abre o HUD agora; ele abre
     # sozinho quando o Du ativar a voz (ver duque_wake_v2.abrir_interface_na_ativacao).
     if start_hidden():
@@ -130,13 +108,14 @@ def open_interface(wait_server: bool = True) -> None:
     deadline = time.monotonic() + 30
     while wait_server and not server_online() and time.monotonic() < deadline:
         time.sleep(0.15)
-    mark("servidor respondendo; abrindo a interface")
+    mark("servidor respondendo; conferindo a interface")
     try:
-        from computer.chrome import open_in_chrome
+        from core.hud import abrir_hud
 
-        # Chrome no perfil do Du (sem a tela de escolher conta); senão, o navegador padrão.
-        if not open_in_chrome(URL):
-            webbrowser.open_new_tab(URL)
+        # Só abre se nenhuma aba do HUD estiver conectada: antes cada início,
+        # reinício ou segunda abertura criava mais uma aba no Chrome.
+        if abrir_hud(URL, esperar_reconexao=grace, log=lambda text: print(text, flush=True)):
+            mark("interface aberta")
     except Exception as exc:
         print(f"[DUQUE] Não consegui abrir a interface automaticamente: {exc}", flush=True)
 
@@ -149,7 +128,7 @@ def load_voice():
     com o servidor já no ar: o HUD e o texto funcionam enquanto isso."""
     CORE_READY.wait(120)
     try:
-        import duque_wake_v3 as voice_runtime
+        import duque_wake_v2 as voice_runtime  # runtime único de voz (o v3 virou só um apelido)
     except BaseException as exc:
         import traceback
 
@@ -180,19 +159,28 @@ def keep_process_alive() -> None:
         time.sleep(60)
 
 
-def main() -> None:
-    # O mutex vem antes do servidor e antes das threads para impedir qualquer
-    # duplicação de núcleo mesmo quando dois lançadores iniciam quase juntos.
-    if not acquire_single_instance():
-        print("[DUQUE] Instância já ativa; encerrando esta inicialização duplicada.", flush=True)
-        return
+INSTANCE_LOCK: object | None = None  # mantida viva enquanto o processo roda
 
+
+def main() -> None:
+    global INSTANCE_LOCK
     # Se o servidor já está ativo, esta é uma segunda tentativa de inicialização.
     # Não importamos o servidor/agente novamente para evitar duplicar scheduler e estado.
     if server_online():
-        print("[DUQUE] Instância já ativa; abrindo a interface.", flush=True)
-        open_interface(wait_server=False)
+        print("[DUQUE] Instância já ativa; mostrando a interface se ela estiver fechada.", flush=True)
+        open_interface(wait_server=False, grace=0)
         return
+
+    # Trava do sistema operacional: duas aberturas quase juntas não sobem dois
+    # núcleos (dois agendadores repetindo os mesmos lembretes e ações).
+    from core.instance import InstanceLock
+
+    lock = InstanceLock(ROOT / "duque_data" / "duque.lock")
+    if not lock.acquire():
+        print("[DUQUE] Outra instância já está iniciando; só mostro a interface.", flush=True)
+        open_interface(wait_server=True, grace=0)
+        return
+    INSTANCE_LOCK = lock
 
     # Voz carrega em paralelo, logo depois do núcleo (sem disputar as mesmas importações).
     threading.Thread(target=start_voice, name="duque-voice", daemon=True).start()
@@ -210,7 +198,7 @@ def main() -> None:
     print("=" * 64, flush=True)
     print(f"Workspace: {ROOT}", flush=True)
     print("Texto: interface + /api/comando", flush=True)
-    print('Voz: "Bom dia, TELEX" / "Telex" + conversa Realtime', flush=True)
+    print('Voz: "TELEX" + conversa Realtime', flush=True)
     print("Autonomia: habilitada", flush=True)
 
     print("[DUQUE] Servidor ainda não estava ativo; iniciando agora.", flush=True)

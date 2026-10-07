@@ -7,6 +7,7 @@ from pathlib import Path
 
 # Identidade usada nos commits feitos pela Forja; não depende da configuração
 # global do Git do usuário.
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 FORGE_IDENTITY = ("-c", "user.name=Duque Forja", "-c", "user.email=duque-forja@users.noreply.github.com")
 
 
@@ -39,18 +40,35 @@ class Git:
         command = ["git", *(FORGE_IDENTITY if identity else ()), *args]
         # Nunca pedir senha de forma interativa: em segundo plano isso travaria
         # a Forja até o tempo limite. Sem credencial salva, o push falha rápido.
-        env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="never")
-        completed = subprocess.run(
-            command,
-            cwd=str(self.cwd),
-            env=env,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=self.timeout,
-            shell=False,
+        # GIT_ASKPASS vazio e SSH em modo batch: nenhuma janela de senha/credencial
+        # aparece quando o Duque roda escondido (pythonw).
+        env = dict(
+            os.environ,
+            GIT_TERMINAL_PROMPT="0",
+            GCM_INTERACTIVE="never",
+            GIT_ASKPASS="",
+            SSH_ASKPASS="",
+            GIT_SSH_COMMAND=os.environ.get("GIT_SSH_COMMAND", "ssh -o BatchMode=yes"),
         )
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=str(self.cwd),
+                env=env,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=self.timeout,
+                shell=False,
+                creationflags=_NO_WINDOW,
+            )
+        except subprocess.TimeoutExpired:
+            # Antes o TimeoutExpired escapava e derrubava quem só tratava GitError
+            # (o supervisor, no rollback).
+            raise GitError(list(args), GitResult(-1, "", f"tempo limite de {self.timeout}s excedido")) from None
+        except OSError as exc:
+            raise GitError(list(args), GitResult(-1, "", f"git indisponível: {exc}")) from None
         result = GitResult(completed.returncode, completed.stdout, completed.stderr)
         if check and not result.ok:
             raise GitError(list(args), result)

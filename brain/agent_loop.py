@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import logging
+import json
 import os
 import re
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from threading import RLock
 from typing import Any
 from uuid import uuid4
@@ -15,6 +17,7 @@ from core.emergency import EmergencyPause, emergency
 from core.engine import DuqueEngine
 from core.events import EventType
 from core.executor import ExecutionResult, Executor
+from core.security import RiskLevel, SecurityPolicy
 from core.task_engine import TaskEngine
 from core.tasks import Task, TaskManager
 from computer.code_tools import CodeTools
@@ -25,7 +28,6 @@ from computer.tools import ComputerTools
 from computer.ui_tools import UITools
 from computer.verification_tools import VerificationTools
 from computer.verified_ui import VerifiedScreenActions
-from computer.visual_workflow import VisualWorkflow
 from computer.workspace import Workspace
 from computer.assistant_tools import AssistantTools
 from computer.messaging import Messaging
@@ -36,8 +38,9 @@ from computer.screen_vision import ScreenVision
 from memory.conversation import ConversationStore
 from memory.memory import Memory, MemoryLayer
 from .agent_state import AgentContext
-from .compound import plan_steps, strip_name
+from .compound import collapse_browser, plan_steps, strip_name
 from .operator import OPERATOR_SYSTEM, looks_like_action
+from .pc_shortcuts import match as pc_shortcut
 from .planner import WHATSAPP_ACTION
 from .autonomous_loop import AutonomousLoop
 from .model import ModelAdapter, NullModel, OllamaModel, default_model
@@ -48,7 +51,7 @@ from .when import describe_moment, parse_when
 from .model_planner import ModelPlanner
 from .planner import Planner, StepKind
 from .router import IntentRouter
-from .self_correction import SelfCorrection
+from .self_correction import CorrectionReport, SelfCorrection
 from .self_development import SelfDevelopment
 from .tool_schema import ToolSchemaRegistry, ToolSpec
 
@@ -66,7 +69,68 @@ class PendingConfirmation:
     task_id: str
     text: str
     intent: str
+    # Etapas a partir da que pediu confirmação (as anteriores já rodaram e não se repetem).
     steps: list[tuple[str, dict[str, object]]]
+    created_at: float = field(default_factory=time.time)
+    # Etapas seguintes de um pedido composto ("apague X e abra Y"), retomadas depois do "sim".
+    remaining: list[str] = field(default_factory=list)
+    # Autônomo/operador: a ação exata bloqueada e a conversa até ali.
+    action: tuple[str, dict[str, Any]] | None = None
+    messages: list[dict[str, str]] = field(default_factory=list)
+
+
+# Quanto tempo uma confirmação pendente vale (DUQUE_CONFIRM_TTL, segundos).
+def _confirm_ttl() -> float:
+    try:
+        return max(10.0, float(os.getenv("DUQUE_CONFIRM_TTL", "300")))
+    except ValueError:
+        return 300.0
+
+
+_CONFIRM_WORDS = re.compile(
+    r"^(?:sim|s|isso|confirmo|confirmado|confirmar|confirma|pode|autorizo|autorizado|ok|okay|beleza|"
+    r"claro|com certeza|positivo|manda ver|pode ser|fa[çc]a|faz|vai|segue|prossiga|continue|executa|execute)\b"
+)
+_CANCEL_WORDS = re.compile(
+    r"^(?:n[aã]o|n|cancela|cancelar|cancele|cancelado|deixa|deixa pra l[aá]|esquece|esque[çc]a|para|pare|"
+    r"nem pensar|negativo|melhor n[aã]o|nada disso)\b"
+)
+_NEGATION = re.compile(r"\b(?:n[aã]o|nunca|jamais|nem|cancel\w*|espera|pera)\b")
+
+
+def _normalize_reply(text: str) -> str:
+    value = " ".join(text.casefold().strip().split())
+    value = re.sub(r"^(?:(?:telex|duque)[\s,!.:-]+)", "", value)
+    value = re.sub(r"[,.!?;:]+", " ", value)
+    value = re.sub(r"\s*(?:telex|duque)\s*$", "", value)
+    return " ".join(value.split())
+
+
+def _json_safe(value: Any, limit: int = 500) -> Any:
+    """Cópia serializável e curta de um resultado (Memory.remember usa json.dumps sem default)."""
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:
+        encoded = json.dumps(str(value), ensure_ascii=False)
+    if len(encoded) > limit:
+        return encoded[:limit] + "...[truncado]"
+    return json.loads(encoded)
+
+
+# Ferramentas que alterariam o repositório do próprio TELEX em execução; no laço
+# autônomo/operador elas ficam bloqueadas (mudanças no código vão pela Forja).
+LIVE_REPO_TOOLS = frozenset({"write_file", "delete_file", "apply_code_change", "git_commit", "git_push", "git_pull"})
+# Ferramentas cuja falha é a resposta final: o operador não tenta "outra forma"
+# (ex.: não achou a conversa certa no WhatsApp → não escreve nada, como pedido).
+NO_OPERATOR_FALLBACK = frozenset({
+    "whatsapp_send", "whatsapp_message", "whatsapp_read", "whatsapp_web_open", "email_compose", "calendar_event", "share_text", "contact_save", "routine_run", "routine_save",
+    "routine_delete", "reminder_at", "timer_set", "note_add", "forge_improve", "schedule_task", "describe_screen",
+    "day_summary", "set_voice", "focus_mode", "calculate", "current_time", "weather", "notepad_write", "compose_text",
+})
+# Contexto "ele/de novo" só vale por alguns minutos depois do último app citado.
+LAST_APP_TTL = 600.0
+# A voz (Realtime) às vezes chama a ferramenta duas vezes seguidas com o mesmo pedido.
+VOICE_DEDUPE_SECONDS = 8.0
 
 
 # "crie/faça/escreva um poema..." (etapa que produz um texto) e "salve isso no bloco de notas".
@@ -84,7 +148,31 @@ _SAVE_TO_NOTEPAD = re.compile(
     re.IGNORECASE,
 )
 
+# Destinos do texto criado na etapa anterior ("copie isso", "mande por e-mail para X",
+# "salve num arquivo chamado X").
+_ITS = r"(?:\s+(?:isso|ele|ela|o poema|a poesia|o texto|a carta|a mensagem|tudo|o resultado))?"
+_CARRY_CLIPBOARD = re.compile(
+    rf"^(?:por favor[,]?\s+)?(?:copi[ae]|copiar){_ITS}(?:\s+para a [áa]rea de transfer[êe]ncia)?\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+_CARRY_EMAIL = re.compile(
+    rf"^(?:por favor[,]?\s+)?(?:mand[ae]|envi[ae]|encaminh[ae]){_ITS}\s+(?:por|via|no)\s+(?:e-?mail|gmail|outlook)"
+    r"(?:\s+(?:para|pro|pra|ao|à|a)\s+(?P<to>[^\s,;]+(?:\s+[^\s,;]+)?))?\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+_CARRY_FILE = re.compile(
+    rf"^(?:por favor[,]?\s+)?(?:salv[ae]|guard[ae]|grav[ae]){_ITS}\s+(?:em|n[uo]m?)\s+(?:um\s+)?arquivo"
+    r"(?:\s+(?:chamado|com o nome|de nome))?(?:\s+(?P<name>[\w .-]+?))?"
+    r"(?:\s+(?:na|em)\s+(?:pasta\s+)?(?P<folder>documentos|downloads|[áa]rea de trabalho|desktop))?\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+
 # Etapa que só faz sentido se a anterior deu certo ("toque lá", "feche ele", "salve isso").
+# "...e apenas me confirme" / "só me diga quando terminar": resposta final curta.
+_SHORT_CONFIRMATION = re.compile(
+    r"\b(?:apenas|s[oó]|somente)\s+(?:me\s+)?(?:confirme|informe|diga)\b",
+    re.IGNORECASE,
+)
 _DEPENDS_ON_PREVIOUS = re.compile(r"\b(?:l[aá]|nele|nela|neles|nelas|ali|a[ií]|isso|ele|ela|o mesmo)\b", re.IGNORECASE)
 
 
@@ -99,7 +187,8 @@ class AgentLoop:
         self.planner = Planner()
         self.tasks = tasks or TaskManager()
         self.verification = create_verification()
-        self.executor = executor or Executor(self.tasks, verification=self.verification, event_sink=self.engine.emit)
+        # Ferramenta sem risco definido em core/security.py pede confirmação (igual ao servidor).
+        self.executor = executor or Executor(self.tasks, security=SecurityPolicy(default=RiskLevel.HIGH), verification=self.verification, event_sink=self.engine.emit)
         self.executor.pause = self.pause
         self.workspace = workspace or Workspace(os.getenv("DUQUE_WORKSPACE_ROOT", "."))
         ComputerTools().register(self.executor)
@@ -113,11 +202,7 @@ class AgentLoop:
         if self.verification is not None:
             VerificationTools(self.verification).register(self.executor)
             ScreenTools(self.verification).register(self.executor)
-            verified_actions = VerifiedScreenActions(active_ui_tools.controller, self.verification)
-            verified_actions.register(self.executor)
-            self.visual_workflow = VisualWorkflow(verified_actions, self.verification)
-        else:
-            self.visual_workflow = None
+            VerifiedScreenActions(active_ui_tools.controller, self.verification).register(self.executor)
         self.task_engine = TaskEngine(self.executor, self.tasks, self.engine.emit)
         self.correction = SelfCorrection(self.task_engine)
         self.model = model or self._create_default_model()
@@ -125,19 +210,25 @@ class AgentLoop:
         self.executor.register("schedule_task", self._schedule_task)
         self._register_tool_schemas()
         self.model_planner = model_planner or ModelPlanner(self.model, self.schemas)
-        self.autonomous = AutonomousLoop(self.model, self.executor, self.schemas, observer=self._observe_screen, event_sink=self.engine.emit)
+        # O workspace padrão é o próprio repositório do TELEX: os laços autônomos não podem
+        # editá-lo nem fazer commit (isso é trabalho da Forja, numa cópia isolada).
+        blocked = LIVE_REPO_TOOLS if (self.workspace.root / "brain" / "agent_loop.py").exists() else frozenset()
+        self.autonomous = AutonomousLoop(self.model, self.executor, self.schemas, observer=self._observe_screen, event_sink=self.engine.emit, blocked_tools=blocked)
         # Operador: usa o computador sozinho quando não há ferramenta pronta (brain/operator.py).
         self.operator = AutonomousLoop(
             self.model, self.executor, self.schemas, max_steps=30, event_sink=self.engine.emit,
-            system=OPERATOR_SYSTEM, time_limit=360,
+            system=OPERATOR_SYSTEM, time_limit=360, blocked_tools=blocked,
         )
         self.memory = memory or Memory()
         self.conversation = ConversationStore(self.memory)
         self._handle_lock = RLock()
         self.assistant_tools = AssistantTools(self.memory, notify=self.announce)
         self.assistant_tools.register(self.executor, self.schemas)
+        self._register_extra_tools()
         self._pending_confirmation: PendingConfirmation | None = None
-        self._last_app: str | None = None
+        self._last_app_value: str | None = None
+        self._last_app_at = 0.0
+        self._recent_voice: tuple[str, float, AgentResult] | None = None
         self._restore_pending_confirmation()
         self.forge_service = forge_service if forge_service is not None else self._create_forge_service()
         if self.forge_service is not None:
@@ -163,6 +254,25 @@ class AgentLoop:
         self._register_life_tools()
         self._ensure_daily_summary()
         self.scheduled_runner.start()
+
+    @property
+    def _last_app(self) -> str | None:
+        """Último app aberto/fechado/consultado, só enquanto o assunto ainda é recente."""
+        if self._last_app_value and time.time() - self._last_app_at <= LAST_APP_TTL:
+            return self._last_app_value
+        return None
+
+    @_last_app.setter
+    def _last_app(self, value: str | None) -> None:
+        self._last_app_value = value
+        self._last_app_at = time.time() if value else 0.0
+
+    def _remember_task(self, task_id: str, data: dict[str, Any]) -> None:
+        """Registro operacional curto e serializável (nunca derruba o pedido que já rodou)."""
+        try:
+            self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task_id}", _json_safe(data, 2000))
+        except Exception:
+            pass
 
     def _create_forge_service(self) -> Any | None:
         """Liga a Forja quando há repositório Git e um modelo programador configurado."""
@@ -310,6 +420,14 @@ class AgentLoop:
         import re
 
         value = " ".join(text.casefold().strip().split())
+        # Perguntas ("o que é a Forja?", "a Forja já terminou?") nunca abrem um trabalho:
+        # cada trabalho da Forja custa minutos de modelo programador e um PR.
+        question = value.endswith("?") or bool(re.match(
+            r"^(?:(?:telex|duque)[\s,!.:-]+)?(?:o que|qual|quais|quando|onde|quem|por ?qu[eê]|como|ser[aá] que|"
+            r"(?:voc[eê]|vc) (?:sabe|pode me explicar)|me expli\w+|expli\w+)\b", value,
+        ))
+        if question:
+            return False
         if "forja" in value and not re.search(r"\b(?:como|status|andamento|progresso)\b", value):
             return True
         if re.search(r"\bse (?:melhore|melhora|atualize|atualiza|corrija|corrige|evolua|evolui|aprimore)\b|\b(?:melhore|evolua|aprimore) a si\b", value):
@@ -403,9 +521,22 @@ class AgentLoop:
             validation = self.schemas.validate(tool, arguments)
             if not validation.valid:
                 raise ValueError(validation.error or f"Etapa inválida: {tool}")
+            if tool == "schedule_task" or self.executor.security.assess(tool).confirmation_required:
+                # Agendado, ninguém estaria lá para confirmar: a etapa travaria (ou rodaria sem o Du ver).
+                raise ValueError(f"A etapa '{tool}' precisa da confirmação do Du e não pode ser agendada")
             normalized.append({"tool": tool, "arguments": arguments})
+        if isinstance(delay_seconds, bool) or not isinstance(delay_seconds, (int, float)):
+            raise ValueError("delay_seconds deve ser um número")
+        repeat: float | None = None
+        if repeat_seconds is not None:
+            if isinstance(repeat_seconds, bool) or not isinstance(repeat_seconds, (int, float)):
+                raise ValueError("repeat_seconds deve ser um número")
+            repeat = float(repeat_seconds)
+            if repeat < 60:
+                # Intervalos minúsculos abriam janelas/rodavam ações sem parar.
+                raise ValueError("repeat_seconds deve ser de pelo menos 60 segundos")
         task = self.tasks.create(description, source="scheduled", scheduled=True)
-        job = self.scheduler.add_task_after(description, max(0, float(delay_seconds)), task_id=task.id, steps=normalized, repeat_seconds=float(repeat_seconds) if repeat_seconds is not None else None)
+        job = self.scheduler.add_task_after(description, max(0, float(delay_seconds)), task_id=task.id, steps=normalized, repeat_seconds=repeat)
         return {"job_id": job.id, "task_id": task.id, "description": description, "run_at": job.run_at}
 
     @staticmethod
@@ -422,7 +553,35 @@ class AgentLoop:
         self.conversation.add("assistant", text, channel)
 
     # agenda, foco e visão ----------------------------------------------------
+    def _register_extra_tools(self) -> None:
+        """Ferramentas de autonomia (web, janelas, arquivos, e-mail...). Um módulo que
+        falhar ao carregar não derruba o Duque: só fica sem aquelas ferramentas."""
+        import importlib
+
+        from core.security import SecurityPolicy
+
+        modules = (
+            ("computer.web_tools", "WebTools", {}),
+            ("computer.windows_tools", "WindowTools", {}),
+            ("computer.file_tools", "FileTools", {}),
+            ("computer.compose_links", "ComposeLinks", {"open_url": self.assistant_tools.open_target}),
+        )
+        existing = set(self.executor.tools.names())
+        for module_name, class_name, kwargs in modules:
+            try:
+                factory = getattr(importlib.import_module(module_name), class_name)
+                SecurityPolicy.declare(getattr(factory, "RISK", {}))
+                clashes = existing & {spec[0] for spec in getattr(factory, "SPECS", [])}
+                if clashes:
+                    logging.getLogger(__name__).warning("%s substitui ferramentas existentes: %s", class_name, sorted(clashes))
+                factory(**kwargs).register(self.executor, self.schemas)
+                existing = set(self.executor.tools.names())
+            except Exception as exc:
+                logging.getLogger(__name__).warning("Ferramentas de %s indisponíveis: %s", module_name, exc)
+
     def _register_life_tools(self) -> None:
+        from computer.whatsapp_flow import TOOL_DOCS as WA_DOCS
+
         self.notepad = NotepadWriter(None if isinstance(self.model, NullModel) else self._compose_text)
         self._pointer: Any = None
         self.whatsapp = self._create_whatsapp()
@@ -435,7 +594,7 @@ class AgentLoop:
             (ToolSpec("routine_delete", "Apaga uma rotina", ("name",), {"name": str}), self.routines.routine_delete),
             (ToolSpec("contact_save", "Salva um contato com telefone para o WhatsApp", ("name", "phone"), {"name": str, "phone": str}), self.messaging.contact_save),
             (ToolSpec("contacts_list", "Lista os contatos salvos"), self.messaging.contacts_list),
-            (ToolSpec("whatsapp_message", "Abre o WhatsApp com a mensagem pronta para o contato; o Du confere e envia", ("text",), {"contact": str, "text": str}), self.messaging.whatsapp_message),
+            (ToolSpec("whatsapp_message", *WA_DOCS["whatsapp_message"]), self.messaging.whatsapp_message),
             (ToolSpec("day_summary", "Resumo do dia: o que foi feito, o que falhou e a agenda de amanhã"), self.day_summary),
             (ToolSpec("set_voice", "Troca a voz do TELEX (ballad, cedar, ash, echo, verse, alloy, marin, sage)", ("name",), {"name": str}), lambda name: set_voice(self.memory, name)),
             (ToolSpec("list_voices", "Lista as vozes disponíveis e a atual"), lambda: list_voices(self.memory)),
@@ -444,7 +603,8 @@ class AgentLoop:
             (ToolSpec("reminder_cancel", "Cancela o lembrete de número indicado (0 = todos)", (), {"index": int}), self.reminder_cancel),
             (ToolSpec("focus_mode", "Modo foco/pomodoro: action 'start' (pausa a música e silencia avisos) ou 'stop'", (), {"action": str, "minutes": (int, float)}), self.focus_mode),
             (ToolSpec("describe_screen", "Olha a tela do Du e explica o que há nela (ou responde uma pergunta sobre ela)", (), {"question": str}), self.screen_vision.describe_screen),
-            (ToolSpec("whatsapp_send", "Abre o WhatsApp, acha a conversa da pessoa (pista opcional, ex.: 'da Embralan'), confere pela tela, escreve e envia (send=false só deixa escrito)", ("contact", "text"), {"contact": str, "text": str, "hint": str, "send": bool, "profile": str}), self.whatsapp.whatsapp_send),
+            (ToolSpec("whatsapp_send", *WA_DOCS["whatsapp_send"]), self.whatsapp.whatsapp_send),
+            (ToolSpec("whatsapp_read", *WA_DOCS["whatsapp_read"]), self.whatsapp.whatsapp_read),
             (ToolSpec("click_on", "Clica num elemento visível na tela descrito em palavras (ex.: 'botão Enviar', 'campo de busca do YouTube')", ("target",), {"target": str, "double": bool}), self._click_on),
             (ToolSpec("wait", "Espera alguns segundos (1 a 10) para algo carregar", ("seconds",), {"seconds": (int, float)}), self._wait),
             (ToolSpec("whatsapp_web_open", "Abre o WhatsApp Web no perfil do Chrome pedido ('atual' = o que ele está usando)", (), {"profile": str}), self.whatsapp.open_web),
@@ -526,10 +686,10 @@ class AgentLoop:
             for job in existing:
                 self.scheduler.cancel(job.id)
             return
-        try:
-            hour, minute = (int(part) for part in setting.split(":", 1))
-        except ValueError:
-            return
+        parsed = self._parse_hhmm(setting)
+        if parsed is None:
+            return  # "25:00" ou "21h" derrubavam a inicialização inteira do TELEX
+        hour, minute = parsed
         if any(job.metadata.get("daily_summary") == setting for job in existing):
             return
         for job in existing:
@@ -539,6 +699,16 @@ class AgentLoop:
         if first <= now:
             first += timedelta(days=1)
         self.scheduler.add("resumo do dia", first, kind="reminder", daily_summary=setting, repeat_seconds=86400)
+
+    @staticmethod
+    def _parse_hhmm(setting: str) -> tuple[int, int] | None:
+        try:
+            hour, minute = (int(part) for part in str(setting).split(":", 1))
+        except ValueError:
+            return None
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            return None
+        return hour, minute
 
     def day_summary(self) -> dict[str, object]:
         from datetime import datetime, timedelta
@@ -575,7 +745,11 @@ class AgentLoop:
         if job.metadata.get("daily_summary"):
             from datetime import timedelta
 
-            hour, minute = (int(part) for part in str(job.metadata["daily_summary"]).split(":", 1))
+            parsed = self._parse_hhmm(str(job.metadata["daily_summary"]))
+            if parsed is None:
+                self.scheduler.cancel(job.id)
+                return
+            hour, minute = parsed
             fired = datetime.fromtimestamp(job.last_run_at or time.time())
             scheduled = fired.replace(hour=hour, minute=minute, second=0, microsecond=0)
             if scheduled > fired:
@@ -713,15 +887,17 @@ class AgentLoop:
         self.tasks.start(task.id)
         lines: list[str] = []
         last: ExecutionResult | None = None
+        all_ok = True
         for index, job in enumerate(jobs, start=1):
             last = self.executor.execute_step(task, "whatsapp_send", {
-                "contact": job.contact, "text": job.text, "hint": job.hint, "send": job.send, "profile": job.profile,
+                "contact": job.contact, "text": job.text, "hint": job.hint, "send": job.send, "profile": job.profile, **({"group": True} if job.group else {}),
             }, manage_task=False)
+            all_ok = all_ok and last.success
             value = last.value if isinstance(last.value, dict) else {}
             outcome = value.get("message") or last.error or "sem resposta"
             lines.append(f"{index}) {job.contact}{' (perfil ' + job.profile + ')' if job.profile else ''}: {outcome}")
-        ok = all(line for line in lines) and last is not None and last.success
-        if ok:
+        # Antes só o último envio contava: um primeiro envio que falhou passava por sucesso.
+        if all_ok:
             self.tasks.complete(task.id, lines)
         else:
             self.tasks.fail(task.id, "; ".join(lines))
@@ -749,8 +925,16 @@ class AgentLoop:
         """Texto criado pelo modelo para ferramentas (poema no Bloco de Notas...)."""
         return self.model.respond([{"role": "user", "content": prompt}]).text
 
+    OFFLINE_CHAT = (
+        "Estou sem o modelo de conversa agora (sem OpenAI e sem Ollama), então só consigo os comandos "
+        "locais: abrir e fechar apps, hora, clima, notas, lembretes, timers, música, volume e rotinas."
+    )
+
     def _chat_response(self, text: str) -> str:
         """Responde usando a persona e o histórico compartilhado de texto e voz."""
+        if isinstance(self.model, NullModel):
+            # O NullModel só ecoa a última mensagem: o TELEX repetia o que o Du disse.
+            return self.OFFLINE_CHAT
         history = self.conversation.as_messages(16)
         if not history or history[-1]["role"] != "user" or history[-1]["content"] != text.strip():
             history.append({"role": "user", "content": text})
@@ -774,7 +958,7 @@ class AgentLoop:
         """
         import re
 
-        value = re.sub(r"\b(?:duque|jarvis|du)\b", " ", text.casefold())
+        value = re.sub(r"\b(?:telex|duque|jarvis|du)\b", " ", text.casefold())
         parts = [" ".join(re.sub(r"[^\wà-ú ]", " ", part).split()) for part in re.split(r"[,.!?;]+", value)]
         parts = [part for part in parts if part]
         return bool(parts) and all(part in cls.SMALL_TALK for part in parts)
@@ -795,6 +979,9 @@ class AgentLoop:
 
     def _build_plan(self, text: str, intent: str):
         if intent in {"chat", "unknown"} and (self._is_small_talk(text) or self._is_knowledge_question(text)):
+            return self.planner.build(text, "chat")
+        if intent == "code" and isinstance(self.model, NullModel):
+            # Sem modelo, o plano heurístico de código só listava os arquivos do workspace.
             return self.planner.build(text, "chat")
         # Ações operacionais simples devem ser determinísticas. O modelo fica
         # para tarefas ambíguas/complexas, evitando que um pedido claro vire "chat".
@@ -915,30 +1102,44 @@ class AgentLoop:
             return False
         return (setting or "1").casefold() not in {"0", "false", "off", "no", "nao", "não"}
 
-    def _handle_operator(self, text: str, *, failure: str | None = None, confirmed: bool = False) -> AgentResult:
+    def _handle_operator(self, text: str, *, failure: str | None = None) -> AgentResult:
         goal = text if not failure else (
-            f"{text}\n\nO caminho direto falhou ({failure}). Tente outra forma, verificando cada passo."
+            f"{text}\n\nO caminho direto falhou ({failure}). Tente outra forma, verificando cada passo. "
+            "Não repita o que já foi aberto ou enviado."
         )
         task = self.tasks.create(goal, mode="autonomous", loop="operator")
-        return self._handle_autonomous(goal, confirmed=confirmed, task=task)
+        return self._handle_autonomous(goal, task=task)
 
-    def _handle_autonomous(self, text: str, *, confirmed: bool = False, task: Task | None = None) -> AgentResult:
+    def _handle_autonomous(
+        self,
+        text: str,
+        *,
+        task: Task | None = None,
+        approved_action: tuple[str, dict[str, Any]] | None = None,
+        resume_messages: list[dict[str, str]] | None = None,
+    ) -> AgentResult:
+        """Laço autônomo/operador. Nunca roda com tudo liberado: só a ação que o Du aprovou."""
         if task is None:
             task = self.tasks.create(text, mode="autonomous")
         loop = self.operator if task.metadata.get("loop") == "operator" else self.autonomous
         context = AgentContext(goal=text, task_id=task.id)
         try:
             self.tasks.start(task.id)
-            result = loop.run(context, confirmed=confirmed)
+            result = loop.run(context, approved_action=approved_action, resume_messages=resume_messages)
             if result.success:
                 self.tasks.complete(task.id, result.message)
-                self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "mode": "autonomous", "steps": result.steps})
+                self._remember_task(task.id, {"description": text, "status": "completed", "mode": "autonomous", "steps": result.steps})
                 return AgentResult(result.message, task.id, result.executions[-1] if result.executions else None, result.steps or 1)
-            if result.executions and result.executions[-1].confirmation_required:
-                prompt = "Preciso da sua confirmação antes de executar essa ação."
+            if result.executions and result.executions[-1].confirmation_required and result.pending_action is not None:
+                prompt = self._confirmation_prompt(*result.pending_action)
                 self.tasks.await_confirmation(task.id, prompt)
-                self.tasks.set_confirmation_context(task.id, confirmation_intent="autonomous")
-                self._pending_confirmation = PendingConfirmation(task.id, text, "autonomous", [])
+                tool, arguments = result.pending_action
+                self.tasks.set_confirmation_context(
+                    task.id, confirmation_intent="autonomous", confirmation_action={"tool": tool, "arguments": arguments},
+                )
+                self._pending_confirmation = PendingConfirmation(
+                    task.id, text, "autonomous", [], action=result.pending_action, messages=result.messages,
+                )
                 return AgentResult(prompt, task.id, result.executions[-1], result.steps or 1)
             if task.status.value == "running":
                 self.tasks.fail(task.id, result.error or result.message or "Falha no agente autônomo")
@@ -948,6 +1149,13 @@ class AgentLoop:
                 self.tasks.fail(task.id, f"{type(exc).__name__}: {exc}")
             return AgentResult(f"O agente encontrou um erro: {type(exc).__name__}: {exc}", task.id)
 
+    @staticmethod
+    def _confirmation_prompt(tool: str, arguments: dict[str, Any]) -> str:
+        """Diz exatamente o que será feito, para o "sim" valer só para isso."""
+        details = ", ".join(f"{key}={str(value)[:80]}" for key, value in (arguments or {}).items())
+        action = f"{tool} ({details})" if details else tool
+        return f"Preciso da sua confirmação antes de executar essa ação: {action}. Responda 'sim' ou 'cancela'."
+
     def _restore_pending_confirmation(self) -> None:
         """Recupera uma única confirmação pendente persistida antes de um reinício."""
         pending_tasks = [task for task in self.tasks.list() if task.status.value == "awaiting_confirmation"]
@@ -955,8 +1163,13 @@ class AgentLoop:
             return
         task = pending_tasks[0]
         metadata = task.metadata
+        created = float(task.started_at or task.created_at or time.time())
         if metadata.get("mode") == "autonomous":
-            self._pending_confirmation = PendingConfirmation(task.id, task.description, "autonomous", [])
+            raw = metadata.get("confirmation_action")
+            if not isinstance(raw, dict) or not isinstance(raw.get("tool"), str) or not isinstance(raw.get("arguments", {}), dict):
+                return  # sem saber qual ação foi bloqueada, não dá para liberar só ela
+            action = (raw["tool"], dict(raw.get("arguments") or {}))
+            self._pending_confirmation = PendingConfirmation(task.id, task.description, "autonomous", [], created, action=action)
             return
         raw_steps = metadata.get("confirmation_steps")
         intent = metadata.get("confirmation_intent")
@@ -967,41 +1180,33 @@ class AgentLoop:
             if not isinstance(item, dict) or not isinstance(item.get("tool"), str) or not isinstance(item.get("arguments", {}), dict):
                 return
             steps.append((item["tool"], item.get("arguments", {})))
-        self._pending_confirmation = PendingConfirmation(task.id, task.description, intent, steps)
+        remaining = [str(step) for step in metadata.get("confirmation_remaining") or [] if isinstance(step, str)]
+        self._pending_confirmation = PendingConfirmation(task.id, task.description, intent, steps, created, remaining=remaining)
 
     @staticmethod
     def _is_confirmation(text: str) -> bool:
-        normalized = " ".join(text.casefold().strip().split())
-        return normalized in {
-            "sim",
-            "s",
-            "confirmo",
-            "confirmado",
-            "confirmar",
-            "pode",
-            "pode fazer",
-            "pode executar",
-            "pode excluir",
-            "pode apagar",
-            "autorizo",
-            "autorizado",
-        }
+        """ "sim", "sim, pode apagar", "Telex, confirmo." — mas nunca com negação ("pode não")."""
+        value = _normalize_reply(text)
+        if not value or len(value.split()) > 6 or _NEGATION.search(value):
+            return False
+        return bool(_CONFIRM_WORDS.match(value))
 
     @staticmethod
     def _is_cancellation(text: str) -> bool:
-        normalized = " ".join(text.casefold().strip().split())
-        return normalized in {
-            "não",
-            "nao",
-            "n",
-            "cancela",
-            "cancelar",
-            "deixa",
-            "deixa pra lá",
-            "deixa pra la",
-            "não pode",
-            "nao pode",
-        }
+        value = _normalize_reply(text)
+        if not value or len(value.split()) > 6:
+            return False
+        return bool(_CANCEL_WORDS.match(value))
+
+    def _cancel_pending(self, reason: str) -> PendingConfirmation | None:
+        pending, self._pending_confirmation = self._pending_confirmation, None
+        if pending is None:
+            return None
+        task = self.tasks.get(pending.task_id)
+        if task is not None and task.status.value in {"pending", "running", "awaiting_confirmation", "failed"}:
+            self.tasks.cancel(task.id)
+        self._remember_task(pending.task_id, {"description": pending.text, "status": "cancelled", "reason": reason})
+        return pending
 
     def _resume_pending_confirmation(self, *, confirmed: bool, max_attempts: int) -> AgentResult:
         pending = self._pending_confirmation
@@ -1013,61 +1218,95 @@ class AgentLoop:
             self._pending_confirmation = None
             return AgentResult("A ação pendente não está mais disponível para confirmação.")
 
-        if pending.intent == "autonomous":
-            self._pending_confirmation = None
-            if not confirmed:
-                self.tasks.cancel(task.id)
-                self.memory.remember(
-                    MemoryLayer.OPERATIONAL,
-                    f"task:{task.id}",
-                    {"description": pending.text, "status": "cancelled", "reason": "user_confirmation_denied"},
-                )
-                return AgentResult("Certo. Ação cancelada.", task.id)
-            return self._handle_autonomous(pending.text, confirmed=True, task=task)
-
         if not confirmed:
-            self.tasks.cancel(task.id)
-            self._pending_confirmation = None
-            self.memory.remember(
-                MemoryLayer.OPERATIONAL,
-                f"task:{task.id}",
-                {"description": pending.text, "status": "cancelled", "reason": "user_confirmation_denied"},
-            )
+            self._cancel_pending("user_confirmation_denied")
             return AgentResult("Certo. Ação cancelada.", task.id)
 
         self._pending_confirmation = None
+        if pending.intent == "autonomous":
+            if pending.action is None:
+                self.tasks.cancel(task.id)
+                return AgentResult("Não sei mais qual ação estava pendente; peça de novo, por favor.", task.id)
+            # Retoma do ponto exato: só a ação aprovada é liberada; nada do que já rodou se repete.
+            result = self._handle_autonomous(pending.text, task=task, approved_action=pending.action, resume_messages=pending.messages or None)
+            return self._continue_remaining(result, pending, max_attempts)
+
+        if not pending.steps:
+            self.tasks.cancel(task.id)
+            return AgentResult("Não sei mais qual ação estava pendente; peça de novo, por favor.", task.id)
+        # O "sim" libera só a etapa que pediu confirmação. As seguintes rodam normalmente
+        # e, se outra também for de risco, ele pergunta de novo.
+        first_tool, first_arguments = pending.steps[0]
+        self.tasks.start(task.id)
+        first = self.executor.execute_step(task, first_tool, dict(first_arguments), confirmed=True, manage_task=False)
+        if not first.success:
+            error = first.error or "Falha desconhecida"
+            if task.status.value == "running":
+                self.tasks.fail(task.id, error)
+            self._remember_task(task.id, {"description": pending.text, "status": "failed", "error": error, "attempts": 1})
+            result = AgentResult(f"Não consegui executar a tarefa: {error}", task.id, first, 1)
+            return self._continue_remaining(result, pending, max_attempts, failed=True)
+        rest = list(pending.steps[1:])
+        if not rest:
+            self.tasks.complete(task.id, [first.value])
+            self._remember_task(task.id, {"description": pending.text, "status": "completed", "attempts": 1})
+            return self._continue_remaining(AgentResult(self._execution_message(first), task.id, first, 1), pending, max_attempts)
         report = self.correction.run(
             task,
-            lambda error, attempt: self._correct_steps(
-                pending.text,
-                pending.intent,
-                pending.steps,
-                error,
-                attempt,
-            ),
+            lambda error, attempt: self._correct_steps(pending.text, pending.intent, rest, error, attempt),
             max_attempts=max_attempts,
-            confirmed=True,
         )
-        if not report.success:
-            failed = next((item.result for item in reversed(report.results) if not item.result.success), None)
-            if failed and failed.confirmation_required:
-                self._pending_confirmation = pending
-                return AgentResult("A ação ainda exige confirmação antes de continuar.", task.id, failed, report.attempts)
-            error = report.last_error or (failed.error if failed else "Falha desconhecida")
-            self.memory.remember(
-                MemoryLayer.OPERATIONAL,
-                f"task:{task.id}",
-                {"description": pending.text, "status": "failed", "error": error, "attempts": report.attempts},
-            )
-            return AgentResult(f"Não consegui executar a tarefa: {error}", task.id, failed, report.attempts)
+        result = self._report_result(task, pending.text, pending.intent, report, fallback=first)
+        if self._pending_confirmation is not None:
+            self._pending_confirmation.remaining = list(pending.remaining)
+            self._persist_remaining(self._pending_confirmation)
+            return result
+        failed = not report.success
+        return self._continue_remaining(result, pending, max_attempts, failed=failed)
 
-        last = report.results[-1].result if report.results else None
-        self.memory.remember(
-            MemoryLayer.OPERATIONAL,
-            f"task:{task.id}",
-            {"description": pending.text, "status": "completed", "attempts": report.attempts},
-        )
-        return AgentResult(self._execution_message(last), task.id, last, report.attempts)
+    def _continue_remaining(self, result: AgentResult, pending: PendingConfirmation, max_attempts: int, *, failed: bool = False) -> AgentResult:
+        """Depois do "sim", segue com as etapas que faltavam do pedido composto."""
+        if self._pending_confirmation is not None:
+            # A própria retomada parou em outra confirmação: as etapas restantes esperam por ela.
+            self._pending_confirmation.remaining = list(pending.remaining)
+            self._persist_remaining(self._pending_confirmation)
+            return result
+        if not pending.remaining:
+            return result
+        failed = failed or (result.execution is not None and not result.execution.success)
+        rest = self._handle_sequence(list(pending.remaining), confirmed=False, max_attempts=max_attempts, previous_failed=failed)
+        return AgentResult(f"{result.text.strip().rstrip('.')}. {rest.text}".strip(), rest.task_id, rest.execution, result.attempts + rest.attempts)
+
+    def _persist_remaining(self, pending: PendingConfirmation) -> None:
+        task = self.tasks.get(pending.task_id)
+        if task is not None and task.status.value == "awaiting_confirmation" and pending.remaining:
+            try:
+                self.tasks.set_confirmation_context(task.id, confirmation_remaining=list(pending.remaining))
+            except RuntimeError:
+                pass
+
+    def _report_result(self, task: Task, text: str, intent: str, report: CorrectionReport, *, fallback: ExecutionResult | None = None) -> AgentResult:
+        """Transforma o relatório da execução em resposta (e pede confirmação quando preciso)."""
+        if report.success:
+            last = report.results[-1].result if report.results else fallback
+            self._remember_task(task.id, {"description": text, "status": "completed", "attempts": report.attempts, "result": last.value if last is not None else None})
+            return AgentResult(self._execution_message(last), task.id, last, report.attempts)
+        failed_item = next((item for item in reversed(report.results) if not item.result.success), None)
+        failed = failed_item.result if failed_item is not None else None
+        if failed_item is not None and failed is not None and failed.confirmation_required:
+            # Só a partir da etapa bloqueada: as anteriores já rodaram e não podem se repetir.
+            steps = report.last_steps[failed_item.index - 1:] if report.last_steps else []
+            self.tasks.set_confirmation_context(
+                task.id,
+                confirmation_intent=intent,
+                confirmation_steps=[{"tool": tool, "arguments": arguments} for tool, arguments in steps],
+            )
+            self._pending_confirmation = PendingConfirmation(task.id, text, intent, list(steps))
+            tool, arguments = steps[0] if steps else (failed_item.tool, {})
+            return AgentResult(self._confirmation_prompt(tool, dict(arguments)), task.id, failed, report.attempts)
+        error = report.last_error or (failed.error if failed else "Falha desconhecida")
+        self._remember_task(task.id, {"description": text, "status": "failed", "error": error, "attempts": report.attempts})
+        return AgentResult(f"Não consegui executar a tarefa: {error}", task.id, failed, report.attempts)
 
     def handle(
         self,
@@ -1080,26 +1319,45 @@ class AgentLoop:
     ) -> AgentResult:
         """Ponto de entrada único para texto e voz; registra a conversa compartilhada."""
         with self._handle_lock:
+            key = _normalize_reply(text)
+            if channel == "voz" and not record and self._recent_voice is not None and self._pending_confirmation is None:
+                last_key, at, last_result = self._recent_voice
+                if key == last_key and time.time() - at <= VOICE_DEDUPE_SECONDS:
+                    # A voz pediu a mesma coisa de novo em seguida: não abre outra janela.
+                    return last_result
             if record:
                 self.conversation.add("user", text, channel)
             result = self._handle(text, confirmed=confirmed, max_attempts=max_attempts)
             if record:
                 self.conversation.add("assistant", result.text, channel)
+            if channel == "voz" and not record and result.execution is not None and result.execution.success:
+                self._recent_voice = (key, time.time(), result)
+            else:
+                self._recent_voice = None
             return result
 
     def _handle(self, text: str, *, confirmed: bool = False, max_attempts: int = 3) -> AgentResult:
-        self.memory.remember(MemoryLayer.CONVERSATION, f"turn:{uuid4().hex}", {"role": "user", "text": text})
-        if self._pending_confirmation is not None:
-            if self._is_confirmation(text):
+        note = ""
+        pending = self._pending_confirmation
+        if pending is not None:
+            if time.time() - pending.created_at > _confirm_ttl():
+                # Uma confirmação esquecida não pode ser aprovada por um "sim" de outro assunto.
+                self._cancel_pending("expired")
+                note = "A ação que esperava confirmação expirou e foi cancelada. "
+            elif self._is_confirmation(text):
                 return self._resume_pending_confirmation(confirmed=True, max_attempts=max_attempts)
-            if self._is_cancellation(text):
+            elif self._is_cancellation(text):
                 return self._resume_pending_confirmation(confirmed=False, max_attempts=max_attempts)
-            pending = self._pending_confirmation
-            return AgentResult(
-                f"Tenho uma ação aguardando confirmação: {pending.text}. Responda 'confirmo' ou 'cancela'.",
-                pending.task_id,
-            )
+            else:
+                # Pedido novo: não trava a conversa; a ação pendente é cancelada (nunca executada).
+                self._cancel_pending("superseded")
+                note = f"Cancelei a ação que esperava confirmação ({pending.text[:80]}). "
+        result = self._handle_request(text, confirmed=confirmed, max_attempts=max_attempts)
+        if note:
+            return AgentResult(note + result.text, result.task_id, result.execution, result.attempts)
+        return result
 
+    def _handle_request(self, text: str, *, confirmed: bool = False, max_attempts: int = 3) -> AgentResult:
         from core.emergency import is_shutdown_command, shutdown_soon
 
         if is_shutdown_command(text):
@@ -1135,104 +1393,102 @@ class AgentLoop:
 
         # Pedidos em várias etapas ("abra o YouTube e toque X", "abra o Spotify e
         # aumente o volume"): cada etapa passa pelo fluxo completo, em ordem.
-        steps = plan_steps(text) if not self._is_small_talk(text) else [text]
+        small_talk = self._is_small_talk(text)
+        # Frase que já é um atalho inteiro ("tira um print e salva") não é dividida no "e".
+        whole_command = pc_shortcut(text) is not None
+        steps = collapse_browser(plan_steps(text)) if not (small_talk or whole_command) else [text]
         if len(steps) > 1:
             return self._handle_sequence(steps, confirmed=confirmed, max_attempts=max_attempts)
         if steps and steps[0] and steps[0] != strip_name(text).strip(" ,.;"):
             text = steps[0]  # etapas unidas ("abra o YouTube e toque X" → "toque X no youtube")
 
         route = self.router.route(text, self._last_app)
-        self.memory.remember(MemoryLayer.CONVERSATION, f"turn:{uuid4().hex}", {"role": "user", "text": text, "intent": route.intent.value})
         # Autonomia é uma capacidade disponível, não um modo obrigatório para toda mensagem.
         # Conversas simples devem responder normalmente; o loop autônomo entra quando o pedido
         # realmente solicita trabalho autônomo no projeto/sistema.
         if self._autonomous_enabled() and self._autonomous_requested(text):
-            return self._handle_autonomous(text, confirmed=confirmed)
-        task = self.tasks.create(text, intent=route.intent.value, confidence=route.confidence)
+            return self._handle_autonomous(text)
+        intent = route.intent.value
+        task = self.tasks.create(text, intent=intent, confidence=route.confidence)
 
-        # Mantém o último aplicativo citado para frases naturais como
-        # "abre o Chrome" -> "ele está aberto?".
-        plan = self._build_plan(text, route.intent.value)
-        self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "created"})
-        tool_steps = self._ensure_executable_plan(text, route.intent.value, plan)
+        plan = self._build_plan(text, intent)
+        tool_steps = self._ensure_executable_plan(text, intent, plan)
+        if not tool_steps and intent in {"reminder", "file_operation"} and not isinstance(self.model, NullModel):
+            # Falso alarme do roteador ("não consigo lembrar o nome do filme"): vira conversa.
+            intent = "chat"
 
         # Mesmo quando o roteador classifica uma mensagem como conversa ou desconhecida,
         # o modelo pode reconhecer que o pedido exige uma ferramenta (ex.: "abra o Chrome").
         # Só cai para a resposta conversacional quando nenhum passo executável foi planejado.
-        if not tool_steps and route.intent.value in {"chat", "unknown"} and self._operator_available() and looks_like_action(text):
+        if not tool_steps and intent in {"chat", "unknown"} and not small_talk and self._operator_available() and looks_like_action(text):
             # Pedido de ação sem ferramenta pronta: o operador tenta fazer de verdade.
             self.tasks.cancel(task.id)
-            return self._handle_operator(text, confirmed=confirmed)
-        if not tool_steps and route.intent.value in {"chat", "unknown"}:
+            return self._handle_operator(text)
+        if not tool_steps and intent in {"chat", "unknown"}:
             self.tasks.start(task.id)
             try:
                 answer = self._chat_response(text)
             except Exception as exc:
                 error = f"Não consegui gerar uma resposta: {type(exc).__name__}: {exc}"
                 self.tasks.fail(task.id, error)
-                self.memory.remember(
-                    MemoryLayer.OPERATIONAL,
-                    f"task:{task.id}",
-                    {"description": text, "status": "failed", "error": error},
-                )
                 return AgentResult(error, task.id)
             self.tasks.complete(task.id, answer)
-            self.memory.remember(
-                MemoryLayer.OPERATIONAL,
-                f"task:{task.id}",
-                {"description": text, "status": "completed", "response": answer},
-            )
             self.engine.emit(EventType.RESPONSE_STARTED, task_id=task.id)
             self.engine.emit(EventType.RESPONSE_FINISHED, task_id=task.id)
             return AgentResult(answer, task.id)
+        if not tool_steps and not small_talk and self._operator_available() and looks_like_action(text):
+            # O atalho reconheceu o tipo de pedido mas não montou etapas (frase diferente
+            # do esperado): em vez de desistir com "nenhuma ferramenta", o operador tenta.
+            self.tasks.cancel(task.id)
+            return self._handle_operator(text)
         if not tool_steps:
             self.tasks.start(task.id)
-            if route.intent.value in {"open_app", "close_app", "check_app", "search", "file_operation", "reminder", "system", "open_search_result", "time", "weather", "media", "note", "calc", "shortcut"}:
-                error = f"Nenhuma ferramenta disponível para a intenção: {route.intent.value}"
+            if intent in {"open_app", "close_app", "check_app", "search", "file_operation", "reminder", "system", "open_search_result", "time", "weather", "media", "note", "calc", "shortcut"}:
+                error = f"Nenhuma ferramenta disponível para a intenção: {intent}"
                 self.tasks.fail(task.id, error)
-                self.memory.remember(
-                    MemoryLayer.OPERATIONAL,
-                    f"task:{task.id}",
-                    {"description": text, "status": "failed", "error": error},
-                )
+                self._remember_task(task.id, {"description": text, "status": "failed", "error": error})
                 self.engine.emit(EventType.TASK_FAILED, task_id=task.id, error=error)
                 return AgentResult(f"Não consigo executar essa ação ainda: {error}.", task.id)
             self.tasks.complete(task.id, text)
             self.engine.emit(EventType.TASK_FINISHED, task_id=task.id)
             return AgentResult(text, task.id)
-        report = self.correction.run(task, lambda error, attempt: self._correct_steps(text, route.intent.value, tool_steps, error, attempt), max_attempts=max_attempts, confirmed=confirmed)
+        report = self.correction.run(task, lambda error, attempt: self._correct_steps(text, intent, tool_steps, error, attempt), max_attempts=max_attempts, confirmed=confirmed)
 
-        if report.success and route.intent.value in {"open_app", "close_app", "check_app"}:
+        if report.success and intent in {"open_app", "close_app", "check_app"}:
             for tool_name, arguments in tool_steps:
                 if tool_name in {"open_app", "close_app", "is_app_running"}:
                     app_name = arguments.get("name")
                     if isinstance(app_name, str) and app_name.strip():
                         self._last_app = app_name.strip()
                     break
-        if not report.success:
-            failed = next((item.result for item in reversed(report.results) if not item.result.success), None)
-            if failed and failed.confirmation_required:
-                self.tasks.set_confirmation_context(
-                    task.id,
-                    confirmation_intent=route.intent.value,
-                    confirmation_steps=[
-                        {"tool": tool, "arguments": arguments} for tool, arguments in tool_steps
-                    ],
-                )
-                self._pending_confirmation = PendingConfirmation(task.id, text, route.intent.value, tool_steps)
-                return AgentResult("Preciso da sua confirmação antes de executar essa ação.", task.id, failed, report.attempts)
-            error = report.last_error or (failed.error if failed else "Falha desconhecida")
-            self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "failed", "error": error, "attempts": report.attempts})
-            if self._operator_available() and route.intent.value not in {"calc", "time", "weather", "note", "reminder"} and os.getenv("DUQUE_OPERATOR_FALLBACK", "1") != "0":
-                # O caminho pronto falhou: o operador tenta outra forma, conferindo pela tela.
-                retry = self._handle_operator(text, failure=error)
-                return AgentResult(f"O caminho direto falhou ({error}). {retry.text}", retry.task_id, retry.execution, report.attempts + retry.attempts)
-            return AgentResult(f"Não consegui executar a tarefa: {error}", task.id, failed, report.attempts)
-        last = report.results[-1].result if report.results else None
-        self.memory.remember(MemoryLayer.OPERATIONAL, f"task:{task.id}", {"description": text, "status": "completed", "attempts": report.attempts, "result": last.value if last is not None else None})
-        return AgentResult(self._execution_message(last), task.id, last, report.attempts)
+        result = self._report_result(task, text, intent, report)
+        if report.success or self._pending_confirmation is not None:
+            return result
+        failed_item = next((item for item in reversed(report.results) if not item.result.success), None)
+        if self._operator_fallback_allowed(intent, failed_item):
+            # O caminho pronto falhou: o operador tenta outra forma, conferindo pela tela.
+            error = report.last_error or (failed_item.result.error if failed_item else "Falha desconhecida")
+            retry = self._handle_operator(text, failure=error)
+            return AgentResult(f"O caminho direto falhou ({error}). {retry.text}", retry.task_id, retry.execution, report.attempts + retry.attempts)
+        return result
 
-    def _handle_sequence(self, steps: list[str], *, confirmed: bool, max_attempts: int) -> AgentResult:
+    def _operator_fallback_allowed(self, intent: str, failed_item: Any) -> bool:
+        if not self._operator_available() or os.getenv("DUQUE_OPERATOR_FALLBACK", "1") == "0":
+            return False
+        if intent in {"calc", "time", "weather", "note", "reminder"}:
+            return False
+        if failed_item is None:
+            return True
+        result = failed_item.result
+        if failed_item.tool in NO_OPERATOR_FALLBACK:
+            return False
+        # A ferramenta agiu e relatou o próprio problema (ou a tela mudou/foi conferida):
+        # tentar "de outra forma" repetiria a ação (outra janela, outra mensagem).
+        if isinstance(result.value, dict) or result.verification is not None:
+            return False
+        return True
+
+    def _handle_sequence(self, steps: list[str], *, confirmed: bool, max_attempts: int, previous_failed: bool = False) -> AgentResult:
         """Executa as etapas em ordem. Uma etapa que falha não derruba as independentes dela.
 
         Etapa que depende da anterior ("lá", "nele", "isso") é pulada quando a
@@ -1242,7 +1498,6 @@ class AgentLoop:
         problems: list[str] = []
         last: AgentResult | None = None
         failed_result: AgentResult | None = None
-        previous_failed = False
         carry = ""  # texto produzido por uma etapa (poema...) para a próxima usar (salvar, enviar)
         for index, step in enumerate(steps, start=1):
             consumer = self._carry_action(step)
@@ -1268,6 +1523,9 @@ class AgentLoop:
                 carry = value["text"]
             last = result
             if self._pending_confirmation is not None:
+                # Esta etapa espera o "sim": as seguintes ficam guardadas e rodam depois dele.
+                self._pending_confirmation.remaining = list(steps[index:])
+                self._persist_remaining(self._pending_confirmation)
                 prefix = (" ".join(done) + " ") if done else ""
                 return AgentResult(prefix + result.text, result.task_id, result.execution, result.attempts)
             previous_failed = (
@@ -1278,9 +1536,12 @@ class AgentLoop:
                 problems.append(f"Na etapa {index} ({step}): {result.text}")
                 continue
             done.append(result.text.strip().rstrip(".") + ".")
-        assert last is not None
         report = " ".join(done + problems).strip()
         final = failed_result or last
+        if final is None:
+            return AgentResult(report or "Nada para fazer.")
+        if not problems and final.execution is not None and final.execution.success and _SHORT_CONFIRMATION.search(" ".join(steps)):
+            report = "Tarefa finalizada."  # "faça tudo e só me confirme": sem relatar etapa por etapa
         return AgentResult(report, final.task_id, final.execution, final.attempts)
 
     def _carry_action(self, step: str) -> tuple[str, dict[str, Any]] | None:
@@ -1289,20 +1550,38 @@ class AgentLoop:
 
         if _SAVE_TO_NOTEPAD.match(step):
             return ("notepad_write", {})
+        names = set(self.executor.tools.names())
+        if _CARRY_CLIPBOARD.match(step) and "clipboard_write" in names:
+            return ("clipboard_write", {})
+        email = _CARRY_EMAIL.match(step)
+        if email and "email_compose" in names:
+            return ("email_compose", {"to": (email.group("to") or "").strip()})
+        saved = _CARRY_FILE.match(step)
+        if saved and "save_text_file" in names:
+            arguments: dict[str, Any] = {"name": (saved.group("name") or "").strip() or "texto do TELEX"}
+            if saved.group("folder"):
+                arguments["folder"] = saved.group("folder")
+            return ("save_text_file", arguments)
         if parse_request(step) is not None:
             return None  # já traz o texto da mensagem: segue o fluxo normal
         delivery = parse_delivery(step)
         if delivery is None:
             return None
-        arguments: dict[str, Any] = {"contact": delivery.contact, "hint": delivery.hint, "send": True}
+        delivery_args: dict[str, Any] = {"contact": delivery.contact, "hint": delivery.hint, "send": True}
         if delivery.profile:
-            arguments["profile"] = delivery.profile
-        return ("whatsapp_send", arguments)
+            delivery_args["profile"] = delivery.profile
+        if getattr(delivery, "group", False):
+            delivery_args["group"] = True
+        return ("whatsapp_send", delivery_args)
 
     def _run_carry_action(self, step: str, action: tuple[str, dict[str, Any]], carry: str) -> AgentResult:
         tool, arguments = action
         if tool == "notepad_write":
             return self._run_tool_step(step, "notepad_write", {"request": carry, "literal": True})
+        if tool == "email_compose":
+            return self._run_tool_step(step, tool, {**arguments, "body": carry})
+        if tool == "save_text_file":
+            return self._run_tool_step(step, tool, {**arguments, "content": carry})
         return self._run_tool_step(step, tool, {**arguments, "text": carry})
 
     def _run_tool_step(self, step: str, tool: str, arguments: dict[str, Any]) -> AgentResult:

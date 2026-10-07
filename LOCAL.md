@@ -8,7 +8,7 @@ Tudo roda no seu PC: **ouvido** (Vosk) → **cérebro** (regras + Ollama) → **
    instala o Ollama (winget) e baixa o modelo `qwen2.5:3b` (~2 GB).
    Se ele pedir, feche e abra o arquivo de novo depois de instalar o Ollama.
 2. Feche o Duque e abra pelo `iniciar_duque.bat`.
-3. Diga "Bom dia, TELEX".
+3. Diga "TELEX" (ou já com o pedido: "TELEX, que horas são?").
 
 Sem rodar o `preparar_local.bat`, já funciona com a voz do Windows ("Microsoft Maria"),
 mas sem o cérebro de modelo (só as regras locais: abrir apps, YouTube, notas, volume...).

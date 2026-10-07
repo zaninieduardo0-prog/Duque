@@ -33,28 +33,38 @@ class VerifiedScreenActions:
         point = target["click_point"]
         before = self.verification.snapshot()
         self.controller.click(point["x"], point["y"])
-        after = self.verification.snapshot()
-
-        changed = before.fingerprint != after.fingerprint
-        if not changed:
-            raise RuntimeError(f"Clique em '{text}' não produziu mudança visual detectável")
-
-        if expected_text and not self._contains_text(after.description, expected_text):
-            raise RuntimeError(f"Clique em '{text}' mudou a tela, mas o texto esperado não apareceu: {expected_text}")
-
-        if expected_not_text and self._contains_text(after.description, expected_not_text):
-            raise RuntimeError(f"Clique em '{text}' mudou a tela, mas o texto que deveria desaparecer ainda está presente: {expected_not_text}")
-
-        verified = bool(expected_text or expected_not_text)
+        # Depois do clique NUNCA levanta exceção: o clique já aconteceu, e uma
+        # "falha" aqui fazia o agente clicar de novo (ação em dobro). O resultado
+        # diz com honestidade o que foi e o que não foi confirmado.
+        after = self.verification.wait_for_change(before)
+        unavailable = not before.available or not after.available
+        changed = unavailable or before.fingerprint != after.fingerprint
+        problems: list[str] = []
+        if unavailable:
+            problems.append("não consegui capturar a tela para conferir")
+        elif not changed:
+            problems.append("a tela não mudou depois do clique")
+        if changed and not unavailable and (expected_text or expected_not_text):
+            description = after.description
+            if expected_text and not self._contains_text(description, expected_text):
+                problems.append(f"o texto esperado não apareceu: {expected_text}")
+            if expected_not_text and self._contains_text(description, expected_not_text):
+                problems.append(f"o texto que deveria sumir continua na tela: {expected_not_text}")
+        verified = bool(expected_text or expected_not_text) and not problems
+        if verified:
+            status, reason = VerificationStatus.VERIFIED, "Resultado esperado confirmado"
+        elif unavailable:
+            status, reason = VerificationStatus.FAILED, "Cliquei, mas " + "; ".join(problems) + "."
+        elif not changed:
+            status, reason = VerificationStatus.NOT_CHANGED, "Cliquei, mas " + "; ".join(problems) + ". Olhe a tela antes de tentar de novo."
+        else:
+            status = VerificationStatus.CHANGED_UNCONFIRMED
+            reason = ("A tela mudou, mas " + "; ".join(problems) + ".") if problems else "A tela mudou após o clique; o efeito ainda não foi confirmado."
         return {
             "clicked": True,
             "target": target,
-            "verification": {
-                "status": VerificationStatus.VERIFIED.value if verified else VerificationStatus.CHANGED_UNCONFIRMED.value,
-                "changed": True,
-                "verified": verified,
-                "reason": "Resultado esperado confirmado" if verified else "A tela mudou após o clique; o efeito semântico ainda não foi confirmado.",
-            },
+            "message": f"Cliquei em '{text}'. {reason}",
+            "verification": {"status": status.value, "changed": changed, "verified": verified, "reason": reason},
         }
 
     @classmethod

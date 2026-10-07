@@ -4,10 +4,11 @@ Um reconhecedor de fala em português (Vosk) roda no microfone em standby,
 mas preso a uma gramática com poucas frases. Ele não transcreve conversa:
 só decide se ouviu exatamente uma destas:
 
-- "Bom dia / Boa tarde / Boa noite, TELEX" → acorda (conversa de voz)
-- "Repousar TELEX"                         → volta ao standby
-- "Retomar TELEX"                          → sai da pausa de emergência
-- "TELEX" (sozinho ou no começo da frase)   → abre a escuta (o áudio já dito vai junto)
+- "TELEX" (sozinho, no começo ou no fim da frase) → abre a escuta (o áudio já dito vai junto)
+- "Repousar TELEX"                                → volta ao standby
+- "Retomar TELEX"                                 → sai da pausa de emergência
+
+A ativação é só pelo nome: não há mais frase de saudação ("Bom dia, TELEX").
 
 O modelo (~50 MB) fica em ``duque_data/modelos/vosk-pt`` e é baixado pelo
 ``preparar_duque.bat`` (``python -m voice.local_wake --baixar``). Sem o modelo
@@ -41,9 +42,7 @@ Kind = Literal["wake", "sleep", "resume", "call"]
 # Como o nome pode estar escrito no vocabulário do modelo. Só entram na
 # gramática as grafias que o modelo conhece (Model.find_word).
 NAME_SPELLINGS = ("telex", "télex", "teles", "telecs", "teleks")
-WAKE_PREFIXES = ("bom dia", "boa tarde", "boa noite")
 COMMANDS: dict[str, Kind] = {
-    **{prefix: "wake" for prefix in WAKE_PREFIXES},
     "repousar": "sleep",
     "retomar": "resume",
 }
@@ -62,6 +61,11 @@ def plain(text: str) -> str:
 # Modo livre (modelo sem a palavra "telex" no vocabulário): aceita o que soar
 # parecido — "teles", "telê", "telecs", "tele"...
 _LOOSE_NAME = re.compile(r"tele[a-z]{0,4}|tel[ei]?[ckx]s?|tel[ée]")
+# Palavras comuns que o padrão livre confundia com o nome ("telefone tocou" acordava o TELEX).
+_NOT_NAMES = frozenset({
+    "telefone", "telefones", "telefona", "telefonar", "telefonou", "telefonei", "telefonia",
+    "telefonema", "teleco", "telha", "telhas", "telas", "telado", "teleton",
+})
 
 
 _PLAIN_NAMES = frozenset(plain(name) for name in NAME_SPELLINGS)
@@ -80,7 +84,7 @@ class Heard:
 
 
 def _is_name(word: str, loose: bool) -> bool:
-    return word in _PLAIN_NAMES or (loose and bool(_LOOSE_NAME.fullmatch(word)))
+    return word in _PLAIN_NAMES or (loose and word not in _NOT_NAMES and bool(_LOOSE_NAME.fullmatch(word)))
 
 
 def classify(text: str, *, loose: bool = False) -> Heard | None:
@@ -89,21 +93,19 @@ def classify(text: str, *, loose: bool = False) -> Heard | None:
     No modo livre, a frase pode vir no fim de uma fala maior ("ok, bom dia telê").
     """
     words = [word for word in plain(text).split() if word != "unk"]
-    if words and _is_name(words[0], loose):
-        rest = " ".join(words[1:])
-        if COMMANDS.get(rest) == "wake":  # "Telex, boa tarde" (nome primeiro)
-            return Heard("wake", f"{rest} telex")
-        if len(words) == 1 or not COMMANDS.get(" ".join(words[:-1])):
-            return Heard("call", "telex")
-    if len(words) < 2 or not _is_name(words[-1], loose):
+    if not words:
         return None
-    candidates = [" ".join(words[:-1])]
-    if loose:
-        candidates += [" ".join(words[-3:-1]), " ".join(words[-2:-1])]
-    for command in candidates:
-        kind = COMMANDS.get(command)
-        if kind:
-            return Heard(kind, f"{command} telex")
+    if _is_name(words[-1], loose) and len(words) >= 2:
+        candidates = [" ".join(words[:-1])]
+        if loose:
+            candidates += [" ".join(words[-3:-1]), " ".join(words[-2:-1])]
+        for command in candidates:
+            kind = COMMANDS.get(command)
+            if kind:  # "Repousar, TELEX" / "Retomar, TELEX"
+                return Heard(kind, f"{command} telex")
+    # Fora esses comandos, ouvir o nome (no começo ou no fim) só abre a escuta.
+    if _is_name(words[0], loose) or _is_name(words[-1], loose):
+        return Heard("call", "telex")
     return None
 
 
@@ -128,8 +130,7 @@ def decide(heard: Heard | None, jarvis: bool, paused: bool) -> tuple[str, str | 
 def grammar(known: Callable[[str], bool] | None = None) -> list[str]:
     """Frases aceitas pelo reconhecedor (+ "[unk]" para todo o resto)."""
     names = [name for name in NAME_SPELLINGS if known is None or known(name)]
-    phrases = [f"{command} {name}" for command in COMMANDS for name in names]
-    phrases += [f"{name} {prefix}" for name in names for prefix in WAKE_PREFIXES] + names
+    phrases = [f"{command} {name}" for command in COMMANDS for name in names] + names
     return phrases + ["[unk]"]
 
 

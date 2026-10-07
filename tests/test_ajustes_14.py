@@ -14,11 +14,11 @@ from voice.local_wake import boost, classify, decide, grammar
 
 
 class WakeTests(unittest.TestCase):
-    def test_greeting_wake_is_unchanged(self) -> None:
-        self.assertEqual(decide(classify("bom dia telex"), False, False), ("wake", "Bom dia, TELEX."))
+    def test_only_the_name_wakes(self) -> None:
+        self.assertEqual(decide(classify("bom dia telex"), False, False), ("call", None))
         self.assertIsNone(classify("bom dia"))
-        self.assertIsNone(classify("oi telex"))
         self.assertNotIn("oi telex", grammar())
+        self.assertNotIn("bom dia telex", grammar())
 
     def test_quiet_microphone_is_boosted(self) -> None:
         quiet = array.array("h", [3600, -3600] * 800).tobytes()  # pico ~0.11, como no teste do Du

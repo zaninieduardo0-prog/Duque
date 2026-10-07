@@ -41,20 +41,16 @@ class TelexGateTests(unittest.TestCase):
 
 
 class LocalWakePhraseTests(unittest.TestCase):
-    def test_wake_phrases(self) -> None:
-        for phrase, greeting in (
-            ("bom dia telex", "Bom dia, TELEX."),
-            ("Boa tarde, Télex!", "Boa tarde, TELEX."),
-            ("boa noite teles", "Boa noite, TELEX."),
-        ):
+    def test_name_opens_listening(self) -> None:
+        # Só o nome ativa; a antiga saudação ("Bom dia, TELEX") virou um chamado comum.
+        for phrase in ("telex", "Boa tarde, Télex!", "boa noite teles", "oi telex", "telex que horas são"):
             with self.subTest(phrase=phrase):
                 heard = classify(phrase)
                 assert heard is not None
-                self.assertEqual(heard.kind, "wake")
-                self.assertEqual(heard.greeting, greeting)
+                self.assertEqual(heard.kind, "call")
 
     def test_other_phrases_do_not_wake(self) -> None:
-        for phrase in ("bom dia", "oi telex", "bom dia telex tudo bem", ""):
+        for phrase in ("bom dia", "boa noite", "o telefone tocou", ""):
             with self.subTest(phrase=phrase):
                 self.assertIsNone(classify(phrase))
 
@@ -65,7 +61,7 @@ class LocalWakePhraseTests(unittest.TestCase):
 
     def test_decide(self) -> None:
         wake, resume = classify("bom dia telex"), classify("retomar telex")
-        self.assertEqual(decide(wake, False, False), ("wake", "Bom dia, TELEX."))
+        self.assertEqual(decide(wake, False, False), ("call", None))
         self.assertEqual(decide(None, True, False), ("wake", None))  # Hey Jarvis
         self.assertEqual(decide(None, False, False), ("none", None))
         # Em pausa de emergência nada acorda; só "Retomar, TELEX" funciona.
@@ -75,9 +71,10 @@ class LocalWakePhraseTests(unittest.TestCase):
 
     def test_grammar_only_known_spellings(self) -> None:
         phrases = grammar(lambda word: word == "telex")
-        self.assertIn("bom dia telex", phrases)
+        self.assertIn("telex", phrases)
         self.assertIn("repousar telex", phrases)
-        self.assertNotIn("bom dia teles", phrases)
+        self.assertNotIn("bom dia telex", phrases)  # sem frases de saudação
+        self.assertNotIn("teles", phrases)
         self.assertEqual(phrases[-1], "[unk]")
 
     def test_find_model_accepts_inner_folder(self) -> None:
@@ -140,7 +137,7 @@ class LocalWakeListenerTests(unittest.TestCase):
         self.assertIsNone(listener.feed(b"\0" * 2560))
         heard = listener.feed(b"\0" * 2560)
         assert heard is not None
-        self.assertEqual(heard.kind, "wake")
+        self.assertEqual(heard.kind, "call")
         self.assertEqual(listener._recognizer.resets, 1)
 
     def test_unknown_speech_is_ignored(self) -> None:
@@ -164,7 +161,7 @@ class LocalWakeListenerTests(unittest.TestCase):
         self.assertTrue(listener.loose)
         heard = listener.feed(b"")
         assert heard is not None
-        self.assertEqual(heard.kind, "wake")
+        self.assertEqual(heard.kind, "call")
 
 
 class EmergencyPauseTests(unittest.TestCase):

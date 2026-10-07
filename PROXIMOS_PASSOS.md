@@ -7,7 +7,7 @@ A conta da OpenAI ficou **sem créditos** (`insufficient_quota`). Para testar co
 Sem créditos o TELEX cai sozinho para o modo local (se o Ollama estiver instalado) em vez de ficar mudo.
 
 ## Estado do projeto
-- **Feito e enviado ao GitHub:** ativação "Bom dia, TELEX" com ganho automático de microfone; vários pedidos numa fala
+- **Feito e enviado ao GitHub:** ativação pelo nome "TELEX" com ganho automático de microfone; vários pedidos numa fala
   (separa em etapas, continua nas independentes, pula as que dependem de uma que falhou); modo 100% local
   (Ollama + Vosk + Piper/Windows) com a OpenAI de reserva; voz Piper **cadu** em estilo `firme`
   (grave, calma), ajustável; Fish Audio opcional (só com `FISH_API_KEY`; desligado).
@@ -38,7 +38,7 @@ Depois de qualquer troca: feche o Duque, abra um PowerShell novo e `.\iniciar_du
 ## Para testar amanhã (checklist)
 1. `git pull`
 2. Créditos na OpenAI → `.\usar_openai.bat` → reiniciar o Duque
-3. "Bom dia, TELEX" → "abra o Chrome, pesquise o dólar e depois feche o Chrome"
+3. "TELEX, abra o Chrome, pesquise o dólar e depois feche o Chrome"
 4. Algo falhou? Mande as linhas do `duque.log` com `[WAKE]`, `[VOZ]`, `[GATE]`, `[VOZ-LOCAL]`, `[TTS]`.
 
 Detalhes do modo local e das variáveis: `LOCAL.md`.

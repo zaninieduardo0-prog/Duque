@@ -80,10 +80,19 @@ _WHOLE = re.compile(
 )
 
 
+# Perguntas ("como faço para abrir o Chrome e fechar o Spotify?") nunca viram etapas:
+# quebrá-las fazia a segunda metade ("fechar o Spotify?") ser executada de verdade.
+_QUESTION = re.compile(
+    r"^(?:e\s+)?(?:como|por\s?qu[eê]|o que|qual|quais|quando|onde|quem|ser[aá] que|"
+    r"(?:voc[eê]|vc) (?:sabe|acha|lembra)|d[aá] pra|tem como|[eé] poss[ií]vel)\b",
+    re.IGNORECASE,
+)
+
+
 def split_steps(text: str) -> list[str]:
     """Quebra nos conectores seguidos de verbo de ação ("... e toque ...")."""
     clean = strip_name(text).strip()
-    if _WHOLE.search(clean):
+    if _WHOLE.search(clean) or _QUESTION.match(clean):
         return [clean] if clean else []
     tail = ""
     dictation = _DICTATION.search(clean)
@@ -104,10 +113,16 @@ _TRAILING_CONNECTOR = re.compile(
 )
 
 
+BROWSERS = ("google chrome", "chrome", "navegador", "browser", "microsoft edge", "edge", "google")
+
+
 def _opened_service(step: str) -> str | None:
     if not OPEN.match(step):
         return None
     rest = _plain(OPEN.sub("", step, count=1)).strip(" .!")
+    rest = re.sub(r"^(?:meu|minha|o|a)\s+", "", rest)
+    if rest in BROWSERS:
+        return "browser"
     for service in SERVICES:
         if rest == service or rest.startswith(service + " "):
             return service
@@ -132,7 +147,7 @@ def merge_steps(steps: list[str]) -> list[str]:
         step = steps[index]
         nxt = steps[index + 1] if index + 1 < len(steps) else None
         service = _opened_service(step)
-        if service and nxt is not None:
+        if service and service in (*SERVICES, "notepad") and nxt is not None:
             if service in SERVICES and PLAY.match(nxt):
                 merged.append(f"toque {_without_place(PLAY.sub('', nxt, count=1), service)} no {service}")
                 index += 2
@@ -150,7 +165,61 @@ def merge_steps(steps: list[str]) -> list[str]:
     return merged
 
 
+_LIST_SEPARATOR = re.compile(r"\s*,\s*(?:e\s+)?|\s+e\s+", re.IGNORECASE)
+
+
+def split_open_list(step: str) -> list[str]:
+    """ "abra o VS Code e o Spotify" → uma etapa de abrir para cada app conhecido."""
+    if not OPEN.match(step):
+        return [step]
+    rest = OPEN.sub("", step, count=1).strip(" .!")
+    parts = [part.strip(" .!") for part in _LIST_SEPARATOR.split(rest) if part.strip(" .!")]
+    if len(parts) < 2:
+        return [step]
+    try:
+        from computer.apps import find_app_in_text
+    except Exception:  # pragma: no cover - ambiente sem o módulo de apps
+        return [step]
+    names = []
+    for part in parts:
+        bare = re.sub(r"^(?:o|a|os|as|meu|minha)\s+", "", part, flags=re.IGNORECASE)
+        if len(bare.split()) > 3 or not find_app_in_text(bare):
+            return [step]
+        names.append(bare)
+    return [f"abra o {name}" for name in names]
+
+
+def collapse_browser(steps: list[str]) -> list[str]:
+    """ "abra o Chrome" seguido de pesquisa/site: a etapa seguinte já abre no navegador.
+
+    Abrir o Chrome antes empilhava uma janela a mais (o Du via duas janelas para um
+    pedido só). "abra o Chrome, pesquise X" → "pesquise X no google".
+    """
+    result: list[str] = []
+    index = 0
+    while index < len(steps):
+        step = steps[index]
+        nxt = steps[index + 1] if index + 1 < len(steps) else None
+        if nxt is not None and _opened_service(step) == "browser":
+            if SEARCH.match(nxt):
+                query = SEARCH.sub("", nxt, count=1).strip()
+                result.append(nxt if re.search(r"\bno google\b", query, re.IGNORECASE) else f"pesquise {query} no google")
+                index += 2
+                continue
+            if OPEN.match(nxt):
+                result.append("abra " + OPEN.sub("", nxt, count=1).strip())
+                index += 2
+                continue
+            if PLAY.match(nxt) and re.search(r"\b(?:youtube|spotify)\b", nxt, re.IGNORECASE):
+                result.append(nxt)
+                index += 2
+                continue
+        result.append(step)
+        index += 1
+    return result
+
+
 def plan_steps(text: str) -> list[str]:
     """Etapas finais de um pedido (uma só quando não há nada para quebrar)."""
-    steps = merge_steps(split_steps(text))
+    steps = [piece for step in merge_steps(split_steps(text)) for piece in split_open_list(step)]
     return steps or [text.strip()]

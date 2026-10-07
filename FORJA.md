@@ -7,7 +7,7 @@ execução **nunca** é editada diretamente pelo agente.
 pedido
   └─> cópia isolada (git worktree em duque_data/forja/work, branch duque/forja-*)
         └─> agente programador (lê, procura, edita, roda checks)
-              └─> verificação independente: compilação + testes + ruff
+              └─> verificação independente: compilação + testes + ruff + pyright (iguais ao CI)
                     ├─ falhou → nova rodada com o erro real (até 3)
                     └─ passou → commit + push do branch + PR
                           └─> CI no GitHub (Windows)
@@ -25,12 +25,23 @@ Alterações nestes arquivos nunca entram automaticamente; o PR fica aberto
 esperando aprovação humana:
 
 - `core/security.py`, `forge/`, `.github/`, `duque_supervisor.py`,
-  `Duque.vbs`, `iniciar_duque.bat`, `pyproject.toml`
-- qualquer remoção de arquivo de teste
+  os inicializadores (`*.vbs`, `*.bat`), `pyproject.toml`
+- configuração de testes/lint e ganchos do Python (`conftest.py`, `pytest.ini`,
+  `setup.cfg`, `tox.ini`, `ruff.toml`, `pyrightconfig.json`, `sitecustomize.py`,
+  `*.pth`): mexer nisso é um jeito de "passar" sem corrigir nada
+- qualquer remoção **ou alteração** de um teste que já existia (testes novos
+  continuam liberados)
+
+Mudanças em `.github/` nem chegam ao GitHub antes da sua aprovação (os workflows
+rodariam no push): o commit fica num branch local `duque/forja-*` para você
+revisar e enviar.
 
 Além disso: a verificação é feita pelo código da Forja, não pela palavra do
-modelo; o merge é sempre fast-forward (nunca força); a atualização ao vivo
-nunca descarta alterações locais suas.
+modelo, e roda **sem** as suas chaves (OPENAI/ANTHROPIC/FISH/GitHub) e sem
+`DUQUE_WORKSPACE_ROOT` da instalação ao vivo; o merge é sempre fast-forward
+(nunca força); a atualização ao vivo nunca descarta alterações locais suas
+(o rollback usa `git reset --keep`); uma versão que já falhou não é aplicada de
+novo até chegar um commit novo no main.
 
 ## Configuração (variáveis de ambiente no Windows)
 
@@ -52,6 +63,8 @@ aplica uma atualização, o Duque sai com código 75, o supervisor reinicia e
 deixa a versão nova em observação por 90 s. Se ela não responder em
 `http://127.0.0.1:5000/status`, ele volta para o commit anterior. Quedas
 repetidas (5 em 10 min) fazem o supervisor parar em vez de ficar em loop.
+Só roda um supervisor por vez (`duque_data/supervisor.lock`): abrir o TELEX de
+novo com ele já ligado só mostra a interface.
 Log em `duque_data/supervisor.log`; estado em `duque_data/update_state.json`.
 
 ## Como usar

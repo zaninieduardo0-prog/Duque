@@ -130,7 +130,11 @@ class EmergencyPause:
                 "motivo": self._reason,
                 "parado_em": list(self._checkpoints.values()) + self._interrupted,
             }
-            self.path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            # Grava e troca de uma vez: um desligamento no meio da escrita deixava
+            # um pausa.json pela metade e a pausa se perdia no próximo início.
+            temporary = self.path.with_name(self.path.name + ".tmp")
+            temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            temporary.replace(self.path)
         except OSError:
             pass
 

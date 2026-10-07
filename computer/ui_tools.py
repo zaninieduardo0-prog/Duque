@@ -39,7 +39,8 @@ class UITools:
         if self.perception is None:
             raise RuntimeError("Percepção visual não configurada")
         capture = self.perception.screenshot()
-        return self.perception.describe(capture) | {"image": capture.image}
+        # Só dados JSON: a imagem PIL não serializa (quebrava o histórico/servidor).
+        return self.perception.describe(capture)
 
     def register(self, executor: Any) -> None:
         executor.register("ui_click", self.click)
