@@ -181,4 +181,30 @@ class OpenAIBrain:
 
 
 def make_brain() -> ClaudeBrain | OpenAIBrain:
-    return ClaudeBrain() if provider_name() == "claude" else OpenAIBrain()
+    if provider_name() == "claude":
+        try:
+            return ClaudeBrain()
+        except ImportError:
+            # Pacote do Claude não instalado (falta rodar o preparar_duque.bat): segue com a OpenAI.
+            print("[TELEX] pacote 'anthropic' ausente: usando a OpenAI. Rode .\\preparar_duque.bat para usar o Claude.", flush=True)
+            if not os.getenv("OPENAI_API_KEY"):
+                raise
+    return OpenAIBrain()
+
+
+def explain_error(exc: BaseException) -> str:
+    """O erro da IA numa frase que o Du consegue resolver."""
+    if isinstance(exc, ImportError):
+        missing = getattr(exc, "name", None) or "um pacote"
+        return f"Falta instalar o pacote {missing}. Feche o TELEX e rode o preparar_duque.bat."
+    name = type(exc).__name__
+    text = str(exc).casefold()
+    if name == "AuthenticationError" or "api key" in text or "api_key" in text:
+        return "A chave da IA não foi aceita. Confira a ANTHROPIC_API_KEY ou a OPENAI_API_KEY."
+    if "credit balance" in text or "insufficient_quota" in text or "billing" in text:
+        return "A conta da IA está sem créditos."
+    if name in {"APIConnectionError", "ConnectError", "ConnectionError", "APITimeoutError"}:
+        return "Não consegui me conectar à IA. Confira a internet."
+    if name == "RateLimitError":
+        return "A IA está limitando os pedidos agora. Tente de novo em um minuto."
+    return f"Não consegui falar com a IA agora ({name})."
