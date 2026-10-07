@@ -17,7 +17,7 @@ from typing import Any
 from . import browser as web
 from . import whatsapp
 from .browser import Browser
-from .llm import History, Reply, Tool, ToolOutput, make_brain
+from .llm import History, Reply, Tool, ToolOutput, explain_error, make_brain
 from .pc import Screen, notepad
 
 SYSTEM = """Você é o TELEX, assistente pessoal por voz do Du (Eduardo), no PC Windows dele. Responda sempre em português do Brasil.
@@ -198,7 +198,9 @@ class TelexAgent:
                 reply = self.brain.run(SYSTEM, list(self.history), request, self.tools, self._run_tool)
             except Exception as exc:  # noqa: BLE001
                 print(f"[TELEX] a IA falhou:\n{traceback.format_exc()}", flush=True)
-                return Reply(f"Não consegui falar com a IA agora ({type(exc).__name__}).", failed=True)
+                if isinstance(exc, ImportError):
+                    self._brain = None  # tenta montar de novo depois de instalar
+                return Reply(explain_error(exc), failed=True)
             if not reply.text:
                 reply.text = "Pronto." if not reply.failed else "Não consegui terminar."
             self.history.append((text.strip(), reply.text))

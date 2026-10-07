@@ -28,8 +28,9 @@ REQUIRED_PACKAGES = {
     "sounddevice": "microfone e alto-falante",
     "pvrecorder": "microfone da wake word",
     "pedalboard": "processamento de voz",
+    "playwright": "navegador do TELEX (WhatsApp Web e sites)",
 }
-OPTIONAL_PACKAGES = {"anthropic": "Forja com Claude", "pytest": "testes"}
+OPTIONAL_PACKAGES = {"anthropic": "cérebro com Claude e Forja", "pytest": "testes"}
 
 
 @dataclass(slots=True)

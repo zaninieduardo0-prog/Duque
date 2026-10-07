@@ -111,7 +111,10 @@ class Browser:
     def context(self) -> Any:
         if self._context is not None:
             return self._context
-        from playwright.sync_api import sync_playwright
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError as exc:
+            raise RuntimeError("Falta instalar o Playwright: feche o TELEX e rode o preparar_duque.bat.") from exc
 
         if self._playwright is None:
             self._playwright = sync_playwright().start()

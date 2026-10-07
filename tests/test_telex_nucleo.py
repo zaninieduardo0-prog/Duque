@@ -106,7 +106,23 @@ class AgentTests(unittest.TestCase):
         brain.run.side_effect = ConnectionError("sem internet")
         reply = TelexAgent(brain=brain, browser=mock.Mock()).handle("oi")
         self.assertTrue(reply.failed)
-        self.assertIn("ConnectionError", reply.text)
+        self.assertIn("internet", reply.text)
+
+    def test_missing_package_says_what_to_install_and_retries_later(self) -> None:
+        agent = TelexAgent(browser=mock.Mock())
+        with mock.patch("telex.agent.make_brain", side_effect=ModuleNotFoundError("No module named 'anthropic'", name="anthropic")):
+            reply = agent.handle("oi")
+        self.assertIn("anthropic", reply.text)
+        self.assertIn("preparar_duque", reply.text)
+        self.assertIsNone(agent._brain)
+
+    def test_claude_without_its_package_falls_back_to_openai(self) -> None:
+        from telex import llm
+
+        with mock.patch.dict("os.environ", {"TELEX_IA": "claude", "OPENAI_API_KEY": "x"}), \
+                mock.patch.object(llm, "ClaudeBrain", side_effect=ModuleNotFoundError(name="anthropic")), \
+                mock.patch.object(llm, "OpenAIBrain") as openai_brain:
+            self.assertIs(llm.make_brain(), openai_brain.return_value)
 
 
 def _block(kind: str, **fields: Any) -> SimpleNamespace:
